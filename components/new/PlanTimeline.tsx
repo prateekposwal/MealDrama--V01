@@ -2,13 +2,14 @@ import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import { useStore, getMealResolution, MealOption, isSlotLocked, isSlotMissed } from '../../store/useStore';
 import { 
     Calendar, History, Sparkles, Check, Share2, ShieldAlert, ArrowRight, Search,
-    RotateCcw, X, ChevronRight, RefreshCw, Clock, Utensils 
+    RotateCcw, X, ChevronRight, RefreshCw, Clock, Utensils, Lock, Unlock, Zap, Plus
 } from 'lucide-react';
 import { formatMealLabel, getShareStrings, ShareLanguage } from '../../utils/share';
 import WhatsAppShareModal from './WhatsAppShareModal';
 import { MealCard, SLOT_META } from './MealCard';
 import { DISH_LIBRARY } from '../../constants/dishLibrary';
 import MealSearch from './MealSearch';
+import { useSmartDistribution } from '../../hooks/useSmartDistribution';
 import type { Dish, DishVariant } from '../../constants/dishLibrary';
 
 const DEFAULT_DISHES = DISH_LIBRARY;
@@ -334,6 +335,21 @@ const weekDays = useMemo(() => {
         return () => window.removeEventListener('meal-search:select', handler);
     }, [handleSearchSelect]);
 
+    // Smart Distribution Engine
+    const {
+        analysis,
+        lockedDays,
+        autoFillSlots,
+        toggleDayLock,
+        applyGapFill,
+        applyAllGapFills,
+    } = useSmartDistribution({
+        trayLibrary,
+        dishes,
+        userRegion: user?.region ?? '',
+        weekDays,
+    });
+
     return (
         <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-500">
             {/* MealSearch overlay */}
@@ -413,6 +429,42 @@ const weekDays = useMemo(() => {
                             {group.label}
                         </button>
                     ))}
+                </div>
+            )}
+
+            {/* Smart Distribution Warnings + Completion Bar */}
+            {activeTab === 'future' && analysis.warnings.length > 0 && (
+                <div className="px-6 pb-2 space-y-2">
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 bg-gray-100 rounded-full h-2">
+                            <div
+                                className={`h-2 rounded-full transition-all duration-500 ${analysis.completionPct >= 100 ? 'bg-emerald-500' : analysis.completionPct >= 70 ? 'bg-[#FF385C]' : 'bg-amber-500'}`}
+                                style={{ width: `${Math.min(analysis.completionPct, 100)}%` }}
+                            />
+                        </div>
+                        <span className="text-[10px] font-black text-gray-500 uppercase">{analysis.completionPct}%</span>
+                    </div>
+                    {analysis.warnings.filter(w => w.severity === 'warning' || w.severity === 'error').slice(0, 3).map((w, i) => (
+                        <div key={i} className={`flex items-start gap-2 p-3 rounded-xl text-xs font-medium ${w.severity === 'error' ? 'bg-red-50 text-red-700 border border-red-100' : w.type === 'repetition' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-orange-50 text-orange-700 border border-orange-100'}`}>
+                            <ShieldAlert size={12} className="mt-0.5 flex-shrink-0" />
+                            <span>{w.message}</span>
+                        </div>
+                    ))}
+                    {analysis.gapFillSuggestions.length > 0 && (
+                        <button onClick={applyAllGapFills} className="w-full flex items-center justify-between p-3 bg-[#FF385C]/5 border border-[#FF385C]/15 rounded-xl active:scale-[0.99] transition-all">
+                            <div className="flex items-center gap-2">
+                                <Zap size={14} className="text-[#FF385C]" />
+                                <span className="text-xs font-bold text-[#FF385C]">Auto-fill {analysis.gapFillSuggestions.length} empty slot{analysis.gapFillSuggestions.length !== 1 ? 's' : ''} with regional picks</span>
+                            </div>
+                            <Plus size={14} className="text-[#FF385C]" />
+                        </button>
+                    )}
+                    {analysis.excessQueue.length > 0 && (
+                        <div className="flex items-center gap-2 p-3 bg-sky-50 border border-sky-100 rounded-xl">
+                            <Clock size={12} className="text-sky-600" />
+                            <span className="text-xs font-medium text-sky-700">{analysis.excessQueue.length} extra dish{analysis.excessQueue.length !== 1 ? 'es' : ''} saved to Week 2 queue</span>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -517,9 +569,18 @@ const weekDays = useMemo(() => {
                                                     <span className="text-xs font-bold">{day.dateLabel}</span>
                                                 </div>
                                             </div>
-                                            {day.hasConflict && (
-                                                <ShieldAlert size={14} className="text-amber-500" />
-                                            )}
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); toggleDayLock(day.isoDate!); }}
+                                                    className={`p-1.5 rounded-lg transition-all ${lockedDays.has(day.isoDate!) ? 'bg-[#FF385C]/10 text-[#FF385C]' : 'bg-gray-50 text-gray-300 hover:text-gray-500'}`}
+                                                    title={lockedDays.has(day.isoDate!) ? 'Unlock day' : 'Lock day'}
+                                                >
+                                                    {lockedDays.has(day.isoDate!) ? <Lock size={13} /> : <Unlock size={13} />}
+                                                </button>
+                                                {day.hasConflict && (
+                                                    <ShieldAlert size={14} className="text-amber-500" />
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Meal Cards - using MealCard for Dashboard parity */}
@@ -585,7 +646,10 @@ const weekDays = useMemo(() => {
                                             swapPopoverSlot={null}
                                             setSwapPopoverSlot={() => {}}
                                             onSwap={() => {}}
+                                            onUpdateQuantity={() => {}}
                                             isLocked={true}
+                                            isMissed={false}
+                                            hasSwap={false}
                                         />
                                     );
                                 })}
