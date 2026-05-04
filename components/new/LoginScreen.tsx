@@ -12,7 +12,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [otp, setOtp] = useState(['', '', '', '']);
     const [loading, setLoading] = useState(false);
 
-    // Generate or retrieve UUID on mount
     useEffect(() => {
         const storedId = localStorage.getItem('mealdrama-user-id');
         if (storedId) {
@@ -21,17 +20,15 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     }, []);
 
     const handleCreateUser = async () => {
-        // Generate UUID
         const userId = crypto.randomUUID();
         localStorage.setItem('mealdrama-user-id', userId);
-        
-        // Try to create user in DB (fire-and-forget)
+
         try {
             await api.post('/users', { id: userId, name: 'User', phone: phone || null });
-        } catch (e) {
-            console.log('[Login] DB user create failed, using local only');
+        } catch {
+            // Local-only mode
         }
-        
+
         onLogin(userId);
     };
 
@@ -56,24 +53,39 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
     return (
         <div className="min-h-screen bg-white flex flex-col max-w-lg mx-auto">
-            {/* Hero gradient */}
-            <div className="relative flex-shrink-0 h-64 bg-gradient-to-br from-[#FF385C] via-[#E31C5F] to-[#c00c4a] flex items-end pb-10 px-8 overflow-hidden">
-                <div className="absolute inset-0 opacity-10">
-                    {['🍛', '🫓', '🥘', '🍲', '🥗', '🍚', '🥟', '🍜'].map((e, i) => (
-                        <span key={i} className="absolute text-5xl" style={{ top: `${10 + (i * 11) % 70}%`, left: `${(i * 13) % 88}%`, transform: `rotate(${i * 15}deg)` }}>{e}</span>
+            {/* Hero */}
+            <div className="relative flex-shrink-0 h-72 bg-gradient-to-br from-[#FF385C] via-[#E31C5F] to-[#c00c4a] flex items-end pb-10 px-8 overflow-hidden">
+                {/* Fresh produce collage */}
+                <div className="absolute inset-0 overflow-hidden">
+                    {[
+                        { emoji: '🥬', size: '6rem', top: '10%', left: '5%', rotate: '-12deg', opacity: '0.18' },
+                        { emoji: '🍅', size: '5rem', top: '20%', left: '72%', rotate: '8deg', opacity: '0.15' },
+                        { emoji: '🥕', size: '4.5rem', top: '55%', left: '15%', rotate: '20deg', opacity: '0.18' },
+                        { emoji: '🌽', size: '5rem', top: '8%', left: '52%', rotate: '-5deg', opacity: '0.14' },
+                        { emoji: '🧅', size: '4.5rem', top: '65%', left: '68%', rotate: '-15deg', opacity: '0.17' },
+                        { emoji: '🥦', size: '6rem', top: '38%', left: '82%', rotate: '10deg', opacity: '0.15' },
+                        { emoji: '🫑', size: '4rem', top: '48%', left: '38%', rotate: '-20deg', opacity: '0.16' },
+                        { emoji: '🍆', size: '5rem', top: '75%', left: '42%', rotate: '15deg', opacity: '0.14' },
+                        { emoji: '🥒', size: '4.5rem', top: '12%', left: '28%', rotate: '5deg', opacity: '0.16' },
+                        { emoji: '🍋', size: '3.5rem', top: '35%', left: '58%', rotate: '-8deg', opacity: '0.15' },
+                        { emoji: '🥔', size: '4.5rem', top: '82%', left: '18%', rotate: '12deg', opacity: '0.17' },
+                        { emoji: '🌶️', size: '4rem', top: '58%', left: '85%', rotate: '-18deg', opacity: '0.14' },
+                    ].map((item, i) => (
+                        <span key={i} className="absolute select-none pointer-events-none" style={{ fontSize: item.size, top: item.top, left: item.left, transform: `rotate(${item.rotate})`, opacity: item.opacity }}>{item.emoji}</span>
                     ))}
                 </div>
                 <div className="relative">
                     <h1 className="text-5xl font-black text-white tracking-tight leading-none">Meal<span className="opacity-60">Drama</span></h1>
-                    <p className="text-white/70 font-medium mt-2">Every meal tells a story... preferably one that does not end in Maggi.</p>
+                    <p className="text-white text-lg font-bold mt-3">'आज खाने में क्या बनाऊं?' — हर घर का सवाल। अब बस।
+Let the drama cook.</p>
                 </div>
             </div>
 
             <div className="flex-1 p-8 flex flex-col">
                 {mode === 'landing' && (
                     <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-4 mt-4">
-                        <h2 className="text-3xl font-bold tracking-tight mb-2">Get Started</h2>
-                        <p className="text-gray-500 mb-4">Authentic Indian recipes that taste like home, even if your home once burnt dal.</p>
+                        <h2 className="text-3xl font-bold tracking-tight mb-2">Cook, let's begin.</h2>
+                        <p className="text-gray-500 mb-4">Plan meals. Swap drama. Let the kitchen do the talking.</p>
 
                         {/* Google Sign In (mock) */}
                         <button
@@ -95,11 +107,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                             className="w-full py-5 rounded-[24px] bg-[#FF385C] text-white flex items-center justify-center gap-3 font-bold text-lg shadow-xl shadow-[#FF385C]/30 active:scale-95 transition-all"
                         >
                             <Phone size={22} />
-                            Continue with Phone
+                            Phone it in
                         </button>
 
                         <p className="text-xs text-center text-gray-400 mt-6 px-4 leading-relaxed font-medium">
-                            By continuing, you agree to our Terms & Privacy Policy. Your food data stays private.
+                            Your food data stays private. No spam. Just meals.
                         </p>
                     </div>
                 )}
@@ -107,8 +119,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 {mode === 'phone' && (
                     <div className="animate-in fade-in slide-in-from-right-8 flex flex-col gap-6 mt-4">
                         <div>
-                            <h2 className="text-3xl font-bold tracking-tight mb-2">Your Number</h2>
-                            <p className="text-gray-500 mb-8">We&apos;ll send a 4-digit code faster than someone can ask, &quot;Arre yaar, aaj kya banau?&quot;</p>
+                            <h2 className="text-3xl font-bold tracking-tight mb-2">Who's cooking?</h2>
+                            <p className="text-gray-500 mb-8">Drop your number. Faster than someone asking, <span className="italic">"Aaj kya banau?"</span></p>
                         </div>
 
                         <div className="relative group">
@@ -141,8 +153,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 {mode === 'otp' && (
                     <div className="animate-in fade-in slide-in-from-right-8 flex flex-col gap-6 mt-4">
                         <div>
-                            <h2 className="text-3xl font-bold tracking-tight mb-2">Enter Code</h2>
-                            <p className="text-gray-500 mb-8">Sent to +91 {phone}. Use <strong>1234</strong> for demo, kyunki OTP bhi kabhi drama karta hai.</p>
+                            <h2 className="text-3xl font-bold tracking-tight mb-2">The secret code</h2>
+                            <p className="text-gray-500 mb-8">Sent to +91 {phone}. Try <strong>1234</strong> — even OTPs love a bit of drama.</p>
                         </div>
 
                         <div className="flex gap-4 justify-center">
@@ -162,11 +174,11 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                         {loading && (
                             <div className="flex items-center justify-center gap-3 text-gray-400 font-bold">
                                 <Loader2 size={18} className="animate-spin text-[#FF385C]" />
-                                Verifying…
+                                Kitchen's checking…
                             </div>
                         )}
 
-                        <button onClick={() => setMode('phone')} className="text-center text-sm text-gray-400 font-bold mt-4">← Change Number</button>
+                        <button onClick={() => setMode('phone')} className="text-center text-sm text-gray-400 font-bold mt-4">← Change number</button>
                     </div>
                 )}
             </div>
