@@ -223,6 +223,10 @@ function inferIngredientsFromDishId(dishId: string): Ingredient[] {
 
 const INGREDIENT_CACHE = new Map<string, Ingredient[]>();
 
+export function invalidateIngredientCache(): void {
+    INGREDIENT_CACHE.clear();
+}
+
 function getIngredientsForMealOption(
     dishId: string,
     variantId: string,
@@ -252,8 +256,6 @@ function getIngredientsForMealOption(
         }
     }
     const result: Ingredient[] = inferIngredientsFromDishId(dishId);
-    INGREDIENT_CACHE.set(cacheKey, result);
-    return result;
     INGREDIENT_CACHE.set(cacheKey, result);
     return result;
 }

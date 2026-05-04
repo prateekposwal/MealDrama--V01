@@ -183,17 +183,17 @@ function _computeMealResolution(
     };
   }
 
-  const cycleDay = Math.floor(
-    (new Date(isoDate).getTime() - new Date(new Date().setHours(0, 0, 0, 0)).getTime()) /
-    (1000 * 60 * 60 * 24)
-  ) % 7;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayTime = todayStart.getTime();
+  const isoTime = new Date(isoDate + 'T00:00:00').getTime();
+  const cycleDay = Math.max(0, Math.floor((isoTime - todayTime) / (1000 * 60 * 60 * 24)));
 
-  const slotIndex = ['breakfast', 'lunch', 'snacks', 'dinner'].indexOf(slot.toLowerCase());
   const tray = trayLibrary[slot.toLowerCase() as keyof TrayLibrary] || [];
 
   if (tray.length === 0) return {};
 
-  const dishIndex = (cycleDay + slotIndex) % tray.length;
+  const dishIndex = cycleDay % tray.length;
   const meal = tray[dishIndex];
   if (!meal) return {};
   const { name, addOn } = resolveSmartVariantName(meal, slot, dishes);
@@ -357,6 +357,8 @@ export const useStore = create<StoreState>()(
           const key = slot.toLowerCase() as keyof TrayLibrary;
           const tray = state.trayLibrary[key] || [];
           if (tray.find(m => m.id === meal.id)) return state;
+          invalidateMealResolutionCache();
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
           return {
             trayLibrary: {
               ...state.trayLibrary,
@@ -368,6 +370,7 @@ export const useStore = create<StoreState>()(
       removeFromTray: (slot: string, mealId: string) =>
         set((state) => {
           const key = slot.toLowerCase() as keyof TrayLibrary;
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
           return {
             trayLibrary: {
               ...state.trayLibrary,
@@ -377,7 +380,11 @@ export const useStore = create<StoreState>()(
         }),
 
       replaceTrayLibrary: (newTray: TrayLibrary) =>
-        set({ trayLibrary: newTray }),
+        set((state) => {
+          invalidateMealResolutionCache();
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
+          return { trayLibrary: newTray };
+        }),
 
       setSwap: (date: string, slot: string, meal: MealOption, silent = false) =>
         set((state) => {

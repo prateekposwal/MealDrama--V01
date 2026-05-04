@@ -9,6 +9,7 @@ import {
     getTomorrowISO,
     getWeekEndISO,
     getMealNamesForDay,
+    invalidateIngredientCache,
     CATEGORY_META,
     type AggregatedIngredient,
     type PantryGroup,
@@ -58,20 +59,27 @@ const PantryPulse: React.FC = () => {
     React.useEffect(() => {
         const handlePantryInvalidate = () => {
             console.log('Pantry: Invalidating cache...');
+            invalidateIngredientCache();
             setRefreshKey(k => k + 1);
         };
         
         window.addEventListener('pantry:invalidate', handlePantryInvalidate);
         return () => window.removeEventListener('pantry:invalidate', handlePantryInvalidate);
     }, []);
+
+    // Invalidate ingredient cache when dishes change (new dishes loaded from backend)
+    React.useEffect(() => {
+        if (dishes.length > 0) {
+            invalidateIngredientCache();
+            setRefreshKey(k => k + 1);
+        }
+    }, [dishes.length]);
     
     // Check if user has snacks in planned slots
     const includeSnacks = user?.plannedSlots?.includes('Snacks') ?? false;
     const allSlots = includeSnacks ? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'] as const : ['Breakfast', 'Lunch', 'Dinner'] as const;
 
     const groups = useMemo((): PantryGroup[] => {
-        if (!dishes.length) return [];
-
         if (viewMode === 'tomorrow') {
             const allIngredients: { ing: any; source: string }[] = [];
             for (const slot of allSlots) {
