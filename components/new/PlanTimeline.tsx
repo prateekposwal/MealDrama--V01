@@ -1,13 +1,15 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useStore, getMealResolution, MealOption, isSlotLocked, isSlotMissed } from '../../store/useStore';
 import { 
-    Calendar, History, Sparkles, Check, Share2, ShieldAlert, ArrowRight, 
+    Calendar, History, Sparkles, Check, Share2, ShieldAlert, ArrowRight, Search,
     RotateCcw, X, ChevronRight, RefreshCw, Clock, Utensils 
 } from 'lucide-react';
 import { formatMealLabel, getShareStrings, ShareLanguage } from '../../utils/share';
 import WhatsAppShareModal from './WhatsAppShareModal';
 import { MealCard, SLOT_META } from './MealCard';
 import { DISH_LIBRARY } from '../../constants/dishLibrary';
+import MealSearch from './MealSearch';
+import type { Dish, DishVariant } from '../../constants/dishLibrary';
 
 const DEFAULT_DISHES = DISH_LIBRARY;
 
@@ -25,6 +27,8 @@ const PlanTimeline: React.FC = () => {
     const [activeTab, setActiveTab] = useState<'future' | 'history'>('future');
     const [autopilotDone, setAutopilotDone] = useState(false);
     const [showShareModal, setShowShareModal] = useState(false);
+    const [showSearch, setShowSearch] = useState(false);
+    const [searchTarget, setSearchTarget] = useState<{date: string; slot: string} | null>(null);
     
     // Quick actions state
     const [swapMeal, setSwapMeal] = useState<{date: string; slot: string} | null>(null);
@@ -277,8 +281,69 @@ const weekDays = useMemo(() => {
         ];
     }, [weekDays, cycleDays]);
 
+    // Search select handler — adds selected dish to target slot
+    const handleSearchSelect = useCallback((dish: Dish, variant: DishVariant) => {
+        if (!searchTarget) {
+            // No target slot — pick first available slot for tomorrow
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const isoDate = tomorrow.toLocaleDateString('en-CA');
+            const mealOption: MealOption = {
+                id: `${variant.id}-${Date.now()}`,
+                dishId: dish.id,
+                name: dish.name,
+                icon: dish.icon,
+                variant: variant.name,
+                variantId: variant.id,
+                addOn: variant.addOn,
+                mealContext: variant.mealContext,
+                quantity: 1,
+                countBased: dish.tags.some(t => ['paratha', 'roti', 'idli', 'dosa', 'naan', 'puri'].includes(t)),
+            };
+            setSwap(isoDate, 'Breakfast', mealOption);
+            syncPlanToDB(isoDate, 'Breakfast', mealOption);
+        } else {
+            const mealOption: MealOption = {
+                id: `${variant.id}-${Date.now()}`,
+                dishId: dish.id,
+                name: dish.name,
+                icon: dish.icon,
+                variant: variant.name,
+                variantId: variant.id,
+                addOn: variant.addOn,
+                mealContext: variant.mealContext,
+                quantity: 1,
+                countBased: dish.tags.some(t => ['paratha', 'roti', 'idli', 'dosa', 'naan', 'puri'].includes(t)),
+            };
+            setSwap(searchTarget.date, searchTarget.slot, mealOption);
+            syncPlanToDB(searchTarget.date, searchTarget.slot, mealOption);
+            setSearchTarget(null);
+        }
+        window.dispatchEvent(new CustomEvent('pantry:invalidate'));
+    }, [searchTarget, setSwap, syncPlanToDB]);
+
+    // Listen for search select events
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail as { dish: Dish; variant: DishVariant };
+            if (detail?.dish && detail?.variant) {
+                handleSearchSelect(detail.dish, detail.variant);
+            }
+        };
+        window.addEventListener('meal-search:select', handler);
+        return () => window.removeEventListener('meal-search:select', handler);
+    }, [handleSearchSelect]);
+
     return (
         <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-500">
+            {/* MealSearch overlay */}
+            {showSearch && (
+                <MealSearch
+                    onClose={() => { setShowSearch(false); setSearchTarget(null); }}
+                    onSelect={handleSearchSelect}
+                />
+            )}
+
             <WhatsAppShareModal
                 isOpen={showShareModal}
                 defaultPhone={user?.cookContact}
@@ -289,15 +354,26 @@ const weekDays = useMemo(() => {
             <header className="px-6 pt-14 pb-4">
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-4xl font-bold tracking-tight">Meal Map</h2>
-                    {activeTab === 'future' && (
-                        <button onClick={() => {
-                            if (!user?.cookContact) { alert("Add cook's number in Profile first."); return; }
-                            setShowShareModal(true);
+                    <div className="flex items-center gap-2">
+                        {activeTab === 'future' && (
+                            <button
+                                onClick={() => setShowSearch(true)}
+                                className="flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                                aria-label="Search meals"
+                            >
+                                <Search size={13} /> Search
+                            </button>
+                        )}
+                        {activeTab === 'future' && (
+                            <button onClick={() => {
+                                if (!user?.cookContact) { alert("Add cook's number in Profile first."); return; }
+                                setShowShareModal(true);
                         }}
                             className="flex items-center gap-2 bg-[#25D366] text-white px-4 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-md">
                             <Share2 size={13} /> Week
                         </button>
                     )}
+                    </div>
                 </div>
                 <div className="bg-gray-100 p-1 rounded-2xl flex relative">
                     <button onClick={() => setActiveTab('future')}
@@ -467,6 +543,8 @@ const weekDays = useMemo(() => {
                                                     onSwap={(date, s, option) => handleSwapConfirm(date ?? day.isoDate!, s, option)}
                                                     onUpdateQuantity={(s, delta) => handleUpdateQuantity(day.isoDate!, s, delta)}
                                                     isLocked={locked}
+                                                    isMissed={missed}
+                                                    hasSwap={!!swaps[day.isoDate!]?.[slot!]}
                                                 />
                                             );
                                             })}
