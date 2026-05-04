@@ -91,7 +91,10 @@ const Dashboard: React.FC<{ onNavigate?: (tab: Tab) => void }> = ({ onNavigate }
             />
             <header className="flex justify-between items-end px-6 pt-14 pb-2">
                 <div>
-                    <div className="flex items-center gap-1.5 text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">
+                    <span className="text-2xl font-black tracking-tight leading-none">
+                        Meal<span className="text-[#FF385C]">Drama</span>
+                    </span>
+                    <div className="flex items-center gap-1.5 text-gray-400 text-[10px] font-black uppercase tracking-widest mt-1.5 mb-1">
                         <MapPin size={11} className="text-[#FF385C]" />
                         <span>{user.region}</span>
                     </div>
@@ -99,22 +102,17 @@ const Dashboard: React.FC<{ onNavigate?: (tab: Tab) => void }> = ({ onNavigate }
                         {isEarlyMorning() ? 'Up before the cook? 👀' : "What's Cooking?"}
                     </h2>
                 </div>
-                <div className="flex flex-col items-end gap-2">
-                    <span className="text-2xl font-black tracking-tight leading-none">
-                        Meal<span className="text-[#FF385C]">Drama</span>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold bg-orange-50 text-orange-500 border border-orange-100 px-3 py-1.5 rounded-full flex items-center gap-1">
+                        <Flame size={11} fill="currentColor" />
+                        {spiceLabel}
                     </span>
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold bg-orange-50 text-orange-500 border border-orange-100 px-3 py-1.5 rounded-full flex items-center gap-1">
-                            <Flame size={11} fill="currentColor" />
-                            {spiceLabel}
-                        </span>
-                        <button
-                            onClick={() => onNavigate?.('profile')}
-                            className="w-10 h-10 rounded-2xl bg-white shadow border border-gray-100 flex items-center justify-center text-gray-400 active:scale-95 transition-all"
-                        >
-                            <ChefHat size={18} />
-                        </button>
-                    </div>
+                    <button
+                        onClick={() => onNavigate?.('profile')}
+                        className="w-10 h-10 rounded-2xl bg-white shadow border border-gray-100 flex items-center justify-center text-gray-400 active:scale-95 transition-all"
+                    >
+                        <ChefHat size={18} />
+                    </button>
                 </div>
             </header>
 
