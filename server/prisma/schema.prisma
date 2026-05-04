@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. AUTH & IDENTITY
+model User {
+  id            String    @id @default(uuid())
+  email         String?   @unique // Google Auth
+  phone         String?   @unique // OTP Auth
+  name          String?
+  systemId      String?   @unique // e.g., USER-8821
+  createdAt     DateTime  @default(now())
+  onboardingComplete Boolean @default(false)
+  
+  // Relations
+  profile       UserProfile?
+  plans         UserPlan[]
+  completedSlots CompletedSlot[]
+}
+
+// 5. USER PREFERENCES
+model UserProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  dietType        String   @default("veg") // veg, non-veg, eggitarian, vegan
+  region          String   @default("north")
+  allergies       String[] // ["peanuts", "gluten"]
+  dislikedItems  String[] // ["okra", "bitter-gourd"]
+  spiceLevel     String   @default("medium") // mild, medium, hot
+  
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// 4. MASTER MEAL CATALOG
+model Meal {
+  id          String   @id // e.g., "north-rajma-chawal"
+  name        String
+  icon        String?
+  category    String   // breakfast, lunch, dinner, snacks
+  type        String   // veg, non-veg, eggitarian, vegan
+  region      String?
+  tags        String[] // ["high-protein", "winter-special"]
+  
+  variants    MealVariant[]
+  ingredients MealIngredient[] // The master recipe
+  userPlans   UserPlan[]
+  
+  @@index([category, type])
+  @@index([tags])
+}
+
+model MealVariant {
+  id              String   @id
+  mealId          String
+  name            String
+  cookingStyle    String?
+  baseStyle       String?
+  addOn           String?
+  accompaniments  String[]
+  mealContext     String?
+  regionOverride  String?
+
+  meal    Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  plans   UserPlan[]
+}
+
+// 6. INGREDIENT STANDARDIZATION
+model Ingredient {
+  id          String   @id // e.g., "onion-red"
+  name       String   // "Red Onion"
+  category   String   // produce, grains, dairy, spices, pantry, proteins
+  defaultUnit String  // g, kg, pcs, tbsp, cup
+  aliases    String[] // ["pyaz", "onion"]
+  
+  usedIn     MealIngredient[]
+}
+
+model MealIngredient {
+  id           String     @id @default(uuid())
+  mealId       String
+  ingredientId String
+  qtyPerServing Float
+  unit         String    // Override default if needed
+  notes        String?  // "Optional: for garnish"
+  
+  meal         Meal       @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+  
+  @@unique([mealId, ingredientId])
+}
+
+// USER PLANS & COMPLETION
+model UserPlan {
+  id        String   @id @default(uuid())
+  userId    String
+  date      DateTime @db.Date
+  slot      String   // breakfast, lunch, dinner, snacks
+  mealId    String
+  variantId String?
+  qty       Int     @default(1)
+  status   String   @default("planned") // planned, swapped, skipped
+  version  Int     @default(0) // optimistic locking — increment on every write
+
+  user       User        @relation(fields: [userId], references: [id])
+  meal       Meal        @relation(fields: [mealId], references: [id])
+  variant    MealVariant? @relation(fields: [variantId], references: [id])
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([userId, date, slot])
+  @@index([userId])
+  @@index([userId, date])
+  @@index([mealId])
+}
+
+model CompletedSlot {
+  id          String    @id @default(uuid())
+  userId     String
+  date      DateTime  @db.Date
+  slot      String
+  status    String   @default("cooked") // cooked, missed, skipped
+  completedAt DateTime @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date, slot])
+  @@index([userId])
+  @@index([userId, date])
+}

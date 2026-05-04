@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MealDrama</string>
+    <string name="title_activity_main">MealDrama</string>
+    <string name="package_name">com.mealdrama.app</string>
+    <string name="custom_url_scheme">com.mealdrama.app</string>
+</resources>
