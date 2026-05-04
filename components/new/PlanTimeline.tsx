@@ -489,51 +489,6 @@ const weekDays = useMemo(() => {
                 </div>
             )}
 
-            {/* Smart Distribution Warnings + Completion Bar */}
-            {activeTab === 'future' && (analysis.warnings.length > 0 || analysis.completionPct < 100) && (
-                <div className="px-6 pb-2 space-y-2">
-                    <div className="flex items-center gap-3">
-                        <div className="flex-1 bg-gray-100 rounded-full h-2">
-                            <div
-                                className={`h-2 rounded-full transition-all duration-500 ${analysis.completionPct >= 100 ? 'bg-emerald-500' : analysis.completionPct >= 70 ? 'bg-[#FF385C]' : 'bg-amber-500'}`}
-                                style={{ width: `${Math.min(analysis.completionPct, 100)}%` }}
-                            />
-                        </div>
-                        <span className="text-[10px] font-black text-gray-500 uppercase">{analysis.completionPct}%</span>
-                    </div>
-                    {analysis.warnings.filter(w => w.severity === 'warning' || w.severity === 'error').slice(0, 3).map((w, i) => (
-                        <div key={i} className={`flex items-start gap-2 p-3 rounded-xl text-xs font-medium ${w.severity === 'error' ? 'bg-red-50 text-red-700 border border-red-100' : w.type === 'repetition' ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-orange-50 text-orange-700 border border-orange-100'}`}>
-                            <ShieldAlert size={12} className="mt-0.5 flex-shrink-0" />
-                            <span>{w.message}</span>
-                        </div>
-                    ))}
-                    {analysis.gapFillSuggestions.length > 0 && (
-                        <div className="p-4 bg-gradient-to-r from-[#FF385C]/5 to-[#FF385C]/10 border border-[#FF385C]/15 rounded-2xl">
-                            <div className="flex items-start gap-3 mb-3">
-                                <Zap size={16} className="text-[#FF385C] mt-0.5" />
-                                <div>
-                                    <p className="text-xs font-bold text-gray-800">Complete your week</p>
-                                    <p className="text-[11px] text-gray-500 mt-0.5">{analysis.gapFillSuggestions.length} empty {analysis.gapFillSuggestions.length === 1 ? 'slot' : 'slots'} detected</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={applyAllGapFills}
-                                className="w-full flex items-center justify-center gap-2 p-3 bg-[#FF385C] text-white rounded-xl font-bold text-xs active:scale-[0.98] transition-all hover:bg-[#FF385C]/90"
-                            >
-                                <Sparkles size={12} />
-                                Auto-fill with regional picks
-                            </button>
-                        </div>
-                    )}
-                    {analysis.excessQueue.length > 0 && (
-                        <div className="flex items-center gap-2 p-3 bg-sky-50 border border-sky-100 rounded-xl">
-                            <Clock size={12} className="text-sky-600" />
-                            <span className="text-xs font-medium text-sky-700">{analysis.excessQueue.length} extra dish{analysis.excessQueue.length !== 1 ? 'es' : ''} saved to Week 2 queue</span>
-                        </div>
-                    )}
-                </div>
-            )}
-
             {/* Undo Banner */}
             {undoMeal && (
                 <div className="fixed top-20 left-4 right-4 z-50 bg-gray-900 text-white px-4 py-3 rounded-2xl flex items-center justify-between shadow-xl animate-in slide-in-from-top-2">
