@@ -96,10 +96,15 @@ export interface TrayEditSession {
 }
 
 export interface TrayLibrary {
-  breakfast: MealOption[];
-  lunch: MealOption[];
-  dinner: MealOption[];
-  snacks: MealOption[];
+    breakfast: MealOption[];
+    lunch: MealOption[];
+    dinner: MealOption[];
+    snacks: MealOption[];
+}
+
+export interface SmartQueue {
+    week2: MealOption[];
+    favorites: MealOption[];
 }
 
 export interface UserProfile {
@@ -299,6 +304,12 @@ interface StoreState {
   quickSetupPrefill?: Partial<User>;
   openQuickSetup: (prefill?: Partial<User>) => void;
   closeQuickSetup: () => void;
+  // Smart Queue (Week 2 / Favorites)
+  smartQueue: SmartQueue;
+  addToQueue: (meal: MealOption, queue: 'week2' | 'favorites') => void;
+  removeFromQueue: (mealId: string, queue: 'week2' | 'favorites') => void;
+  restoreFromQueue: (mealId: string, queue: 'week2' | 'favorites') => { meal: MealOption | null };
+  moveToTrayFromQueue: (meal: MealOption) => void;
 }
 
 export const useStore = create<StoreState>()(
@@ -314,6 +325,7 @@ export const useStore = create<StoreState>()(
       toast: null,
       pendingMutations: [],
       deadLetterMutations: [],
+      smartQueue: { week2: [], favorites: [] },
 
       setToast: (toast) => set({ toast }),
 
@@ -559,10 +571,54 @@ export const useStore = create<StoreState>()(
         }
         _isRetrying = false;
       },
+
+      // Smart Queue actions
+      addToQueue: (meal: MealOption, queue: 'week2' | 'favorites') =>
+        set((state) => {
+          const currentQueue = state.smartQueue[queue];
+          if (currentQueue.find(m => m.id === meal.id)) return state;
+          return {
+            smartQueue: {
+              ...state.smartQueue,
+              [queue]: [...currentQueue, meal],
+            },
+          };
+        }),
+
+      removeFromQueue: (mealId: string, queue: 'week2' | 'favorites') =>
+        set((state) => ({
+          smartQueue: {
+            ...state.smartQueue,
+            [queue]: state.smartQueue[queue].filter(m => m.id !== mealId),
+          },
+        })),
+
+      restoreFromQueue: (mealId: string, queue: 'week2' | 'favorites') => {
+        const state = get();
+        const meal = state.smartQueue[queue].find(m => m.id === mealId) || null;
+        return { meal };
+      },
+
+      moveToTrayFromQueue: (meal: MealOption) =>
+        set((state) => {
+          const slotKey = (meal.mealContext || 'lunch').toLowerCase() as keyof TrayLibrary;
+          const tray = state.trayLibrary[slotKey] || [];
+          if (tray.find(m => m.id === meal.id)) return state;
+          return {
+            trayLibrary: {
+              ...state.trayLibrary,
+              [slotKey]: [...tray, meal],
+            },
+            smartQueue: {
+              week2: state.smartQueue.week2.filter(m => m.id !== meal.id),
+              favorites: state.smartQueue.favorites.filter(m => m.id !== meal.id),
+            },
+          };
+        }),
     }),
     {
       name: 'mealdrama-store',
-      version: 3,
+      version: 4,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const state = persistedState as Record<string, unknown>;
         if (fromVersion < 1) {
@@ -595,6 +651,9 @@ export const useStore = create<StoreState>()(
               if (!('retryCount' in m)) m.retryCount = 0;
             }
           }
+        }
+        if (fromVersion < 4) {
+          state.smartQueue = { week2: [], favorites: [] };
         }
         return persistedState as Parameters<typeof persist>[0] extends (s: infer S) => unknown ? S : never;
       },

@@ -7,6 +7,7 @@ import {
 import { formatMealLabel, getShareStrings, ShareLanguage } from '../../utils/share';
 import WhatsAppShareModal from './WhatsAppShareModal';
 import { MealCard, SLOT_META } from './MealCard';
+import { EmptySlot } from './EmptySlot';
 import { DISH_LIBRARY } from '../../constants/dishLibrary';
 import MealSearch from './MealSearch';
 import { useSmartDistribution } from '../../hooks/useSmartDistribution';
@@ -41,6 +42,7 @@ const PlanTimeline: React.FC = () => {
     // Shared swap popover state for all cards - track both date and slot
     const [swapPopover, setSwapPopover] = useState<{date: string; slot: string} | null>(null);
     const [activeGroup, setActiveGroup] = useState<number | null>(null);
+    const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
     
     const cycleDays = useMemo(
         () => CYCLE_DAYS[user?.goal || 'Weekly'] ?? 7,
@@ -350,6 +352,53 @@ const weekDays = useMemo(() => {
         weekDays,
     });
 
+    const setToast = useStore(s => s.setToast);
+
+    // Finalize Week handler
+    const handleFinalizeWeek = () => {
+        const excessCount = analysis.excessQueue.length;
+        if (excessCount > 0) {
+            setShowFinalizeConfirm(true);
+        } else {
+            setToast({ message: `Week finalized! ${analysis.totalFilled}/${analysis.totalSlots} slots filled.`, type: 'success' });
+        }
+    };
+
+    const confirmFinalize = () => {
+        const { addToQueue } = useStore.getState();
+        analysis.excessQueue.forEach(meal => {
+            addToQueue(meal, 'week2');
+        });
+        setShowFinalizeConfirm(false);
+        setToast({ message: `Week finalized! ${analysis.excessQueue.length} dishes saved to Week 2 queue.`, type: 'success' });
+    };
+
+    // Repetition Guard: compute warnings for each meal
+    const getRepetitionWarning = useCallback((date: string, slot: string, mealDishId?: string): { daysSinceLast: number; message: string } | undefined => {
+        if (!mealDishId || !weekDays.length) return undefined;
+        const mealDate = new Date(date).getTime();
+        let closestDays = Infinity;
+        for (const day of weekDays) {
+            if (day.isoDate === date) continue;
+            const dayDate = new Date(day.isoDate).getTime();
+            const dayDiff = Math.abs((dayDate - mealDate) / (1000 * 60 * 60 * 24));
+            if (dayDiff >= 3) continue;
+            const meals = day.meals;
+            const mealIdx = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'].indexOf(slot);
+            const targetMeal = meals[mealIdx]?.meal;
+            if (targetMeal?.dishId === mealDishId) {
+                closestDays = Math.min(closestDays, dayDiff);
+            }
+        }
+        if (closestDays < 3 && closestDays !== Infinity) {
+            return {
+                daysSinceLast: closestDays,
+                message: `Recently eaten ${closestDays}d ago • Tap to swap`,
+            };
+        }
+        return undefined;
+    }, [weekDays]);
+
     return (
         <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-500">
             {/* MealSearch overlay */}
@@ -387,6 +436,14 @@ const weekDays = useMemo(() => {
                         }}
                             className="flex items-center gap-2 bg-[#25D366] text-white px-4 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-md">
                             <Share2 size={13} /> Week
+                        </button>
+                    )}
+                    {activeTab === 'future' && (
+                        <button
+                            onClick={handleFinalizeWeek}
+                            className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-md"
+                        >
+                            <Check size={13} /> Finalize
                         </button>
                     )}
                     </div>
@@ -433,7 +490,7 @@ const weekDays = useMemo(() => {
             )}
 
             {/* Smart Distribution Warnings + Completion Bar */}
-            {activeTab === 'future' && analysis.warnings.length > 0 && (
+            {activeTab === 'future' && (analysis.warnings.length > 0 || analysis.completionPct < 100) && (
                 <div className="px-6 pb-2 space-y-2">
                     <div className="flex items-center gap-3">
                         <div className="flex-1 bg-gray-100 rounded-full h-2">
@@ -451,13 +508,22 @@ const weekDays = useMemo(() => {
                         </div>
                     ))}
                     {analysis.gapFillSuggestions.length > 0 && (
-                        <button onClick={applyAllGapFills} className="w-full flex items-center justify-between p-3 bg-[#FF385C]/5 border border-[#FF385C]/15 rounded-xl active:scale-[0.99] transition-all">
-                            <div className="flex items-center gap-2">
-                                <Zap size={14} className="text-[#FF385C]" />
-                                <span className="text-xs font-bold text-[#FF385C]">Auto-fill {analysis.gapFillSuggestions.length} empty slot{analysis.gapFillSuggestions.length !== 1 ? 's' : ''} with regional picks</span>
+                        <div className="p-4 bg-gradient-to-r from-[#FF385C]/5 to-[#FF385C]/10 border border-[#FF385C]/15 rounded-2xl">
+                            <div className="flex items-start gap-3 mb-3">
+                                <Zap size={16} className="text-[#FF385C] mt-0.5" />
+                                <div>
+                                    <p className="text-xs font-bold text-gray-800">Complete your week</p>
+                                    <p className="text-[11px] text-gray-500 mt-0.5">{analysis.gapFillSuggestions.length} empty {analysis.gapFillSuggestions.length === 1 ? 'slot' : 'slots'} detected</p>
+                                </div>
                             </div>
-                            <Plus size={14} className="text-[#FF385C]" />
-                        </button>
+                            <button
+                                onClick={applyAllGapFills}
+                                className="w-full flex items-center justify-center gap-2 p-3 bg-[#FF385C] text-white rounded-xl font-bold text-xs active:scale-[0.98] transition-all hover:bg-[#FF385C]/90"
+                            >
+                                <Sparkles size={12} />
+                                Auto-fill with regional picks
+                            </button>
+                        </div>
                     )}
                     {analysis.excessQueue.length > 0 && (
                         <div className="flex items-center gap-2 p-3 bg-sky-50 border border-sky-100 rounded-xl">
@@ -542,6 +608,51 @@ const weekDays = useMemo(() => {
                 </div>
             )}
 
+            {/* Finalize Week Confirmation Modal */}
+            {showFinalizeConfirm && (
+                <div className="fixed inset-0 z-[70] bg-black/50 flex items-end sm:items-center justify-center" onClick={() => setShowFinalizeConfirm(false)}>
+                    <div className="bg-white w-full max-w-sm rounded-t-[28px] sm:rounded-[28px] p-6 mx-4 mb-0 sm:mb-0 animate-in slide-in-from-bottom-4" onClick={e => e.stopPropagation()}>
+                        <div className="text-center">
+                            <div className="w-16 h-16 bg-[#FF385C]/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Clock size={32} className="text-[#FF385C]" />
+                            </div>
+                            <h3 className="text-xl font-bold mb-2">Save excess dishes?</h3>
+                            <p className="text-sm text-gray-500 mb-2">
+                                {analysis.excessQueue.length} dish{analysis.excessQueue.length !== 1 ? 'es' : ''} exceed the weekly cap.
+                            </p>
+                            <p className="text-xs text-gray-400 mb-6">
+                                They'll be saved to your Week 2 queue — ready to move to next week's tray anytime.
+                            </p>
+                            <div className="space-y-2">
+                                {analysis.excessQueue.slice(0, 3).map(meal => (
+                                    <div key={meal.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-xl text-left">
+                                        <span className="text-lg">{meal.icon || '🍽️'}</span>
+                                        <span className="text-xs font-medium text-gray-700">{meal.name}</span>
+                                    </div>
+                                ))}
+                                {analysis.excessQueue.length > 3 && (
+                                    <p className="text-[10px] text-gray-400">+{analysis.excessQueue.length - 3} more</p>
+                                )}
+                            </div>
+                            <div className="flex gap-3 mt-6">
+                                <button
+                                    onClick={() => setShowFinalizeConfirm(false)}
+                                    className="flex-1 py-3 bg-gray-100 rounded-2xl font-bold text-gray-700"
+                                >
+                                    Review tray
+                                </button>
+                                <button
+                                    onClick={confirmFinalize}
+                                    className="flex-1 py-3 bg-[#FF385C] text-white rounded-2xl font-bold"
+                                >
+                                    Save & Finalize
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {activeTab === 'future' ? (
                 <div className="px-4 space-y-6">
                     {groupedDays.map((group, idx) => {
@@ -589,6 +700,21 @@ const weekDays = useMemo(() => {
                                                 const slot = SLOT_ORDER[idx];
                                                 const locked = isSlotLocked(day.isoDate!, slot!);
                                                 const missed = isSlotMissed(day.isoDate!, slot!);
+
+                                                if (!resolution.meal && !locked && !missed) {
+                                                    return (
+                                                        <EmptySlot
+                                                            key={`${day.isoDate}-${slot}`}
+                                                            slot={slot!}
+                                                            date={day.isoDate!}
+                                                            dishes={dishes}
+                                                            userRegion={user?.region || ''}
+                                                            userDiet={user?.diet || 'veg'}
+                                                            onFill={(d, s, option) => handleSwapConfirm(d, s, option)}
+                                                        />
+                                                    );
+                                                }
+
                                                 return (
                                                 <MealCard
                                                     key={`${day.isoDate}-${slot}`}
@@ -606,6 +732,7 @@ const weekDays = useMemo(() => {
                                                     isLocked={locked}
                                                     isMissed={missed}
                                                     hasSwap={!!swaps[day.isoDate!]?.[slot!]}
+                                                    repetitionWarning={getRepetitionWarning(day.isoDate!, slot!, resolution.meal?.dishId)}
                                                 />
                                             );
                                             })}

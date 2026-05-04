@@ -44,7 +44,7 @@ export interface Dish {
     nutrition: string[];
     tags: string[];
     variants: DishVariant[];
-    // Optional: seasonal availability or regional nuances
+    description?: string;
     season?: string[];
 }
 
@@ -74,7 +74,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'heavy',
         nutrition: ['carb', 'fat'],
-        tags: ['paratha', 'bread', 'flatbread', 'fried'],
+        tags: ['paratha', 'bread', 'flatbread', 'fried', 'staples'],
+        description: 'Spiced potato stuffed flatbread, pan-fried on tawa. Classic Punjabi breakfast staple.',
         variants: [
             ...cookingVariants('Aloo Paratha', 'aloo-paratha', ['Plain', 'Crispy', 'Stuffed']),
             { id: 'aloo-paratha-curd', name: 'Aloo Paratha + Curd', addOn: 'with curd', mealContext: 'breakfast' },
@@ -91,7 +92,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'heavy',
         nutrition: ['carb', 'fat'],
-        tags: ['bread', 'puri', 'fried', 'street food'],
+        tags: ['bread', 'puri', 'fried', 'street food', 'staples'],
+        description: 'Deep-fried puffed bread served with spiced potato curry. Festive North Indian breakfast.',
         variants: addOnVariants('Bedmi Puri', 'bedmi-puri'),
     },
     {
@@ -425,7 +427,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'medium',
         nutrition: ['carb', 'fat'],
-        tags: ['tandoori', 'bread', 'naan', 'butter'],
+        tags: ['tandoori', 'bread', 'naan', 'butter', 'staples'],
+        description: 'Soft leavened flatbread baked in tandoor, brushed with butter. Classic North Indian staple.',
         variants: [
             { id: 'naan-plain', name: 'Plain Naan', baseStyle: 'tandoor' },
             { id: 'naan-butter', name: 'Butter Naan', baseStyle: 'tandoor' },
@@ -445,7 +448,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'light',
         nutrition: ['carb'],
-        tags: ['tandoori', 'bread', 'roti', 'healthy'],
+        tags: ['tandoori', 'bread', 'roti', 'healthy', 'staples'],
+        description: 'Unleavened whole wheat bread baked in clay tandoor oven. Everyday staple bread.',
         variants: [
             { id: 'tandoor-roti-plain', name: 'Tandoori Roti Plain', baseStyle: 'tandoor' },
             { id: 'tandoor-roti-butter', name: 'Tandoori Roti Butter', baseStyle: 'tandoor' },
@@ -744,7 +748,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'heavy',
         nutrition: ['carb', 'fat'],
-        tags: ['paratha', 'bread', 'cauliflower', 'stuffed'],
+        tags: ['paratha', 'bread', 'cauliflower', 'stuffed', 'staples'],
+        description: 'Cauliflower-stuffed whole wheat flatbread. Hearty winter breakfast favorite.',
         variants: [
             { id: 'gobhi-paratha-plain', name: 'Gobhi Paratha Plain', baseStyle: 'stuffed' },
             { id: 'gobhi-paratha-butter', name: 'Gobhi Paratha + Butter', addOn: 'with butter', mealContext: 'breakfast' },
@@ -761,7 +766,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'medium',
         nutrition: ['carb'],
-        tags: ['paratha', 'bread', 'radish', 'stuffed'],
+        tags: ['paratha', 'bread', 'radish', 'stuffed', 'staples'],
+        description: 'White radish stuffed flatbread with spices. Light winter breakfast specialty.',
         variants: [
             { id: 'mooli-paratha-plain', name: 'Mooli Paratha Plain', baseStyle: 'stuffed' },
             { id: 'mooli-paratha-butter', name: 'Mooli Paratha + Butter', addOn: 'with butter', mealContext: 'breakfast' },
@@ -777,7 +783,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'heavy',
         nutrition: ['carb', 'protein'],
-        tags: ['paratha', 'bread', 'lentils', 'stuffed'],
+        tags: ['paratha', 'bread', 'lentils', 'stuffed', 'staples'],
+        description: 'Spiced lentil-stuffed flatbread. Protein-rich breakfast with earthy flavors.',
         variants: [
             { id: 'dal-paratha-plain', name: 'Dal Paratha Plain', baseStyle: 'stuffed' },
             { id: 'dal-paratha-butter', name: 'Dal Paratha + Butter', addOn: 'with butter', mealContext: 'breakfast' },
@@ -793,7 +800,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'medium',
         nutrition: ['carb', 'fiber'],
-        tags: ['paratha', 'bread', 'fenugreek', 'healthy'],
+        tags: ['paratha', 'bread', 'fenugreek', 'healthy', 'staples'],
+        description: 'Fresh fenugreek leaves stuffed in flatbread. Iron-rich, aromatic breakfast bread.',
         variants: [
             { id: 'methi-paratha-plain', name: 'Methi Paratha Plain', baseStyle: 'stuffed' },
             { id: 'methi-paratha-butter', name: 'Methi Paratha + Butter', addOn: 'with butter', mealContext: 'breakfast' },
@@ -809,7 +817,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'heavy',
         nutrition: ['carb', 'fat'],
-        tags: ['paratha', 'bread', 'stuffed', 'mixed'],
+        tags: ['paratha', 'bread', 'stuffed', 'mixed', 'staples'],
+        description: 'Mixed vegetable stuffed flatbread. Versatile breakfast with seasonal fillings.',
         variants: [
             { id: 'mix-paratha-plain', name: 'Mix Paratha Plain', baseStyle: 'stuffed' },
             { id: 'mix-paratha-butter', name: 'Mix Paratha + Butter', addOn: 'with butter', mealContext: 'breakfast' },
@@ -1160,7 +1169,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'light',
         nutrition: ['carb'],
-        tags: ['bread', 'toast', 'breakfast', 'everyday'],
+        tags: ['bread', 'toast', 'breakfast', 'everyday', 'staples'],
+        description: 'Soft sliced white bread. Perfect for toast, sandwiches, or quick breakfast.',
         variants: [
             { id: 'wb-toast', name: 'Butter Toast', cookingStyle: 'toasted' },
             { id: 'wb-sandwich', name: 'Veg Sandwich', addOn: 'with veg filling', mealContext: 'breakfast' },
@@ -1178,7 +1188,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'light',
         nutrition: ['carb', 'fiber'],
-        tags: ['bread', 'toast', 'healthy', 'whole-wheat'],
+        tags: ['bread', 'toast', 'healthy', 'whole-wheat', 'staples'],
+        description: 'Whole wheat brown bread with extra fiber. Healthier breakfast bread option.',
         variants: [
             { id: 'bb-toast', name: 'Brown Toast', cookingStyle: 'toasted' },
             { id: 'bb-sandwich', name: 'Brown Sandwich', addOn: 'with filling', mealContext: 'breakfast' },
@@ -1195,7 +1206,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'light',
         nutrition: ['carb', 'dairy'],
-        tags: ['bread', 'soft', 'breakfast', 'milk'],
+        tags: ['bread', 'soft', 'breakfast', 'milk', 'staples'],
+        description: 'Soft enriched bread made with milk. Tender crumb, slightly sweet breakfast bread.',
         variants: [
             { id: 'mb-plain', name: 'Milk Bread Plain', baseStyle: 'soft' },
             { id: 'mb-toast', name: 'Milk Bread Toast', cookingStyle: 'toasted' },
@@ -1212,7 +1224,8 @@ const northDishes: Dish[] = [
         type: 'veg',
         weight: 'light',
         nutrition: ['carb'],
-        tags: ['toast', 'bread', 'breakfast', 'quick'],
+        tags: ['toast', 'bread', 'breakfast', 'quick', 'staples'],
+        description: 'Toasted bread with choice of toppings. Quick 2-minute breakfast staple.',
         variants: [
             { id: 'bt-butter', name: 'Butter Toast', addOn: 'with butter', mealContext: 'breakfast' },
             { id: 'bt-jam', name: 'Jam Toast', addOn: 'with jam', mealContext: 'breakfast' },

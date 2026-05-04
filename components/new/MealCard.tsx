@@ -31,6 +31,7 @@ interface MealCardProps {
     isLocked: boolean;
     isMissed: boolean;
     hasSwap: boolean;
+    repetitionWarning?: { daysSinceLast: number; message: string };
 }
 
 const DIET_FILTER: Record<string, string[]> = {
@@ -43,7 +44,7 @@ const DIET_FILTER: Record<string, string[]> = {
 export const MealCard: React.FC<MealCardProps> = ({
     slot, date, meta, resolution, dishes, userRegion, userDiet,
     swapPopoverSlot, setSwapPopoverSlot, onSwap, onUpdateQuantity,
-    isLocked, isMissed, hasSwap,
+    isLocked, isMissed, hasSwap, repetitionWarning,
 }) => {
     const meal = resolution.meal;
 
@@ -311,6 +312,16 @@ export const MealCard: React.FC<MealCardProps> = ({
 
             {/* Quantity Controls & Warnings */}
             <div className="mt-3 grid gap-2">
+                {repetitionWarning && !(isLocked || isMissed) && (
+                    <button
+                        onClick={openSwap}
+                        className="w-full flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-xl active:scale-[0.98] transition-all text-left"
+                    >
+                        <Clock3 size={12} className="text-amber-600 flex-shrink-0" />
+                        <span className="text-[10px] font-bold text-amber-700">{repetitionWarning.message}</span>
+                        <ArrowLeftRight size={10} className="text-amber-500 ml-auto" />
+                    </button>
+                )}
                 {meal?.countBased && !(isLocked || isMissed) && (
                     <div className="flex items-center gap-2">
                         <button
