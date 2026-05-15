@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import type { Dish, DishVariant, IngredientCategory } from '../constants/dishLibrary';
 import { useStore } from '../store/useStore';
-import api from '../lib/api';
+import api, { isAuthReady } from '../lib/api';
 
 type DishFromBackend = {
     id: string;
@@ -79,41 +79,136 @@ export function useBackendDishes() {
         storeDishes.length > 0 ? 'store' : 'local'
     );
     const [isLoading, setIsLoading] = useState(storeDishes.length === 0);
+    const [error, setError] = useState<string | null>(null);
+    const loadRef = useRef<((signal?: AbortSignal) => Promise<void>) | null>(null);
 
     useEffect(() => {
-        if (storeDishes.length > 0) {
-            setDishes(storeDishes);
+        const abortController = new AbortController();
+        const { signal } = abortController;
+
+        const storeLen = useStore.getState().dishes.length;
+        console.log('[useBackendDishes] Mount — storeDishes.length:', storeLen, 'isAuthReady:', isAuthReady(), 'isLoading:', isLoading, 'source:', source);
+        if (storeLen > 0) {
+            const stored = useStore.getState().dishes;
+            console.log('[useBackendDishes] Using store dishes, count:', stored.length);
+            setDishes(stored);
             setSource('store');
             setIsLoading(false);
+            setError(null);
+            // Async merge: add local dishes not already in store (handles persisted stale cache)
+            getLocalDishes().then(local => {
+                if (signal.aborted) return;
+                const storedIds = new Set(stored.map(d => d.id));
+                const missing = local.filter(d => !storedIds.has(d.id));
+                if (missing.length > 0) {
+                    console.log('[useBackendDishes] Merging', missing.length, 'local dishes missing from store');
+                    const merged = [...stored, ...missing];
+                    useStore.getState().setDishes(merged);
+                    setDishes(merged);
+                    setSource('mixed');
+                }
+            });
             return;
         }
 
-        let cancelled = false;
-
         async function load() {
+            if (!isAuthReady()) {
+                console.log('[useBackendDishes] Auth not ready, loading local dishes…');
+                try {
+                    const local = await getLocalDishes();
+                    console.log('[useBackendDishes] Local dishes loaded, count:', local.length);
+                    if (!signal.aborted) {
+                        setDishes(local);
+                        setSource('local');
+                        setIsLoading(false);
+                        setError(null);
+                    }
+                } catch (e) {
+                    console.log('[useBackendDishes] Local dish load failed:', e);
+                    if (!signal.aborted) {
+                        setIsLoading(false);
+                        setError('Failed to load local dishes');
+                    }
+                }
+                return;
+            }
+
+            console.log('[useBackendDishes] Auth ready, fetching /meals…');
             try {
-                const res = await api.get<{ data: DishFromBackend[]; total: number }>('/meals', { timeout: 8000 });
-                if (!cancelled && res.data?.length > 0) {
-                    setDishes(res.data.map(mapBackendDish));
-                    setSource('backend');
-                } else if (!cancelled) {
+                const res = await api.get<{ data: DishFromBackend[]; total: number }>(
+                    '/meals',
+                    { timeout: 8000, signal }
+                );
+                if (signal.aborted) { console.log('[useBackendDishes] Aborted after API response'); return; }
+                console.log('[useBackendDishes] API response — data.length:', res.data?.length, 'total:', res.total);
+                if (res.data?.length > 0) {
+                    const backendDishes = res.data.map(mapBackendDish);
+                    const backendIds = new Set(backendDishes.map(d => d.id));
                     const local = await getLocalDishes();
-                    if (!cancelled) { setDishes(local); setSource('local'); }
+                    for (const localDish of local) {
+                        if (!backendIds.has(localDish.id)) {
+                            backendDishes.push(localDish);
+                        }
+                    }
+                    const source: 'backend' | 'mixed' = backendDishes.length > res.data.length ? 'mixed' : 'backend';
+                    console.log('[useBackendDishes] Backend dishes resolved, source:', source, 'count:', backendDishes.length);
+                    setDishes(backendDishes);
+                    setSource(source);
+                    setIsLoading(false);
+                    setError(null);
+                } else {
+                    console.log('[useBackendDishes] Empty API response, falling back to local');
+                    const local = await getLocalDishes();
+                    if (!signal.aborted) {
+                        setDishes(local);
+                        setSource('local');
+                        setIsLoading(false);
+                        setError(null);
+                    }
                 }
-            } catch (err) {
-                if (!cancelled) {
+            } catch (e) {
+                console.log('[useBackendDishes] Backend fetch failed:', e);
+                if (!signal.aborted) {
                     console.log('[useBackendDishes] Backend unavailable, loading local library…');
-                    const local = await getLocalDishes();
-                    if (!cancelled) { setDishes(local); setSource('local'); }
+                    try {
+                        const local = await getLocalDishes();
+                        console.log('[useBackendDishes] Fallback local loaded, count:', local.length);
+                        if (!signal.aborted) {
+                            setDishes(local);
+                            setSource('local');
+                            setIsLoading(false);
+                            setError(null);
+                        }
+                    } catch (e2) {
+                        console.log('[useBackendDishes] Fallback local also failed:', e2);
+                        if (!signal.aborted) {
+                            setIsLoading(false);
+                            setError('Failed to load dishes. Check your connection and try again.');
+                        }
+                    }
                 }
-            } finally {
-                if (!cancelled) setIsLoading(false);
             }
         }
 
+        console.log('[useBackendDishes] loadRef set, calling load()');
+        loadRef.current = load;
         load();
-        return () => { cancelled = true; };
-    }, [storeDishes.length]);
 
-    return { dishes, source, isLoading };
+        return () => {
+            console.log('[useBackendDishes] Cleanup — aborting');
+            abortController.abort();
+        };
+        // Intentionally only run on mount; store length is checked inside via getState
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const retry = useCallback(() => {
+        if (!loadRef.current) return;
+        setIsLoading(true);
+        setError(null);
+        const abortController = new AbortController();
+        loadRef.current(abortController.signal);
+    }, []);
+
+    return { dishes, source, isLoading, error, retry };
 }

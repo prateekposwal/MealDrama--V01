@@ -1,21 +1,63 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import { useStore } from './store/useStore';
-import api from './lib/api';
+import { useTrayStore } from './store/useTrayStore';
+import api, { getToken, setAuthReady } from './lib/api';
 import LoginScreen from './components/new/LoginScreen';
-import MealCustomizer from './components/new/MealCustomizer';
-import { Home, Calendar, ShoppingBasket, User as UserIcon, X } from 'lucide-react';
+import MealTrayBuilder from './screens/MealTrayBuilder';
+import MealLoopConfigModal from './components/meal/MealLoopConfigModal';
+import { Home, Calendar, ShoppingBasket, User as UserIcon, X, AlertTriangle } from 'lucide-react';
 import { useBackendDishes } from './hooks/useBackendDishes';
 import QuickStartOnboarding from './components/new/QuickStartOnboarding';
 import { spiceLevelFromNumber } from './utils/formatSpice';
+import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
+import type { Dish } from './constants/dishLibrary';
+import type { SourcePool } from './utils/mealLoopEngine';
+import type { MealLoopConfig } from './types/tray';
 
-const Dashboard = React.lazy(() => import('./components/new/Dashboard'));
-const PlanTimeline = React.lazy(() => import('./components/new/PlanTimeline'));
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode; fallback?: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[ErrorBoundary] Caught:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 bg-white">
+          <AlertTriangle size={40} className="text-red-400" />
+          <p className="text-lg font-bold text-gray-900">Something went wrong</p>
+          <p className="text-sm text-gray-500 text-center max-w-md">{this.state.error?.message}</p>
+          <button
+            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+            className="mt-4 px-6 py-3 rounded-[20px] bg-[#FF385C] text-white font-bold text-sm"
+          >
+            Reload App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const DashScreen = React.lazy(() => import('./screens/Dashboard'));
+const PlanScreen = React.lazy(() => import('./screens/PlanScreen'));
 const Profile = React.lazy(() => import('./components/new/Profile'));
 const PantryPulse = React.lazy(() => import('./components/new/PantryPulse'));
+const DemoScreen = React.lazy(() => import('./components/new/DemoScreen'));
 
 const PageLoader = () => (
-  <div className="flex items-center justify-center min-h-screen">
+  <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
     <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+    <p className="text-sm font-medium text-gray-400 text-center">Preparing your meal plan…</p>
   </div>
 );
 
@@ -26,14 +68,7 @@ const TABS = [
   { key: 'profile', label: 'Profile', Icon: UserIcon },
 ] as const;
 
-type Tab = typeof TABS[number]['key'];
-const ALL_SLOTS = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'] as const;
-const SLOT_KEY_MAP: Record<string, keyof import('./store/useStore').TrayLibrary> = {
-  Breakfast: 'breakfast',
-  Lunch: 'lunch',
-  Dinner: 'dinner',
-  Snacks: 'snacks',
-};
+type Tab = typeof TABS[number]['key'] | 'demo';
 
 const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; onClose: () => void }> = ({ message, type, onClose }) => {
   const colors = {
@@ -57,52 +92,41 @@ const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; onC
 
 const App: React.FC = () => {
   const {
-    isLoggedIn, user, trayLibrary, trayEditSession,
-    setLoggedIn, updateProfile, replaceTrayLibrary, endTrayEdit, logout, setDishes, setSwap, toast, setToast,
+    isLoggedIn, user,
+    setLoggedIn, updateProfile, logout, setDishes, setSwap, toast, setToast,
+    trayBuilt, setTrayBuilt,
   } = useStore();
   const { quickSetupOpen, quickSetupPrefill, openQuickSetup, closeQuickSetup } = useStore();
   const { dishes: fetchedDishes } = useBackendDishes();
-  useEffect(() => { if (fetchedDishes.length) setDishes(fetchedDishes); }, [fetchedDishes, setDishes]);
+  // Hydration guard — prevent routing until Zustand persist has rehydrated
+  const [hydrated, setHydrated] = useState(() => useStore.persist.hasHydrated());
 
-  useEffect(() => {
-    const handler = () => {
-      const { isLoggedIn, logout, setToast } = useStore.getState();
-      if (isLoggedIn) {
-        logout();
-        setToast({ message: 'Session expired — please log in again.', type: 'error' });
-      }
-    };
-    window.addEventListener('auth:unauthorized', handler);
-    return () => window.removeEventListener('auth:unauthorized', handler);
-  }, []);
-
-  useEffect(() => {
-    if (!isLoggedIn || !user?.id) return;
-    const hydrateFromDB = async () => {
-      try {
-        const plans: any[] = await api.get(`/plan?userId=${user.id}`);
-        if (!plans?.length) return;
-        for (const plan of plans) {
-          const date = plan.date?.split('T')[0];
-          if (!date) continue;
-          const meal = {
-            id: `${plan.mealId}-${Date.now()}`,
-            dishId: plan.mealId,
-            name: plan.meal?.name || plan.mealId,
-            variantId: plan.variantId,
-            quantity: plan.qty || 1,
-            countBased: false,
-          };
-          setSwap(date, plan.slot, meal, true);
+  // ─── Hooks used downstream — placed here (before any conditional return) to satisfy React's Rules of Hooks ───
+  const _trayLibrary = useStore(s => s.trayLibrary);
+  const planDays = useTrayStore(s => s.plan.days);
+  const today = new Date().toLocaleDateString('en-CA');
+  const sourcePool = useMemo((): SourcePool => {
+    const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+    const seen = { breakfast: new Set<string>(), lunch: new Set<string>(), snacks: new Set<string>(), dinner: new Set<string>() };
+    for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+      for (const item of planDays[today]?.[mt] ?? _trayLibrary[mt] ?? []) {
+        const dish = fetchedDishes.find((d: Dish) => d.id === item.meal_id)
+          ?? fetchedDishes.find((d: Dish) => d.name === item.name);
+        if (dish && !seen[mt].has(dish.id)) {
+          seen[mt].add(dish.id);
+          pool[mt].push(dish);
         }
-      } catch (e) {
-        console.log('[App] DB hydration skipped:', e);
       }
-    };
-    hydrateFromDB();
-  }, [isLoggedIn, user?.id]);
-
-  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+    }
+    return pool;
+  }, [planDays, today, _trayLibrary, fetchedDishes]);
+  const { applyLoopConfig } = useTrayStore();
+  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [manageTray, setManageTray] = useState(false);
+  const [manageTraySlot, setManageTraySlot] = useState<string | undefined>(undefined);
+  const [showLoopConfig, setShowLoopConfig] = useState(false);
+  const [loopSkipped, setLoopSkipped] = useState(false);
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Inline onboarding flow from Profile (Edit Mode)
   if (quickSetupOpen) {
@@ -111,14 +135,19 @@ const App: React.FC = () => {
         isEditMode={true}
         prefill={quickSetupPrefill as unknown as { region?: string; diet?: string; spiceLevel?: number; plannedSlots?: ("Breakfast" | "Lunch" | "Snacks" | "Dinner")[]; cookContact?: string; } | undefined}
         onComplete={(payload) => {
-          updateProfile({
-            region: payload.region,
-            diet: payload.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
-            spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
-            cookContact: payload.cookContact,
-            plannedSlots: payload.plannedSlots,
-            onboardingComplete: true,
-          });
+          try {
+            updateProfile({
+              region: payload.region,
+              diet: payload.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
+              spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
+              cookContact: payload.cookContact,
+              plannedSlots: payload.plannedSlots,
+              onboardingComplete: true,
+            });
+          } catch (e) {
+            console.error('[App] Edit mode onboarding error:', e);
+          }
+          setAuthReady(true);
           closeQuickSetup();
         }}
       />
@@ -138,83 +167,139 @@ const App: React.FC = () => {
     return (
       <QuickStartOnboarding
         onComplete={(preferences) => {
-          updateProfile({
-            region: preferences.region,
-             diet: preferences.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
-            spiceLevel: spiceLevelFromNumber(preferences.spiceLevel),
-            cookContact: preferences.cookContact,
-            plannedSlots: preferences.plannedSlots,
-            onboardingComplete: true,
-            goal: user?.goal || 'Weekly',
-          });
+          try {
+            updateProfile({
+              region: preferences.region,
+               diet: preferences.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
+              spiceLevel: spiceLevelFromNumber(preferences.spiceLevel),
+              cookContact: preferences.cookContact,
+              plannedSlots: preferences.plannedSlots,
+              onboardingComplete: true,
+              goal: user?.goal || 'Weekly',
+            });
+          } catch (e) {
+            console.error('[App] First-time onboarding error:', e);
+          }
+          setAuthReady(true);
         }}
       />
     );
   }
 
-  const plannedSlots = user?.plannedSlots?.length ? user.plannedSlots : [...ALL_SLOTS];
-  const hasTray = plannedSlots.every((slot) => {
-    const slotKey = SLOT_KEY_MAP[slot]!;
-    const totalQuantity = trayLibrary[slotKey].reduce((sum: number, option: any) => sum + (option.quantity || 1), 0);
-    return totalQuantity >= 3;
-  });
-  if (!hasTray || trayEditSession) {
+  // Hydration guard — don't route until stores are ready
+  if (!hydrated) {
+    return <PageLoader />;
+  }
+
+  // ─── Strict Routing: Login → Onboarding → Tray → Loop Config → Dashboard ───
+  // Step 1: Loop config (after tray save in current session)
+  if (showLoopConfig) {
     return (
-      <MealCustomizer
-        userRegion={user?.region || 'North India'}
-        userDiet={user?.diet || 'Veg'}
-        plannedSlots={plannedSlots as ("Breakfast" | "Lunch" | "Snacks" | "Dinner")[]}
-        cookingRole={(user?.cookingRole as "order" | "cook") || 'cook'}
-        slotTiming={user?.slotTiming || {}}
-        initialSlot={trayEditSession?.slot as "Breakfast" | "Lunch" | "Snacks" | "Dinner" | undefined}
-        onComplete={(library: any, loop: string) => {
-          if (trayEditSession) {
-            replaceTrayLibrary(library);
-            endTrayEdit();
-          } else {
-            replaceTrayLibrary(library);
-          }
-          updateProfile({ goal: loop });
-        }}
-      />
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <MealLoopConfigModal
+          isOpen={true}
+          sourcePool={sourcePool}
+          onClose={() => {
+            setShowLoopConfig(false);
+            setLoopSkipped(true);
+            setManageTray(false);
+            setManageTraySlot(undefined);
+            setActiveTab('dashboard');
+          }}
+          onFixSlots={(targetSlot) => {
+            setShowLoopConfig(false);
+            setManageTraySlot(targetSlot);
+            setManageTray(true);
+          }}
+          onApply={async (config: MealLoopConfig) => {
+            console.log('[LoopConfig] Applying config:', JSON.stringify(config, null, 2));
+            console.log('[LoopConfig] Source pool slots:', Object.fromEntries(
+              Object.entries(sourcePool).map(([k, v]) => [k, v.length])
+            ));
+            try {
+              await api.post('/loop-config', {
+                userId: user?.id,
+                config,
+                sourceDishIds: Object.values(sourcePool).flat().map((d: Dish) => d.id),
+              });
+              console.log('[LoopConfig] API save succeeded');
+            } catch (e) {
+              console.warn('[LoopConfig] API save failed, saving locally only:', e);
+            }
+            applyLoopConfig(config, sourcePool, fetchedDishes);
+            console.log('[LoopConfig] State updated, navigating to dashboard');
+            window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
+            setShowLoopConfig(false);
+            setLoopSkipped(false);
+            setManageTray(false);
+            setActiveTab('dashboard');
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Step 2: Tray builder (first time, or manage mode from profile)
+  if (!trayBuilt || manageTray) {
+    return (
+      <ErrorBoundary>
+        <MealTrayBuilder
+          user={user}
+          defaultSlot={manageTraySlot}
+          onComplete={() => {
+            setTrayBuilt(true);
+            setManageTray(false);
+            setManageTraySlot(undefined);
+            setShowLoopConfig(true);
+          }}
+        />
+      </ErrorBoundary>
     );
   }
 
   return (
+    <SwapCustomizeProvider>
     <div className="min-h-screen bg-white font-sans text-gray-900 max-w-lg mx-auto">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       <main className="min-h-screen pb-24">
         <Suspense fallback={<PageLoader />}>
-          {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
-          {activeTab === 'plan' && <PlanTimeline />}
+          {activeTab === 'dashboard' && <DashScreen user={user} onNavigate={setActiveTab} onManageTray={() => setManageTray(true)} />}
+          {activeTab === 'plan' && <PlanScreen user={user} />}
           {activeTab === 'pulse' && <PantryPulse />}
-          {activeTab === 'profile' && <Profile onLogout={logout} />}
+          {activeTab === 'profile' && <Profile onLogout={logout} onManageTray={(slot) => {
+            if (slot) setManageTraySlot(slot);
+            setManageTray(true);
+          }} />}
+          {activeTab === 'demo' && <DemoScreen />}
         </Suspense>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 px-4 py-2 flex justify-around items-center z-50">
-        {TABS.map(({ key, label, Icon }) => {
-          const active = activeTab === key;
-          return (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className="flex flex-col items-center gap-0.5 py-1 px-3 rounded-2xl transition-all duration-200"
-            >
-              <div className={`p-2 rounded-xl transition-all duration-200 ${active ? 'bg-[#FF385C]/10 scale-110' : ''}`}>
-                <Icon
-                  size={22}
-                  className={`transition-colors duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}
-                />
-              </div>
-              <span className={`text-[9px] font-black uppercase tracking-widest transition-all duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-300'}`}>
-                {label}
-              </span>
-            </button>
-          );
-        })}
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 z-50">
+        <div className="grid grid-cols-4 px-1 py-1">
+          {TABS.map(({ key, label, Icon }) => {
+            const active = activeTab === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-2xl transition-all duration-200"
+              >
+                <div className={`p-2 rounded-xl transition-all duration-200 ${active ? 'bg-[#FF385C]/10 scale-110' : ''}`}>
+                  <Icon
+                    size={22}
+                    className={`transition-colors duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}
+                  />
+                </div>
+                <span className={`text-[9px] font-black uppercase tracking-widest transition-all duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}>
+                  {label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </nav>
     </div>
+    </SwapCustomizeProvider>
   );
 };
 

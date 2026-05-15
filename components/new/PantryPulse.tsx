@@ -1,19 +1,20 @@
 import React, { useState, useMemo } from 'react';
-import { useStore, getMealResolution } from '../../store/useStore';
-import { ShoppingBasket, Plus, X, Share2, Phone, Check, ChevronRight } from 'lucide-react';
+import { useStore, type CategorySelection } from '../../store/useStore';
+import { useTrayStore, type MealType } from '../../store/useTrayStore';
+import { useBackendDishes } from '../../hooks/useBackendDishes';
+import { Plus, X, Share2, Check } from 'lucide-react';
 import { getShareStrings, ShareLanguage } from '../../utils/share';
 import {
     buildPantryGroups,
-    deriveIngredientsForDay,
-    deriveIngredientsForDateRange,
     getTomorrowISO,
     getWeekEndISO,
-    getMealNamesForDay,
+    getIngredientsForMealOption,
+    getIngredientsForCategoryOption,
     invalidateIngredientCache,
     CATEGORY_META,
-    type AggregatedIngredient,
     type PantryGroup,
 } from '../../utils/ingredientUtils';
+import type { Ingredient } from '../../constants/dishLibrary';
 import WhatsAppShareModal from './WhatsAppShareModal';
 
 interface PantryItem {
@@ -28,12 +29,14 @@ interface PantryItem {
 }
 
 const PantryPulse: React.FC = () => {
-    const { user, trayLibrary, swaps, dishes } = useStore();
+    const { user, customDishes } = useStore();
+    const { dishes } = useBackendDishes();
+    const getMeals = useTrayStore(s => s.getMeals);
+    const planDays = useTrayStore(s => s.plan.days);
     const [items, setItems] = useState<PantryItem[]>([]);
     const [newItem, setNewItem] = useState('');
     const [sharePhone, setSharePhone] = useState(user?.cookContact || '');
     const [showShareInput, setShowShareInput] = useState(false);
-    const [viewMode, setViewMode] = useState<'tomorrow' | 'week'>('tomorrow');
     const [showShareModal, setShowShareModal] = useState(false);
     const [showAllWeekMeals, setShowAllWeekMeals] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0); // FIX-10: Cache busting
@@ -54,6 +57,7 @@ const PantryPulse: React.FC = () => {
         if (allTodaySlotsPassed()) return 'tomorrow';
         return 'week';
     };
+    const [viewMode, setViewMode] = useState<'tomorrow' | 'week'>(getDefaultViewMode());
     
     // FIX-10: Listen for pantry invalidation events (swap/cancel)
     React.useEffect(() => {
@@ -80,20 +84,76 @@ const PantryPulse: React.FC = () => {
     const allSlots = includeSnacks ? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'] as const : ['Breakfast', 'Lunch', 'Dinner'] as const;
 
     const groups = useMemo((): PantryGroup[] => {
-        if (viewMode === 'tomorrow') {
-            const allIngredients: { ing: any; source: string }[] = [];
-            for (const slot of allSlots) {
-                const derived = deriveIngredientsForDay(tomorrowISO, slot, trayLibrary, swaps, dishes);
-                allIngredients.push(...derived);
+        const allIngredients: { ing: Ingredient; source: string }[] = [];
+        const processSlot = (date: string, slot: string) => {
+            const mealType = slot.toLowerCase() as MealType;
+            const meals = getMeals(date, mealType);
+            for (const item of meals) {
+                const catSelections: CategorySelection = {
+                    gravy: item.gravy ? { id: item.gravy, name: item.gravy } : null,
+                    roti: item.roti ? { id: item.roti, name: item.roti } : null,
+                    rice: item.rice ? { id: item.rice, name: item.rice } : null,
+                    sides: (item.sides || []).map(s => ({ id: s, name: s })),
+                    beverages: (item.beverages || []).map(b => ({ id: b, name: b })),
+                    dessert: (item.dessert || []).map(d => ({ id: d, name: d })),
+                    itemQtys: item.itemQtys,
+                };
+                const pool = customDishes.length > 0 ? [...dishes, ...customDishes] : dishes;
+                const ings = getIngredientsForMealOption(item.meal_id, '', pool, catSelections);
+                const subItemKeys = new Set<string>();
+                const pushIng = (ing: Ingredient, source: string) => {
+                    subItemKeys.add(`${ing.name}:${ing.category}`);
+                    allIngredients.push({
+                        ing: { ...ing, quantity: ing.quantity * (item.quantity || 1) },
+                        source,
+                    });
+                };
+                for (const d of (item.dessert || [])) {
+                    for (const ing of getIngredientsForCategoryOption(d)) pushIng(ing, `${item.name} · ${d}`);
+                }
+                for (const s of (item.sides || [])) {
+                    for (const ing of getIngredientsForCategoryOption(s)) pushIng(ing, `${item.name} · ${s}`);
+                }
+                for (const b of (item.beverages || [])) {
+                    for (const ing of getIngredientsForCategoryOption(b)) pushIng(ing, `${item.name} · ${b}`);
+                }
+                for (const ing of ings) {
+                    if (!subItemKeys.has(`${ing.name}:${ing.category}`)) {
+                        allIngredients.push({
+                            ing: { ...ing, quantity: ing.quantity * (item.quantity || 1) },
+                            source: item.name,
+                        });
+                    }
+                }
             }
-            return buildPantryGroups(allIngredients);
+        };
+        if (viewMode === 'tomorrow') {
+            for (const slot of allSlots) {
+                processSlot(tomorrowISO, slot);
+            }
         } else {
-            const allIngredients: { ing: any; source: string }[] = [];
-            const derived = deriveIngredientsForDateRange(tomorrowISO, weekEndISO, [...allSlots], trayLibrary, swaps, dishes);
-            allIngredients.push(...derived);
-            return buildPantryGroups(allIngredients);
+            const start = new Date(tomorrowISO + 'T00:00:00');
+            const end = new Date(weekEndISO + 'T00:00:00');
+            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+                const isoDate = d.toLocaleDateString('en-CA');
+                for (const slot of allSlots) {
+                    processSlot(isoDate, slot);
+                }
+            }
         }
-    }, [viewMode, trayLibrary, swaps, dishes, tomorrowISO, weekEndISO, includeSnacks, refreshKey]);
+        return buildPantryGroups(allIngredients);
+    }, [viewMode, getMeals, dishes, customDishes, tomorrowISO, weekEndISO, includeSnacks, refreshKey, planDays]);
+
+    const mealCount = useMemo(() => {
+        let count = 0;
+        for (const day of Object.values(planDays)) {
+            count += day.breakfast.length;
+            count += day.lunch.length;
+            count += day.snacks.length;
+            count += day.dinner.length;
+        }
+        return count;
+    }, [planDays]);
 
     const manual = useMemo(() => items.filter(i => i.source === 'manual'), [items]);
 
@@ -115,8 +175,18 @@ const PantryPulse: React.FC = () => {
 
     const tomorrowMeals = useMemo(() => {
         if (!dishes.length) return [];
-        return getMealNamesForDay(tomorrowISO, trayLibrary, swaps, dishes, includeSnacks);
-    }, [tomorrowISO, trayLibrary, swaps, dishes, includeSnacks]);
+        const slots = includeSnacks
+            ? (['Breakfast', 'Lunch', 'Snacks', 'Dinner'] as const)
+            : (['Breakfast', 'Lunch', 'Dinner'] as const);
+        const result: { slot: string; name: string; variant: string | undefined }[] = [];
+        for (const slot of slots) {
+            const mealType = slot.toLowerCase() as MealType;
+            for (const meal of getMeals(tomorrowISO, mealType)) {
+                result.push({ slot, name: meal.name, variant: undefined as string | undefined });
+            }
+        }
+        return result;
+    }, [tomorrowISO, getMeals, dishes, includeSnacks, planDays]);
 
     // Get all meals for the week (for "This Week" view)
     const weekMeals = useMemo(() => {
@@ -127,20 +197,18 @@ const PantryPulse: React.FC = () => {
             const date = new Date(start);
             date.setDate(start.getDate() + i);
             const isoDate = date.toLocaleDateString('en-CA');
-            for (const slot of allSlots) {
-                const res = getMealResolution(trayLibrary, swaps, isoDate!, slot, dishes);
-                if (res.meal?.name) {
-                    meals.push({
-                        date: isoDate!,
-                        slot,
-                        name: res.meal.name,
-                        variant: res.meal.variant,
-                    });
+            const slots = includeSnacks
+                ? (['Breakfast', 'Lunch', 'Snacks', 'Dinner'] as const)
+                : (['Breakfast', 'Lunch', 'Dinner'] as const);
+            for (const slot of slots) {
+                const mealType = slot.toLowerCase() as MealType;
+                for (const meal of getMeals(isoDate, mealType)) {
+                    meals.push({ date: isoDate, slot, name: meal.name });
                 }
             }
         }
         return meals;
-    }, [trayLibrary, swaps, dishes, tomorrowISO, includeSnacks]);
+    }, [getMeals, dishes, tomorrowISO, includeSnacks, planDays]);
 
     const toggleItem = (id: string) =>
         setItems(prev => prev.map(it => it.id === id ? { ...it, checked: !it.checked } : it));
@@ -310,7 +378,14 @@ const PantryPulse: React.FC = () => {
                 </div>
             )}
 
-            {allItems.length === 0 && (
+            {allItems.length === 0 && mealCount > 0 && (
+                <div className="flex flex-col items-center justify-center py-24 px-8 text-center">
+                    <div className="w-20 h-20 bg-gray-100 rounded-[24px] flex items-center justify-center text-4xl mb-6">🔄</div>
+                    <h3 className="text-xl font-bold mb-2">Computing ingredients...</h3>
+                    <p className="text-gray-400 text-sm">{mealCount} meals planned — generating your shopping list.</p>
+                </div>
+            )}
+            {allItems.length === 0 && mealCount === 0 && (
                 <div className="flex flex-col items-center justify-center py-24 px-8 text-center">
                     <div className="w-20 h-20 bg-gray-100 rounded-[24px] flex items-center justify-center text-4xl mb-6">🛒</div>
                     <h3 className="text-xl font-bold mb-2">Fridge looking shy?</h3>

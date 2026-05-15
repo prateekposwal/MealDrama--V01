@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { useStore, MealOption, getMealResolution, isSlotLocked, isSlotMissed } from '../../store/useStore';
+import React, { useMemo, useState, useCallback } from 'react';
+import { useStore, MealOption, getMealResolution, isSlotLocked, isSlotMissed, invalidateMealResolutionCache } from '../../store/useStore';
 import {
     Phone, MapPin, Flame, ChevronRight, Info, X, ChefHat,
     BellRing, ShieldAlert, Clock3, CheckCircle2,
@@ -9,6 +9,8 @@ import { formatMealLabel, getShareStrings, ShareLanguage } from '../../utils/sha
 import WhatsAppShareModal from './WhatsAppShareModal';
 import { MealCard, SLOT_META } from './MealCard';
 import { useBackendDishes } from '../../hooks/useBackendDishes';
+
+const SLOT_ORDER = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'] as const;
 
 type Tab = 'dashboard' | 'plan' | 'pulse' | 'profile';
 
@@ -23,7 +25,7 @@ const isEarlyMorning = () => {
 };
 
 const Dashboard: React.FC<{ onNavigate?: (tab: Tab) => void }> = ({ onNavigate }) => {
-    const { user, trayLibrary, swaps, setSwap, updateMealQuantity: updateQtyInStore, notifications, clearNotification, syncPlanToDB } = useStore();
+    const { user, trayLibrary, swaps, setSwap, clearSwap, updateMealQuantity: updateQtyInStore, notifications, clearNotification, syncPlanToDB } = useStore();
     const { dishes } = useBackendDishes();
     const [showGuide, setShowGuide] = useState(true);
     const [swapSlot, setSwapSlot] = useState<string | null>(null);
@@ -36,13 +38,47 @@ const Dashboard: React.FC<{ onNavigate?: (tab: Tab) => void }> = ({ onNavigate }
     const TODAY_DATE = getDisplayDate();
     const regionKey = (user.region ?? 'India').toLowerCase().replace(' india', '');
 
-    // Dashboard manages: todayMeals via getMealResolution()
     const todayMeals = useMemo(() => ({
         Breakfast: getMealResolution(trayLibrary, swaps, TODAY_DATE!, 'Breakfast', dishes),
         Lunch: getMealResolution(trayLibrary, swaps, TODAY_DATE!, 'Lunch', dishes),
         Snacks: getMealResolution(trayLibrary, swaps, TODAY_DATE!, 'Snacks', dishes),
         Dinner: getMealResolution(trayLibrary, swaps, TODAY_DATE!, 'Dinner', dishes),
     }), [trayLibrary, swaps, dishes, TODAY_DATE]);
+
+    const upcomingDays = useMemo(() => {
+        return Array.from({ length: 7 }, (_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() + 1 + i);
+            const iso = d.toLocaleDateString('en-CA');
+            return {
+                isoDate: iso,
+                meals: SLOT_ORDER.map(s => getMealResolution(trayLibrary, swaps, iso, s, dishes)),
+            };
+        });
+    }, [trayLibrary, swaps, dishes]);
+
+    const getRepetitionWarning = useCallback((slot: string, mealDishId?: string) => {
+        if (!mealDishId || !upcomingDays.length) return undefined;
+        const mealDate = new Date(TODAY_DATE!).getTime();
+        let closestDays = Infinity;
+        for (const day of upcomingDays) {
+            const dayDate = new Date(day.isoDate).getTime();
+            const dayDiff = Math.abs((dayDate - mealDate) / (1000 * 60 * 60 * 24));
+            if (dayDiff >= 3) continue;
+            const mealIdx = SLOT_ORDER.indexOf(slot as typeof SLOT_ORDER[number]);
+            const targetMeal = day.meals[mealIdx]?.meal;
+            if (targetMeal?.dishId === mealDishId) {
+                closestDays = Math.min(closestDays, dayDiff);
+            }
+        }
+        if (closestDays < 3 && closestDays !== Infinity) {
+            return {
+                daysSinceLast: closestDays,
+                message: `Coming up soon (${closestDays}d) • Tap to swap`,
+            };
+        }
+        return undefined;
+    }, [upcomingDays, TODAY_DATE]);
 
     const applySwap = (_date: string | undefined, slot: string, meal: MealOption) => {
         setSwap(TODAY_DATE!, slot, meal);
@@ -60,6 +96,49 @@ const Dashboard: React.FC<{ onNavigate?: (tab: Tab) => void }> = ({ onNavigate }
         syncPlanToDB(TODAY_DATE!, slot, { ...meal, quantity: nextQuantity });
         window.dispatchEvent(new CustomEvent('pantry:invalidate'));
         setActionMessage(`${slot} quantity updated to ${nextQuantity}.`);
+    };
+
+    const handleRevertSwap = (slot: string) => {
+        clearSwap(TODAY_DATE!, slot);
+        invalidateMealResolutionCache();
+        window.dispatchEvent(new CustomEvent('pantry:invalidate'));
+        setActionMessage(`${slot} reverted to tray default.`);
+    };
+
+    const handleRemoveMeal = (slot: string) => {
+        const meal = todayMeals[slot as keyof typeof todayMeals].meal;
+        if (!meal) return;
+        const { removeFromTray } = useStore.getState();
+        removeFromTray(slot.toLowerCase(), meal.id || meal.dishId);
+        invalidateMealResolutionCache();
+        window.dispatchEvent(new CustomEvent('pantry:invalidate'));
+        setActionMessage(`${slot} removed from tray.`);
+    };
+
+    const handleUpdateCategory = (slot: string, category: string, selections: string | string[] | null) => {
+        const meal = todayMeals[slot as keyof typeof todayMeals].meal;
+        if (!meal) return;
+        const existing = meal.categorySelections ?? {};
+        const updatedSelections = { ...existing };
+
+        if (category === 'gravy' || category === 'roti' || category === 'rice') {
+            const val = selections as string | null;
+            (updatedSelections as any)[category] = val ? { id: val.toLowerCase().replace(/\s+/g, '-'), name: val } : null;
+        } else if (category === 'sides') {
+            const arr = selections as string[];
+            updatedSelections.sides = arr.map(s => ({ id: s.toLowerCase().replace(/\s+/g, '-'), name: s }));
+        } else if (category === 'beverages') {
+            const arr = selections as string[];
+            updatedSelections.beverages = arr.map(b => ({ id: b.toLowerCase().replace(/\s+/g, '-'), name: b }));
+        } else if (category === 'dessert') {
+            const arr = selections as string[];
+            updatedSelections.dessert = arr.map(d => ({ id: d.toLowerCase().replace(/\s+/g, '-'), name: d }));
+        }
+
+        setSwap(TODAY_DATE!, slot, { ...meal, categorySelections: updatedSelections });
+        syncPlanToDB(TODAY_DATE!, slot, { ...meal, categorySelections: updatedSelections });
+        invalidateMealResolutionCache();
+        window.dispatchEvent(new CustomEvent('pantry:invalidate'));
     };
 
     const buildPrepMessage = (lang: ShareLanguage) => {
@@ -196,9 +275,13 @@ const Dashboard: React.FC<{ onNavigate?: (tab: Tab) => void }> = ({ onNavigate }
                             setSwapPopoverSlot={setSwapSlot}
                             onSwap={applySwap}
                             onUpdateQuantity={updateMealQuantity}
+                            onRevertSwap={handleRevertSwap}
+                            onRemove={handleRemoveMeal}
+                            onUpdateCategory={handleUpdateCategory}
                             isLocked={locked}
                             isMissed={missed}
                             hasSwap={hasSwap}
+                            repetitionWarning={getRepetitionWarning(slot, resolution.meal?.dishId)}
                         />
                     );
                 })}

@@ -3,6 +3,34 @@ import { persist } from 'zustand/middleware';
 import { Dish } from '../constants/dishLibrary';
 import api from '../lib/api';
 
+// ─── Roommate Types ──────────────────────────────────────────────────────────
+
+export interface RoommateLink {
+  id: string;
+  linkId: string;
+  token: string;
+  magicLink: string;
+  expiresAt: string;
+  isActive: boolean;
+  createdAt?: string;
+}
+
+export interface RoommateSuggestion {
+  id: string;
+  mealName: string;
+  date: string;
+  slot: string;
+  quantity: number;
+  roommateName: string;
+  gravyStyle?: string;
+  rotiType?: string;
+  riceType?: string;
+  sides: string[];
+  beverages: string[];
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+}
+
 export type MutationKind = 'plan' | 'complete';
 
 export interface PendingMutation {
@@ -49,9 +77,30 @@ export interface User {
   dislikedItems?: string[];
   goal?: string;
   plannedSlots?: string[];
+  pantryStaples?: string[];
   slotTiming?: Record<string, string>;
   cookingRole?: string;
   systemId?: string;
+  healthGoals?: string[];
+  allergyMode?: boolean;
+  calorieTarget?: number;
+  proteinTarget?: number;
+  fiberTarget?: number;
+  sodiumLimit?: number;
+  sugarLimit?: number;
+  /** Per-slot time overrides (start/end in HH:MM) — overrides SLOT_TIME_DEFAULTS */
+  slotTimePreferences?: Record<string, { start: string; end: string }>;
+}
+
+export interface CategorySelection {
+  gravy?: { id: string; name: string } | null;
+  roti?: { id: string; name: string } | null;
+  rice?: { id: string; name: string } | null;
+  sides?: { id: string; name: string }[];
+  beverages?: { id: string; name: string }[];
+  dessert?: { id: string; name: string }[];
+  /** Per-item quantities (item name → qty), applied as multiplier to ingredient amounts */
+  itemQtys?: Record<string, number>;
 }
 
 export interface MealOption {
@@ -68,6 +117,7 @@ export interface MealOption {
   sourceRegion?: string;
   prepMinutes?: number;
   smartRecommended?: boolean;
+  categorySelections?: CategorySelection;
 }
 
 export interface MealResolution {
@@ -198,9 +248,26 @@ function _computeMealResolution(
   if (!meal) return {};
   const { name, addOn } = resolveSmartVariantName(meal, slot, dishes);
 
+  // Duplicate warning: check if same dishId appears in another slot today
+  const allSlots = ['breakfast', 'lunch', 'snacks', 'dinner'] as const;
+  let duplicateWarning: MealResolution['duplicateWarning'] = undefined;
+  for (const otherSlot of allSlots) {
+    if (otherSlot === slot.toLowerCase()) continue;
+    const otherTray = trayLibrary[otherSlot] || [];
+    const otherMeal = otherTray[dishIndex % otherTray.length];
+    if (otherMeal?.dishId === meal?.dishId) {
+      duplicateWarning = {
+        type: 'same-day-block',
+        message: `${meal.name} also appears in ${otherSlot.charAt(0).toUpperCase() + otherSlot.slice(1)}`,
+      };
+      break;
+    }
+  }
+
   return {
     meal: { ...meal, variant: name, addOn: addOn || meal.addOn },
     fromTray: true,
+    duplicateWarning,
   };
 }
 
@@ -310,6 +377,22 @@ interface StoreState {
   removeFromQueue: (mealId: string, queue: 'week2' | 'favorites') => void;
   restoreFromQueue: (mealId: string, queue: 'week2' | 'favorites') => { meal: MealOption | null };
   moveToTrayFromQueue: (meal: MealOption) => void;
+  // Routing flags
+  trayBuilt: boolean;
+  setTrayBuilt: (value: boolean) => void;
+  // Custom user-created dishes
+  customDishes: Dish[];
+  addCustomDish: (dish: Dish) => void;
+  updateCustomDish: (id: string, updates: Partial<Dish>) => void;
+  removeCustomDish: (id: string) => void;
+  // Roommate sharing
+  roommateLink: RoommateLink | null;
+  roommateSuggestions: RoommateSuggestion[];
+  generateRoommateLink: () => Promise<void>;
+  revokeRoommateLink: () => Promise<void>;
+  fetchRoommateSuggestions: () => Promise<void>;
+  approveSuggestion: (id: string) => Promise<void>;
+  rejectSuggestion: (id: string) => Promise<void>;
 }
 
 export const useStore = create<StoreState>()(
@@ -326,6 +409,10 @@ export const useStore = create<StoreState>()(
       pendingMutations: [],
       deadLetterMutations: [],
       smartQueue: { week2: [], favorites: [] },
+      trayBuilt: false,
+      customDishes: [],
+      roommateLink: null,
+      roommateSuggestions: [],
 
       setToast: (toast) => set({ toast }),
 
@@ -346,7 +433,6 @@ export const useStore = create<StoreState>()(
         set({
           isLoggedIn: false,
           user: null,
-          trayLibrary: { breakfast: [], lunch: [], dinner: [], snacks: [] },
           swaps: {},
           notifications: [],
           trayEditSession: null,
@@ -489,7 +575,11 @@ export const useStore = create<StoreState>()(
           }
           console.error('[Store] Plan sync failed:', err);
           get().addPendingMutation('plan', payload);
-          get().setToast({ message: 'Internet broke. Saved locally — will retry.', type: 'error' });
+          const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+          get().setToast({
+            message: isOffline ? 'Internet broke. Saved locally — will retry.' : 'Server error. Saved locally — will retry.',
+            type: 'error',
+          });
           return { ok: false, reason: err?.message ?? 'Sync failed' };
         }
       },
@@ -507,7 +597,11 @@ export const useStore = create<StoreState>()(
         } catch (err: any) {
           console.error('[Store] Complete sync failed:', err);
           get().addPendingMutation('complete', payload);
-          get().setToast({ message: 'Internet broke. Saved locally — will retry.', type: 'error' });
+          const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+          get().setToast({
+            message: isOffline ? 'Internet broke. Saved locally — will retry.' : 'Server error. Saved locally — will retry.',
+            type: 'error',
+          });
           return { ok: false, reason: err?.message ?? 'Sync failed' };
         }
       },
@@ -622,10 +716,73 @@ export const useStore = create<StoreState>()(
             },
           };
         }),
+
+      setTrayBuilt: (value: boolean) => set({ trayBuilt: value }),
+
+      addCustomDish: (dish) => set((s) => ({
+        customDishes: [...s.customDishes.filter(d => d.id !== dish.id), dish],
+      })),
+      updateCustomDish: (id, updates) => set((s) => ({
+        customDishes: s.customDishes.map(d => d.id === id ? { ...d, ...updates } : d),
+      })),
+      removeCustomDish: (id) => set((s) => ({
+        customDishes: s.customDishes.filter(d => d.id !== id),
+      })),
+
+      // ─── Roommate Actions ──────────────────────────────────────────────────
+      generateRoommateLink: async () => {
+        try {
+          const res = await api.post<RoommateLink>('/roommates/link/generate');
+          set({ roommateLink: { ...res, linkId: res.linkId || res.id, isActive: true } });
+          get().setToast({ message: 'Magic link generated! Share it with your roommates.', type: 'success' });
+        } catch {
+          get().setToast({ message: 'Failed to generate link. Try again.', type: 'error' });
+        }
+      },
+
+      revokeRoommateLink: async () => {
+        const link = get().roommateLink;
+        if (!link) return;
+        try {
+          await api.delete(`/roommates/link/${link.linkId || link.id}`);
+          set({ roommateLink: null });
+          get().setToast({ message: 'Link revoked.', type: 'success' });
+        } catch {
+          get().setToast({ message: 'Failed to revoke link.', type: 'error' });
+        }
+      },
+
+      fetchRoommateSuggestions: async () => {
+        try {
+          const res = await api.get<RoommateSuggestion[]>('/roommates/suggestions');
+          set({ roommateSuggestions: res });
+        } catch {
+          console.warn('[Store] Failed to fetch roommate suggestions');
+        }
+      },
+
+      approveSuggestion: async (id) => {
+        try {
+          await api.patch(`/roommates/suggestion/${id}`, { status: 'approved' });
+          get().fetchRoommateSuggestions();
+          window.dispatchEvent(new Event('pantry:invalidate'));
+        } catch {
+          get().setToast({ message: 'Failed to approve suggestion.', type: 'error' });
+        }
+      },
+
+      rejectSuggestion: async (id) => {
+        try {
+          await api.patch(`/roommates/suggestion/${id}`, { status: 'rejected' });
+          get().fetchRoommateSuggestions();
+        } catch {
+          get().setToast({ message: 'Failed to reject suggestion.', type: 'error' });
+        }
+      },
     }),
     {
       name: 'mealdrama-store',
-      version: 4,
+      version: 8,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const state = persistedState as Record<string, unknown>;
         if (fromVersion < 1) {
@@ -651,7 +808,6 @@ export const useStore = create<StoreState>()(
         }
         if (fromVersion < 3) {
           state.deadLetterMutations = [];
-          // Backfill retryCount on any existing pending mutations
           const mutations = state.pendingMutations as Array<Record<string, unknown>> | undefined;
           if (mutations) {
             for (const m of mutations) {
@@ -660,6 +816,27 @@ export const useStore = create<StoreState>()(
           }
         }
         if (fromVersion < 4) {
+          state.smartQueue = { week2: [], favorites: [] };
+        }
+        if (fromVersion < 5) {
+          const trayLib = state.trayLibrary as Record<string, unknown[]> | undefined;
+          const hasItems = trayLib ? Object.values(trayLib).some(arr => arr && arr.length > 0) : false;
+          state.trayBuilt = hasItems;
+        }
+        if (fromVersion < 6) {
+          state.customDishes = [];
+        }
+        if (fromVersion < 7) {
+          state.customDishes = [];
+        }
+        if (fromVersion < 8) {
+          // v7 → v8: force auth reset — handles same-version reinstall where Capacitor localStorage persists
+          state.isLoggedIn = false;
+          state.user = null;
+          state.trayBuilt = false;
+          state.swaps = {};
+          state.notifications = [];
+          state.trayLibrary = { breakfast: [], lunch: [], dinner: [], snacks: [] };
           state.smartQueue = { week2: [], favorites: [] };
         }
         return persistedState as Parameters<typeof persist>[0] extends (s: infer S) => unknown ? S : never;

@@ -10,6 +10,36 @@ export type Weight = 'light' | 'medium' | 'heavy';
 
 export type IngredientCategory = 'produce' | 'dairy' | 'grains' | 'proteins' | 'spices' | 'pantry' | 'breads';
 
+export const GravyType = {
+  DEFAULT: 'DEFAULT',
+  TADKA: 'TADKA',
+  GRAVY: 'GRAVY',
+  DRY: 'DRY',
+  CURRY: 'CURRY',
+  FRIED: 'FRIED',
+  STEAMED: 'STEAMED',
+  ROASTED: 'ROASTED',
+  SMOKED: 'SMOKED',
+} as const;
+
+export type GravyType = (typeof GravyType)[keyof typeof GravyType];
+
+const GRAVY_LABELS: Record<string, string> = {
+  DEFAULT: 'Default',
+  TADKA: 'Tadka',
+  GRAVY: 'Gravy',
+  DRY: 'Dry',
+  CURRY: 'Curry',
+  FRIED: 'Fried',
+  STEAMED: 'Steamed',
+  ROASTED: 'Roasted',
+  SMOKED: 'Smoked',
+};
+
+export function getGravyLabel(gravy: string): string {
+  return GRAVY_LABELS[gravy] || gravy.charAt(0).toUpperCase() + gravy.slice(1).toLowerCase();
+}
+
 export interface Ingredient {
     name: string;
     quantity: number;
@@ -21,15 +51,17 @@ export interface Ingredient {
 export interface DishVariant {
     id: string;
     name: string;
-    cookingStyle?: string; // tadka / roast / fried / steamed
-    addOn?: string;        // with rice / with roti / standalone
+    cookingStyle?: string;
+    addOn?: string;
     mealContext?: Category;
-    regionOverride?: string; // "Kerala" or "Bengal" fish curry
-    baseStyle?: string;      // Abstract style used by UI (e.g. 'dry', 'gravy', 'porridge')
+    regionOverride?: string;
+    baseStyle?: string;
     // Optional: regional accompaniments (sides or breads) that pair with this variant
     accompaniments?: string[];
     // Ingredients for shopping list generation
     ingredients?: Ingredient[];
+    // Optional: preparation or serving tip
+    tip?: string;
 }
 
 export interface Dish {
@@ -44,6 +76,11 @@ export interface Dish {
     nutrition: string[];
     tags: string[];
     variants: DishVariant[];
+    gravyType?: string;
+    rotiOptions?: string[];
+    riceOptions?: string[];
+    sideOptions?: string[];
+    beverageOptions?: string[];
     description?: string;
     season?: string[];
 }
@@ -3654,6 +3691,45 @@ export const DISH_LIBRARY: Dish[] = [
     { id: 'uttapam-pizza', name: 'Pizza Uttapam', icon: '🥞', region: 'south', states: ['Tamil Nadu', 'Karnataka'], category: ['breakfast'], type: 'veg', weight: 'medium', nutrition: ['carb'], tags: ['uttapam', 'pizza', 'toppings', 'fusion', 'south-indian'], variants: [{ id: 'up-classic', name: 'Pizza Uttapam Classic', baseStyle: 'toppings' }, { id: 'up-cheese', name: 'Cheese Uttapam', baseStyle: 'toppings' }] },
     // ─── West Extra Dishes ─────────────────────────────────────────
     { id: 'bombay-grill-sandwich', name: 'Bombay Grilled Sandwich', icon: '🥪', region: 'west', states: ['Maharashtra'], category: ['snacks', 'breakfast'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['sandwich', 'grilled', 'mumbai', 'street-food'], variants: [{ id: 'bgs-veg', name: 'Veg Grilled Sandwich', baseStyle: 'grilled' }, { id: 'bgs-paneer', name: 'Paneer Grilled Sandwich', baseStyle: 'grilled' }, { id: 'bgs-toast', name: 'Cheese Toast Sandwich', baseStyle: 'grilled' }] },
+    { id: 'avocado-sandwich', name: 'Avocado Sandwich', icon: '🥑', region: 'west', states: ['Maharashtra', 'Kerala', 'Karnataka'], category: ['breakfast', 'snacks', 'lunch'], type: 'veg', weight: 'light', nutrition: ['healthy-fats', 'fiber', 'protein'], tags: ['avocado', 'sandwich', 'toast', 'healthy', 'superfood', 'breakfast', 'high-protein'], description: 'Avocado-based dishes ranging from hearty sandwiches to light salad bowls. Rich in healthy fats, fiber, and protein — perfect for any meal.', variants: [
+      { id: 'avocado-sandwich-classic', name: 'Classic Avocado Sandwich', baseStyle: 'raw', accompaniments: ['lemon', 'black-pepper', 'salt'], mealContext: 'breakfast', ingredients: [
+        { name: 'Avocado', quantity: 1, unit: 'pc', category: 'produce' },
+        { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' },
+        { name: 'Cilantro', quantity: 10, unit: 'g', category: 'produce' },
+        { name: 'Green Chili', quantity: 1, unit: 'pc', category: 'produce' },
+        { name: 'Lemon Juice', quantity: 1, unit: 'tbsp', category: 'pantry' },
+        { name: 'Salt', quantity: 0.5, unit: 'tsp', category: 'pantry' },
+        { name: 'Black Pepper', quantity: 0.5, unit: 'tsp', category: 'pantry' },
+        { name: 'Brown Bread', quantity: 2, unit: 'pc', category: 'breads' },
+      ], tip: 'Serve fresh to avoid the mashed avocado mixture from releasing moisture and making the bread soggy.' },
+      { id: 'avocado-toast', name: 'Avocado Toast', baseStyle: 'toasted', accompaniments: ['lemon', 'red-chili-flakes'], mealContext: 'breakfast', ingredients: [
+        { name: 'Sourdough Bread', quantity: 2, unit: 'pc', category: 'breads' },
+        { name: 'Avocado', quantity: 1, unit: 'pc', category: 'produce' },
+        { name: 'Lemon Juice', quantity: 1, unit: 'tbsp', category: 'pantry' },
+        { name: 'Black Pepper', quantity: 0.5, unit: 'tsp', category: 'pantry' },
+        { name: 'Salt', quantity: 0.25, unit: 'tsp', category: 'pantry' },
+        { name: 'Olive Oil', quantity: 1, unit: 'tsp', category: 'pantry' },
+      ], tip: 'Add poached or boiled eggs for extra protein.' },
+      { id: 'avocado-cheese-sandwich', name: 'Avocado Cheese Sandwich', baseStyle: 'grilled', accompaniments: ['cheese-slice'], mealContext: 'snacks', ingredients: [
+        { name: 'Bread', quantity: 2, unit: 'pc', category: 'breads' },
+        { name: 'Avocado', quantity: 0.5, unit: 'pc', category: 'produce' },
+        { name: 'Cheese Slice', quantity: 1, unit: 'pc', category: 'dairy' },
+        { name: 'Tomato', quantity: 2, unit: 'pc', category: 'produce' },
+        { name: 'Cucumber', quantity: 4, unit: 'pc', category: 'produce' },
+        { name: 'Butter', quantity: 1, unit: 'tbsp', category: 'dairy' },
+      ], tip: 'Grill on a tawa or toaster until the cheese is melted and the bread is golden brown.' },
+      { id: 'avocado-salad-bowl', name: 'Avocado Salad Bowl', addOn: 'with salad', mealContext: 'lunch', ingredients: [
+        { name: 'Avocado', quantity: 1, unit: 'pc', category: 'produce' },
+        { name: 'Cucumber', quantity: 1, unit: 'pc', category: 'produce' },
+        { name: 'Tomato', quantity: 1, unit: 'pc', category: 'produce' },
+        { name: 'Onion', quantity: 0.5, unit: 'pc', category: 'produce' },
+        { name: 'Lettuce', quantity: 50, unit: 'g', category: 'produce' },
+        { name: 'Lemon Juice', quantity: 1, unit: 'tbsp', category: 'pantry' },
+        { name: 'Olive Oil', quantity: 1, unit: 'tbsp', category: 'pantry' },
+        { name: 'Salt', quantity: 0.25, unit: 'tsp', category: 'pantry' },
+        { name: 'Black Pepper', quantity: 0.5, unit: 'tsp', category: 'pantry' },
+      ], tip: 'Add boiled chickpeas, paneer, or boiled eggs to turn it into a complete, high-protein meal.' },
+    ] },
     { id: 'shev-puri', name: 'Shev Puri', icon: '🟡', region: 'west', states: ['Maharashtra'], category: ['snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['chaat', 'sev', 'street-food', 'mumbai'], variants: [{ id: 'sp-classic', name: 'Shev Puri Classic', baseStyle: 'chaat' }, { id: 'sp-extra-sev', name: 'Shev Puri Extra Sev', baseStyle: 'chaat' }] },
     { id: 'sabudana-vada', name: 'Sabudana Vada', icon: '⚪', region: 'west', states: ['Maharashtra', 'Gujarat'], category: ['snacks', 'breakfast'], type: 'veg', weight: 'medium', nutrition: ['carb'], tags: ['sabudana', 'snacks', 'crispy', 'fasting'], variants: [{ id: 'sv-classic', name: 'Sabudana Vada Classic', baseStyle: 'fried' }, { id: 'sv-peanut', name: 'Sabudana Vada + Peanuts', baseStyle: 'fried' }] },
     { id: 'kothimbir-vadi', name: 'Kothimbir Vadi', icon: '🥬', region: 'west', states: ['Maharashtra'], category: ['snacks'], type: 'veg', weight: 'light', nutrition: ['fiber'], tags: ['snacks', 'coriander', 'steamed', 'gujarati', 'crispy'], variants: [{ id: 'kv-classic', name: 'Kothimbir Vadi Classic', baseStyle: 'steamed' }, { id: 'kv-fried', name: 'Kothimbir Vadi Fried', baseStyle: 'fried' }] },
@@ -3695,6 +3771,21 @@ export const DISH_LIBRARY: Dish[] = [
     { id: 'methi-malai-matar', name: 'Methi Malai Matar', icon: '🥬', region: 'north', states: ['Punjab', 'Delhi'], category: ['lunch', 'dinner'], type: 'veg', weight: 'medium', nutrition: ['protein', 'fiber'], tags: ['sabzi', 'fenugreek', 'peas', 'cream', 'gravy'], variants: [{ id: 'mmm-roti', name: 'Methi Malai Matar + Roti', addOn: 'with roti', mealContext: 'dinner' }, { id: 'mmm-naan', name: 'Methi Malai Matar + Naan', mealContext: 'dinner' }] },
     { id: 'chicken-malai-tikka', name: 'Malai Chicken Tikka', icon: '🍗', region: 'north', states: ['Delhi', 'Punjab'], category: ['lunch', 'dinner', 'snacks'], type: 'non-veg', weight: 'light', nutrition: ['protein'], tags: ['tandoori', 'chicken', 'cream', 'mild', 'smoky'], variants: [{ id: 'cmt-naan', name: 'Malai Tikka + Naan', mealContext: 'dinner' }, { id: 'cmt-platter', name: 'Malai Tikka Platter', mealContext: 'dinner' }] },
     { id: 'mango-lassi', name: 'Mango Lassi', icon: '🥭', region: 'north', states: ['Punjab', 'Delhi'], category: ['snacks'], type: 'veg', weight: 'medium', nutrition: ['sweet', 'dairy', 'probiotic'], tags: ['lassi', 'yogurt', 'mango', 'sweet', 'summer'], variants: [{ id: 'ml-classic', name: 'Mango Lassi Classic', baseStyle: 'blended' }, { id: 'ml-thick', name: 'Thick Mango Lassi', baseStyle: 'blended' }] },
+    // ─── Chilla Variants (all regions) ─────────────────────────
+    { id: 'besan_chilla_north', name: 'Besan Chilla (Punjabi)', icon: '🥞', region: 'north', states: ['Punjab'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein'], tags: ['breakfast', 'gluten-free', 'high-protein', 'gram-flour', 'turmeric'], variants: [{ id: 'besan-chilla-classic', name: 'Besan Chilla Classic', cookingStyle: 'tadka', mealContext: 'breakfast' }, { id: 'besan-chilla-plain', name: 'Besan Chilla Plain', baseStyle: 'plain', mealContext: 'breakfast' }] },
+    { id: 'suji_chilla_north', name: 'Suji Chilla (Semolina)', icon: '🥞', region: 'north', states: ['Punjab', 'Haryana'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['breakfast', 'crispy', 'curd', 'veg'], variants: [{ id: 'suji-chilla-classic', name: 'Suji Chilla Classic', cookingStyle: 'tadka', mealContext: 'breakfast' }, { id: 'suji-chilla-crispy', name: 'Crispy Suji Chilla', baseStyle: 'crispy', mealContext: 'breakfast' }] },
+    { id: 'besan_chilla_curry_north', name: 'Besan Chilla Curry', icon: '🥞', region: 'north', states: ['Punjab'], category: ['breakfast', 'lunch'], type: 'veg', weight: 'medium', nutrition: ['protein'], tags: ['breakfast', 'yogurt-curry', 'veg'], variants: [{ id: 'besan-chilla-curry-classic', name: 'Besan Chilla Curry', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'methi_chilla_north', name: 'Methi Chilla', icon: '🥞', region: 'north', states: ['Punjab', 'Uttar Pradesh'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein', 'fiber'], tags: ['breakfast', 'winter', 'iron-rich', 'fenugreek', 'veg'], variants: [{ id: 'methi-chilla-classic', name: 'Methi Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'rice_chilla_gujarat', name: 'Rice Chilla (Gujarat)', icon: '🥞', region: 'west', states: ['Gujarat'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['breakfast', 'gluten-free', 'curd', 'leftover-friendly', 'veg'], variants: [{ id: 'rice-chilla-guj-classic', name: 'Rice Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'poha_chilla_mh', name: 'Poha Chilla', icon: '🥞', region: 'west', states: ['Maharashtra'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['breakfast', 'light', 'flattened-rice', 'veg'], variants: [{ id: 'poha-chilla-classic', name: 'Poha Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'mixed_veg_chilla_mh', name: 'Mixed Veg Chilla', icon: '🥞', region: 'west', states: ['Maharashtra'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein', 'fiber'], tags: ['breakfast', 'multi-grain', 'jowar', 'high-fiber', 'veg'], variants: [{ id: 'mixed-veg-chilla-classic', name: 'Mixed Veg Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'rice_chilla_cg', name: 'Rice Chilla (Chhattisgarh)', icon: '🥞', region: 'central', states: ['Chhattisgarh'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['breakfast', 'staple', 'cumin-coriander', 'gluten-free', 'veg'], variants: [{ id: 'rice-chilla-cg-classic', name: 'Rice Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'dal_rice_chilla_east', name: 'Dal-Rice Chilla', icon: '🥞', region: 'east', states: ['Odisha', 'West Bengal'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'medium', nutrition: ['protein', 'carb'], tags: ['breakfast', 'protein-rich', 'urad-moong', 'fermented', 'veg'], variants: [{ id: 'dal-rice-chilla-classic', name: 'Dal-Rice Chilla', cookingStyle: 'steamed', mealContext: 'breakfast' }] },
+    { id: 'moong_dal_chilla_south', name: 'Moong Dal Chilla (Pesarattu)', icon: '🥞', region: 'south', states: ['Andhra Pradesh', 'Telangana'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein'], tags: ['breakfast', 'high-protein', 'green-gram', 'gluten-free', 'veg'], variants: [{ id: 'moong-dal-chilla-classic', name: 'Moong Dal Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'mysore_dalia_dosa', name: 'Mysore Dalia Dosa', icon: '🥞', region: 'south', states: ['Karnataka'], category: ['breakfast'], type: 'veg', weight: 'light', nutrition: ['carb', 'fiber'], tags: ['breakfast', 'fiber', 'broken-wheat', 'veg'], variants: [{ id: 'mysore-dalia-dosa-classic', name: 'Mysore Dalia Dosa', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'oats_sprouts_chilla', name: 'Oats & Sprouts Chilla', icon: '🥞', region: 'north', states: ['Punjab', 'Delhi'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein', 'fiber'], tags: ['breakfast', 'high-fiber', 'high-protein', 'modern', 'veg'], variants: [{ id: 'oats-sprouts-chilla-classic', name: 'Oats & Sprouts Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
+    { id: 'paneer_chilla', name: 'Paneer Chilla', icon: '🥞', region: 'north', states: ['Delhi', 'Uttar Pradesh'], category: ['breakfast', 'snacks', 'lunch'], type: 'veg', weight: 'medium', nutrition: ['protein', 'fat'], tags: ['breakfast', 'high-protein', 'stuffed', 'cottage-cheese', 'veg'], variants: [{ id: 'paneer-chilla-classic', name: 'Paneer Chilla', cookingStyle: 'stuffed', mealContext: 'breakfast' }] },
+    { id: 'singhara_chilla_vrat', name: 'Singhara Atta Chilla (Vrat)', icon: '🥞', region: 'north', states: ['Uttar Pradesh', 'Bihar'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['breakfast', 'fasting', 'gluten-free', 'water-chestnut', 'vrat-friendly', 'veg'], variants: [{ id: 'singhara-chilla-classic', name: 'Singhara Atta Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
 ];
 
 export const getDishesByRegion = (region: Region) =>

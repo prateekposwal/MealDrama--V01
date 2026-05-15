@@ -9,88 +9,161 @@ datasource db {
 
 // 1. AUTH & IDENTITY
 model User {
-  id            String    @id @default(uuid())
-  email         String?   @unique // Google Auth
-  phone         String?   @unique // OTP Auth
-  name          String?
-  systemId      String?   @unique // e.g., USER-8821
-  createdAt     DateTime  @default(now())
-  onboardingComplete Boolean @default(false)
-  
+  id                 String   @id @default(uuid())
+  email              String?  @unique // Google Auth
+  phone              String?  @unique // OTP Auth
+  name               String?
+  systemId           String?  @unique // e.g., USER-8821
+  createdAt          DateTime @default(now())
+  onboardingComplete Boolean  @default(false)
+
   // Relations
-  profile       UserProfile?
-  plans         UserPlan[]
-  completedSlots CompletedSlot[]
+  profile          UserProfile?
+  plans            UserPlan[]
+  completedSlots   CompletedSlot[]
+  householdMembers HouseholdMember[]
+  traySlots        TraySlot[]
+  customDishes     CustomDish[]
+  roommateLinks    RoommateLink[]
+}
+
+// 2. HOUSEHOLD
+model Household {
+  id                 String   @id @default(uuid())
+  name               String
+  locationRegion     String?
+  householdSize      Int      @default(1)
+  onboardingProgress Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  members    HouseholdMember[]
+  slotConfig MealSlotConfig?
+  cook       Cook?
+}
+
+model HouseholdMember {
+  id          String  @id @default(uuid())
+  householdId String
+  userId      String?
+  name        String
+  role        String  @default("member") // owner, member
+  persona     String? // working_professional, homemaker, student, etc.
+  ageGroup    String? // adult, teen, child, senior
+  dietType    String? // veg, non_veg, eggitarian, vegan
+
+  household     Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  healthProfile HealthProfile?
+
+  @@index([householdId])
+  @@index([userId])
+}
+
+model MealSlotConfig {
+  id          String @id @default(uuid())
+  householdId String @unique
+  config      Json // stores breakfast/lunch/snacks/dinner configuration
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model Cook {
+  id          String   @id @default(uuid())
+  householdId String   @unique
+  name        String
+  phone       String?
+  addedAt     DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+model HealthProfile {
+  id                String   @id @default(uuid())
+  memberId          String   @unique
+  healthGoal        String? // high_protein, weight_loss, etc.
+  allergies         String[] // ["peanut", "seafood"]
+  intolerances      String[] // ["lactose"]
+  medicalConditions String[] // ["diabetes"]
+  spiceLevel        Int      @default(3)
+  oilPreference     String? // low, medium, high
+  sweetTolerance    String? // low, medium, high
+  foodBehavior      String? // comfort, adventurous, picky
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  member HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 }
 
 // 5. USER PREFERENCES
 model UserProfile {
-  id              String   @id @default(uuid())
-  userId          String   @unique
-  dietType        String   @default("veg") // veg, non-veg, eggitarian, vegan
-  region          String   @default("north")
-  allergies       String[] // ["peanuts", "gluten"]
-  dislikedItems  String[] // ["okra", "bitter-gourd"]
-  spiceLevel     String   @default("medium") // mild, medium, hot
-  
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  dietType      String   @default("veg") // veg, non-veg, eggitarian, vegan
+  region        String   @default("north")
+  allergies     String[] // ["peanuts", "gluten"]
+  dislikedItems String[] // ["okra", "bitter-gourd"]
+  spiceLevel    String   @default("medium") // mild, medium, hot
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // 4. MASTER MEAL CATALOG
 model Meal {
-  id          String   @id // e.g., "north-rajma-chawal"
-  name        String
-  icon        String?
-  category    String   // breakfast, lunch, dinner, snacks
-  type        String   // veg, non-veg, eggitarian, vegan
-  region      String?
-  tags        String[] // ["high-protein", "winter-special"]
-  
+  id       String   @id // e.g., "north-rajma-chawal"
+  name     String
+  icon     String?
+  category String // breakfast, lunch, dinner, snacks
+  type     String // veg, non-veg, eggitarian, vegan
+  region   String?
+  tags     String[] // ["high-protein", "winter-special"]
+
   variants    MealVariant[]
   ingredients MealIngredient[] // The master recipe
   userPlans   UserPlan[]
-  
+  trayItems   TrayItem[]
+
   @@index([category, type])
   @@index([tags])
 }
 
 model MealVariant {
-  id              String   @id
-  mealId          String
-  name            String
-  cookingStyle    String?
-  baseStyle       String?
-  addOn           String?
-  accompaniments  String[]
-  mealContext     String?
-  regionOverride  String?
+  id             String   @id
+  mealId         String
+  name           String
+  cookingStyle   String?
+  baseStyle      String?
+  addOn          String?
+  accompaniments String[]
+  mealContext    String?
+  regionOverride String?
 
-  meal    Meal     @relation(fields: [mealId], references: [id], onDelete: Cascade)
-  plans   UserPlan[]
+  meal  Meal       @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  plans UserPlan[]
 }
 
 // 6. INGREDIENT STANDARDIZATION
 model Ingredient {
   id          String   @id // e.g., "onion-red"
-  name       String   // "Red Onion"
-  category   String   // produce, grains, dairy, spices, pantry, proteins
-  defaultUnit String  // g, kg, pcs, tbsp, cup
-  aliases    String[] // ["pyaz", "onion"]
-  
-  usedIn     MealIngredient[]
+  name        String // "Red Onion"
+  category    String // produce, grains, dairy, spices, pantry, proteins
+  defaultUnit String // g, kg, pcs, tbsp, cup
+  aliases     String[] // ["pyaz", "onion"]
+
+  usedIn MealIngredient[]
 }
 
 model MealIngredient {
-  id           String     @id @default(uuid())
-  mealId       String
-  ingredientId String
+  id            String  @id @default(uuid())
+  mealId        String
+  ingredientId  String
   qtyPerServing Float
-  unit         String    // Override default if needed
-  notes        String?  // "Optional: for garnish"
-  
-  meal         Meal       @relation(fields: [mealId], references: [id], onDelete: Cascade)
-  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
-  
+  unit          String // Override default if needed
+  notes         String? // "Optional: for garnish"
+
+  meal       Meal       @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
   @@unique([mealId, ingredientId])
 }
 
@@ -99,17 +172,17 @@ model UserPlan {
   id        String   @id @default(uuid())
   userId    String
   date      DateTime @db.Date
-  slot      String   // breakfast, lunch, dinner, snacks
+  slot      String // breakfast, lunch, dinner, snacks
   mealId    String
   variantId String?
-  qty       Int     @default(1)
-  status   String   @default("planned") // planned, swapped, skipped
-  version  Int     @default(0) // optimistic locking — increment on every write
+  qty       Int      @default(1)
+  status    String   @default("planned") // planned, swapped, skipped
+  version   Int      @default(0) // optimistic locking — increment on every write
 
-  user       User        @relation(fields: [userId], references: [id])
-  meal       Meal        @relation(fields: [mealId], references: [id])
-  variant    MealVariant? @relation(fields: [variantId], references: [id])
-  updatedAt  DateTime    @updatedAt
+  user      User         @relation(fields: [userId], references: [id])
+  meal      Meal         @relation(fields: [mealId], references: [id])
+  variant   MealVariant? @relation(fields: [variantId], references: [id])
+  updatedAt DateTime     @updatedAt
 
   @@unique([userId, date, slot])
   @@index([userId])
@@ -118,17 +191,167 @@ model UserPlan {
 }
 
 model CompletedSlot {
-  id          String    @id @default(uuid())
-  userId     String
-  date      DateTime  @db.Date
-  slot      String
-  status    String   @default("cooked") // cooked, missed, skipped
+  id          String   @id @default(uuid())
+  userId      String
+  date        DateTime @db.Date
+  slot        String
+  status      String   @default("cooked") // cooked, missed, skipped
   completedAt DateTime @default(now())
-  updatedAt  DateTime  @updatedAt
+  updatedAt   DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, date, slot])
   @@index([userId])
   @@index([userId, date])
+}
+
+// TRAY BUILDER 2.0
+model TraySlot {
+  id            String   @id @default(uuid())
+  userId        String
+  date          DateTime @db.Date
+  slot          String // breakfast, lunch, snacks, dinner
+  totalServings Int      @default(1)
+  guestCount    Int      @default(0)
+  guestDays     Int      @default(0)
+  isGuestMode   Boolean  @default(false)
+  version       Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items               TrayItem[]
+  roommateSuggestions RoommateSuggestion[]
+
+  @@unique([userId, date, slot])
+  @@index([userId, date])
+  @@index([userId])
+}
+
+model TrayItem {
+  id           String   @id @default(uuid())
+  traySlotId   String
+  mealId       String?
+  customDishId String?
+  quantity     Int      @default(1)
+  gravyStyle   String   @default("Default")
+  rotiType     String   @default("Phulka")
+  riceType     String   @default("Plain")
+  sides        String[]
+  beverages    String[]
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  traySlot            TraySlot             @relation(fields: [traySlotId], references: [id], onDelete: Cascade)
+  meal                Meal?                @relation(fields: [mealId], references: [id], onDelete: SetNull)
+  customDish          CustomDish?          @relation(fields: [customDishId], references: [id], onDelete: SetNull)
+  roommateSuggestions RoommateSuggestion[]
+
+  @@index([traySlotId])
+  @@index([mealId])
+  @@index([customDishId])
+}
+
+model CustomDish {
+  id           String   @id @default(uuid())
+  userId       String
+  name         String
+  category     String // breakfast, lunch, snacks, dinner
+  dietType     String   @default("veg")
+  isCustom     Boolean  @default(true)
+  defaultGravy String   @default("Default")
+  defaultRoti  String   @default("Phulka")
+  defaultRice  String   @default("Plain")
+  prepMinutes  Int      @default(30)
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ingredients CustomDishIngredient[]
+  trayItems   TrayItem[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([userId, category])
+}
+
+model CustomDishIngredient {
+  id           String  @id @default(uuid())
+  customDishId String
+  name         String
+  quantity     Float
+  unit         String
+  isOptional   Boolean @default(false)
+  notes        String?
+
+  customDish CustomDish @relation(fields: [customDishId], references: [id], onDelete: Cascade)
+
+  @@index([customDishId])
+}
+
+model RoommateLink {
+  id        String    @id @default(uuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suggestions RoommateSuggestion[]
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model RoommateSuggestion {
+  id           String   @id @default(uuid())
+  linkId       String
+  traySlotId   String
+  trayItemId   String?
+  mealName     String
+  date         DateTime @db.Date
+  slot         String
+  quantity     Int      @default(1)
+  gravyStyle   String?
+  rotiType     String?
+  riceType     String?
+  sides        String[]
+  beverages    String[]
+  roommateName String
+  status       String   @default("pending") // pending, approved, rejected
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  link     RoommateLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  traySlot TraySlot     @relation(fields: [traySlotId], references: [id], onDelete: Cascade)
+  trayItem TrayItem?    @relation(fields: [trayItemId], references: [id], onDelete: SetNull)
+
+  @@index([linkId])
+  @@index([traySlotId])
+  @@index([trayItemId])
+  @@index([status])
+  @@index([date])
+}
+
+model LoopConfig {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  cycleLength     Int      @default(7)
+  startDate       String
+  skipDays        Int[]
+  repeatPattern   String   @default("sequential")
+  insertStrategy  String   @default("append")
+  sourceDishIds   String[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

@@ -1,8 +1,16 @@
 import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET && process.env.NODE_ENV === 'production') {
+declare global {
+  namespace Express {
+    interface Request {
+      user?: TokenPayload;
+    }
+  }
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? null : 'mealdrama-dev-secret-not-for-production');
+if (!JWT_SECRET) {
   throw new Error('JWT_SECRET must be set in production');
 }
 
@@ -38,11 +46,20 @@ export const revokeToken = (token: string): void => {
 };
 
 export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  // Check Authorization header first, then cookie fallback
+  let token: string | undefined;
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+  if (authHeader?.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if (req.headers.cookie) {
+    // Parse cookie manually or via cookie-parser
+    const cookies = req.cookies as Record<string, string> | undefined;
+    token = cookies?.token;
+  }
+
+  if (!token) {
     return res.status(401).json({ error: 'Authorization header missing or malformed' });
   }
-  const token = authHeader.slice(7);
   const decoded = verifyToken(token);
   if (!decoded) {
     return res.status(401).json({ error: 'Invalid or expired token' });

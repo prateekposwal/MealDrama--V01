@@ -1,5 +1,6 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { prisma } from './lib/prisma';
 import './lib/auth';
@@ -22,8 +23,11 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
+// Cookie parsing (for session token)
+app.use(cookieParser());
+
 // CORS
-app.use(cors({
+const corsOptions: cors.CorsOptions = {
   origin: process.env.CORS_ORIGINS?.split(',') || [
     'http://localhost:3000',
     'http://localhost:5173',
@@ -31,8 +35,19 @@ app.use(cors({
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+};
+app.use(cors(corsOptions));
+
+// Explicit OPTIONS preflight — cors() middleware already handles this via corsOptions,
+// but we add a catch-all so every route returns 204 + CORS headers for preflight.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+  } else {
+    next();
+  }
+});
 
 // Request logging
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -146,6 +161,11 @@ app.use('/api/v1/meals', require('./routes/meals').default);
 app.use('/api/v1/plan', require('./routes/plan').default);
 app.use('/api/v1/complete', require('./routes/complete').default);
 app.use('/api/v1/users', require('./routes/users').default);
+app.use('/api/v1/tray', require('./routes/tray').default);
+app.use('/api/v1/variants', require('./routes/variants').default);
+app.use('/api/v1/custom-dishes', require('./routes/custom-dishes').default);
+app.use('/api/v1/roommates', require('./routes/roommates').default);
+app.use('/api/v1/loop-config', require('./routes/loopConfig').default);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

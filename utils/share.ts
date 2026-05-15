@@ -96,5 +96,19 @@ export const formatMealLabel = (meal: MealOption | null | undefined) => {
     if (!meal) return '—';
     const label = meal.variant || meal.name;
     const qty = meal.quantity && meal.quantity > 1 ? ` x${meal.quantity}` : '';
+
+    const parts: string[] = [];
+    const cat = meal.categorySelections;
+    if (cat) {
+        if (cat.gravy?.name) parts.push(cat.gravy.name);
+        if (cat.roti?.name) parts.push(cat.roti.name);
+        if (cat.rice?.name) parts.push(cat.rice.name);
+        if (cat.sides?.length) parts.push(cat.sides.map(s => s.name).join(', '));
+        if (cat.beverages?.length) parts.push(cat.beverages.map(b => b.name).join(', '));
+    }
+
+    if (parts.length > 0) {
+        return `${label} | ${parts.join(' • ')}${qty}`;
+    }
     return `${label}${qty}`;
 };

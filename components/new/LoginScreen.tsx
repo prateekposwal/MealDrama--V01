@@ -1,7 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ChevronRight, Phone, Loader2 } from 'lucide-react';
-import api from '../../lib/api';
-
 interface LoginScreenProps {
     onLogin: (userId: string) => void;
 }
@@ -12,23 +10,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [otp, setOtp] = useState(['', '', '', '']);
     const [loading, setLoading] = useState(false);
 
-    useEffect(() => {
-        const storedId = localStorage.getItem('mealdrama-user-id');
-        if (storedId) {
-            onLogin(storedId);
-        }
-    }, []);
-
     const handleCreateUser = async () => {
         const userId = crypto.randomUUID();
         localStorage.setItem('mealdrama-user-id', userId);
-
-        try {
-            await api.post('/users', { id: userId, name: 'User', phone: phone || null });
-        } catch {
-            // Local-only mode
-        }
-
         onLogin(userId);
     };
 
