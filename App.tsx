@@ -5,55 +5,22 @@ import api, { getToken, setAuthReady } from './lib/api';
 import LoginScreen from './components/new/LoginScreen';
 import MealTrayBuilder from './screens/MealTrayBuilder';
 import MealLoopConfigModal from './components/meal/MealLoopConfigModal';
-import { Home, Calendar, ShoppingBasket, User as UserIcon, X, AlertTriangle } from 'lucide-react';
+import { Home, Calendar, ShoppingBasket, User as UserIcon, X } from 'lucide-react';
 import { useBackendDishes } from './hooks/useBackendDishes';
 import QuickStartOnboarding from './components/new/QuickStartOnboarding';
 import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
+import { ErrorBoundary } from './components/new/ErrorBoundary';
+import { OfflineBanner } from './components/new/OfflineBanner';
+import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
 import type { Dish } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
 import type { MealLoopConfig } from './types/tray';
-
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode; fallback?: React.ReactNode },
-  { hasError: boolean; error: Error | null }
-> {
-  constructor(props: { children: React.ReactNode; fallback?: React.ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[ErrorBoundary] Caught:', error, info);
-  }
-  render() {
-    if (this.state.hasError) {
-      return this.props.fallback || (
-        <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 bg-white">
-          <AlertTriangle size={40} className="text-red-400" />
-          <p className="text-lg font-bold text-gray-900">Something went wrong</p>
-          <p className="text-sm text-gray-500 text-center max-w-md">{this.state.error?.message}</p>
-          <button
-            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
-            className="mt-4 px-6 py-3 rounded-[20px] bg-[#FF385C] text-white font-bold text-sm"
-          >
-            Reload App
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 const DashScreen = React.lazy(() => import('./screens/Dashboard'));
 const PlanScreen = React.lazy(() => import('./screens/PlanScreen'));
 const Profile = React.lazy(() => import('./components/new/Profile'));
 const PantryPulse = React.lazy(() => import('./components/new/PantryPulse'));
-const DemoScreen = React.lazy(() => import('./components/new/DemoScreen'));
-
 const PageLoader = () => (
   <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
     <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
@@ -68,7 +35,7 @@ const TABS = [
   { key: 'profile', label: 'Profile', Icon: UserIcon },
 ] as const;
 
-type Tab = typeof TABS[number]['key'] | 'demo';
+type Tab = typeof TABS[number]['key'];
 
 const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; onClose: () => void }> = ({ message, type, onClose }) => {
   const colors = {
@@ -261,17 +228,39 @@ const App: React.FC = () => {
     <SwapCustomizeProvider>
     <div className="min-h-screen bg-white font-sans text-gray-900 max-w-lg mx-auto">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      <OfflineBanner />
       <main className="min-h-screen pb-24">
-        <Suspense fallback={<PageLoader />}>
-          {activeTab === 'dashboard' && <DashScreen user={user} onNavigate={setActiveTab} onManageTray={() => setManageTray(true)} />}
-          {activeTab === 'plan' && <PlanScreen user={user} />}
-          {activeTab === 'pulse' && <PantryPulse />}
-          {activeTab === 'profile' && <Profile onLogout={logout} onManageTray={(slot) => {
-            if (slot) setManageTraySlot(slot);
-            setManageTray(true);
-          }} />}
-          {activeTab === 'demo' && <DemoScreen />}
-        </Suspense>
+        {activeTab === 'dashboard' && (
+          <ErrorBoundary key="dashboard">
+            <Suspense fallback={<DashboardSkeleton />}>
+              <DashScreen user={user} onNavigate={setActiveTab} onManageTray={() => setManageTray(true)} />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+        {activeTab === 'plan' && (
+          <ErrorBoundary key="plan">
+            <Suspense fallback={<PlanScreenSkeleton />}>
+              <PlanScreen user={user} />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+        {activeTab === 'pulse' && (
+          <ErrorBoundary key="pantry">
+            <Suspense fallback={<PantryPulseSkeleton />}>
+              <PantryPulse />
+            </Suspense>
+          </ErrorBoundary>
+        )}
+        {activeTab === 'profile' && (
+          <ErrorBoundary key="profile">
+            <Suspense fallback={<ProfileSkeleton />}>
+              <Profile onLogout={logout} onManageTray={(slot) => {
+                if (slot) setManageTraySlot(slot);
+                setManageTray(true);
+              }} />
+            </Suspense>
+          </ErrorBoundary>
+        )}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 z-50">

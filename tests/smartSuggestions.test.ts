@@ -588,3 +588,58 @@ describe('getSmartSuggestions — meta info', () => {
     expect(result.meta.timeWindow).toBe('morning');
   });
 });
+
+// ─── Edge Cases ───────────────────────────────────────────────────────────────
+
+describe('getSmartSuggestions — edge cases', () => {
+  it('handles empty tags gracefully', () => {
+    const input = makeInput({ id: 'plain', name: 'Plain Dish', tags: [] });
+    const result = getSmartSuggestions(input, 'lunch', { useSmartSuggestions: true });
+    expect(result.bread).toBeDefined();
+    expect(Array.isArray(result.bread.items)).toBe(true);
+  });
+
+  it('handles missing tags field', () => {
+    const input = makeInput({ id: 'no-tags', name: 'No Tags' });
+    delete (input as any).tags;
+    const result = getSmartSuggestions(input, 'dinner', { useSmartSuggestions: true });
+    expect(result.bread).toBeDefined();
+    expect(Array.isArray(result.bread.items)).toBe(true);
+  });
+
+  it('returns fallback for completely empty dish input', () => {
+    const input = makeInput({ id: '', name: '', tags: [] });
+    const result = getSmartSuggestions(input, 'snacks', { useSmartSuggestions: true });
+    expect(result.bread).toBeDefined();
+  });
+
+  it('handles midnight timeWindow boundary', () => {
+    const input = makeInput({ id: 'midnight-snack', name: 'Midnight Snack', region: 'north', tags: ['snack'] });
+    const morning = getSmartSuggestions(input, 'snacks', { useSmartSuggestions: true, timeWindow: 'morning' });
+    const evening = getSmartSuggestions(input, 'snacks', { useSmartSuggestions: true, timeWindow: 'evening' });
+    expect(morning).toBeDefined();
+    expect(evening).toBeDefined();
+  });
+
+  it('getTimeWindow handles boundary hours', () => {
+    const dates = [0, 5, 6, 11, 12, 15, 18, 23].map(h => {
+      const d = new Date('2026-01-01T00:00:00');
+      d.setHours(h);
+      return d;
+    });
+    for (const d of dates) {
+      expect(typeof getTimeWindow(d)).toBe('string');
+    }
+  });
+
+  it('getCurrentSeason returns valid string', () => {
+    const s = getCurrentSeason();
+    expect(s).toBeTruthy();
+    expect(typeof s).toBe('string');
+  });
+
+  it('getCurrentFestival returns string or null', () => {
+    const f = getCurrentFestival();
+    expect(f === null || typeof f === 'string').toBe(true);
+  });
+});

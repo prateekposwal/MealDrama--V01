@@ -48,7 +48,7 @@ const QtyStepper: React.FC<{
   qty: number;
   unit: string;
   onUpdate: (name: string, delta: number) => void;
-}> = ({ name, qty, unit, onUpdate }) => (
+}> = React.memo(({ name, qty, unit, onUpdate }) => (
   <span className="inline-flex items-center gap-0.5 ml-1">
     <button
       onClick={(e) => { e.stopPropagation(); onUpdate(name, -1); }}
@@ -65,7 +65,7 @@ const QtyStepper: React.FC<{
     </button>
     <span className="text-[7px] text-gray-400 ml-0.5">{unit}</span>
   </span>
-);
+));
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
     `${String(i).padStart(2, '0')}:00`
@@ -134,7 +134,7 @@ const TimeEditor: React.FC<{
     );
 };
 
-export const MealCard: React.FC<MealCardProps> = ({
+export const MealCard: React.FC<MealCardProps> = React.memo(({
     item, mealType, slot, dishes, userRegion, userDiet,
     isLocked, isMissed, onRemove, editable = true,
     swapCustomizeOpen, onSwapCustomizeOpen, onSwapCustomizeClose,
@@ -301,6 +301,6 @@ export const MealCard: React.FC<MealCardProps> = ({
             `}</style>
         </div>
     );
-};
+});
 
 export default MealCard;

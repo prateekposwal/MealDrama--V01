@@ -121,7 +121,7 @@ function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals:
   return { isLocked, isMissed, editable, showSuggestions, cardClass };
 }
 
-export const SlotBody: React.FC<SlotBodyProps> = ({
+export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   date, mealType, slotLabel, meals, mode,
   dishes, userRegion, userDiet, pantryStaples,
   guestMode = { active: false, guestCount: 0, extraServings: 0, startDate: '', endDate: '' },
@@ -509,6 +509,6 @@ export const SlotBody: React.FC<SlotBodyProps> = ({
       )}
     </div>
   );
-};
+});
 
 export default SlotBody;
