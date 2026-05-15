@@ -14,13 +14,12 @@
 | `stableSwapCustomizeOpen` / `stableSwapCustomizeClose` | `PlanScreen.tsx`, `Dashboard.tsx` | Stable across renders |
 | `handleOpenSearchStable` + ref-based trigger | `PlanScreen.tsx`, `Dashboard.tsx` | Single stable callback, reads latest date/slot from ref |
 
-### 2. Virtualization (PlanScreen History Tab)
+### 2. Virtualization (Planned but deferred)
 
-| Component | Library | Config |
+| Component | Library | Status |
 |---|---|---|
-| `VirtualList<T>` generic wrapper | `@tanstack/react-virtual` | estimateSize=240, overscan=2 |
-| History date list | `PlanScreen.tsx` | Only active when > 10 items |
-| Auto-fallback to direct render | `VirtualList.tsx` | Falls back to `<div>` when ≤ 10 items |
+| `VirtualList<T>` wrapper | `@tanstack/react-virtual` | Built but NOT wired in PlanScreen (caused mount cascade from inline renderItem — restored direct map render) |
+| History date list | `PlanScreen.tsx` | Direct `pastDatesWithMeals.map(...)` — stable callbacks prevent re-renders |
 
 ### 3. Debounced Search (SwapCustomizeModal)
 

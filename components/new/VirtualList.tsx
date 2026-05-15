@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 interface VirtualListProps<T> {
@@ -11,7 +11,7 @@ interface VirtualListProps<T> {
   as?: 'div' | 'ol' | 'ul';
 }
 
-export function VirtualList<T>({
+function VirtualListInner<T>({
   items,
   estimateSize,
   overscan = 3,
@@ -62,3 +62,5 @@ export function VirtualList<T>({
     </div>
   );
 }
+
+export const VirtualList = memo(VirtualListInner) as typeof VirtualListInner;

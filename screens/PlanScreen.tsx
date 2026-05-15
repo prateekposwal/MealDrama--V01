@@ -18,7 +18,7 @@ import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOTS } from '../utils/continuity';
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
-import { VirtualList } from '../components/new/VirtualList';
+
 
 const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
 
@@ -490,20 +490,15 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
             {/* ─── History (past days) ─── */}
             {planTab === 'history' && pastDatesWithMeals.length > 0 && (
-                <VirtualList
-                    items={pastDatesWithMeals}
-                    estimateSize={240}
-                    overscan={2}
-                    outerClassName="px-4"
-                    className="space-y-6"
-                    renderItem={(date) => {
+                <div className="px-4 space-y-6">
+                    {pastDatesWithMeals.map(date => {
                         const dateObj = new Date(date);
                         const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
                         const dayNum = dateObj.getDate();
                         const guestCount = guestMode.active ? guestMode.extraServings : 0;
 
                         return (
-                            <div>
+                            <div key={date}>
                                 <div className="flex items-center gap-3 mb-3 px-2">
                                     <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-400">
                                         <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
@@ -536,7 +531,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                     userRegion={regionKey}
                                                     userDiet={userDiet}
                                                     pantryStaples={pantryStaples}
-                                                    guestMode={guestMode}
+                                                    guestMode={stableGuestMode}
                                                     swapOpenKey={null}
                                                     onSwapOpen={stableNoopHandlers.open}
                                                     onSwapClose={stableNoopHandlers.close}
@@ -556,8 +551,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                 </div>
                             </div>
                         );
-                    }}
-                />
+                    })}
+                </div>
             )}
 
             {/* ─── Empty state ─── */}
