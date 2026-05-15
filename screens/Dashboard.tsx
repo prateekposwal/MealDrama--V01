@@ -3,7 +3,7 @@
 // Empty slots show QuickAddRow
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../lib/trayApi';
@@ -25,7 +25,7 @@ import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
 import { getShareStrings, ShareLanguage } from '../utils/share';
 import { resolveNextActiveDate } from '../utils/continuity';
-import { computeStyleWarnings } from '../constants/dishStyles';
+import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
 import { resolveSlotTimes } from '../types/tray';
 
 /** Convert SuggestionMeal (API) to Meal (defaults engine) */
@@ -110,6 +110,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
     const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const { openKey: swapCustomizeOpenKey, setOpenKey: setSwapCustomizeOpenKey } = useSwapCustomize();
+
+    const stableSwapOpen = useCallback((id: string) => {
+        setSwapOpenKey(prev => prev === id ? null : id);
+    }, []);
+    const stableSwapClose = useCallback(() => setSwapOpenKey(null), []);
+    const stableSwapCustomizeOpen = useCallback((id: string) => {
+        setSwapCustomizeOpenKey(prev => prev === id ? null : id);
+    }, []);
+    const stableSwapCustomizeClose = useCallback(() => setSwapCustomizeOpenKey(null), []);
+
+    const quickAddTrigger = useRef({ slot: '' as 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner' });
+    const handleOpenSearchStable = useCallback(() => {
+        setQuickAddSlot(quickAddTrigger.current.slot);
+        setShowQuickAdd(true);
+    }, []);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [addAnotherToast, setAddAnotherToast] = useState<string | null>(null);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
@@ -249,7 +264,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         return `🛒 *${copy.pantryTitle}*\n\n${copy.pantryFor}:\n${items}\n\n${copy.sentFrom}`;
     }, [getMeals, today]);
 
-    const preferences = user?.slotTimePreferences;
+    const preferences = useMemo(() => user?.slotTimePreferences, [user?.slotTimePreferences]);
+    const stableGuestMode = useMemo(() => guestMode, [
+        guestMode.active, guestMode.guestCount, guestMode.extraServings,
+        guestMode.startDate, guestMode.endDate,
+    ]);
     const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences), [getMeals, today, committedCompletions, preferences, slotTimesRefreshKey]);
     const activeSlots = categorizedSlots.filter(s => s.section === 'active');
     const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
@@ -467,7 +486,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     {(mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).length > 0 ? (
                         (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).map(({ section, slot }) => {
                         const slotMeals = getMeals(displayDate, slot.mealType);
-                        const prefs = user?.slotTimePreferences;
+                        const prefs = preferences;
                         const completionKey = `${today}::${slot.mealType}`;
                         const isUserCompleted = isCurrentDay && completions[completionKey] != null;
                         const isUndoing = isCurrentDay && undoSlot?.date === today && undoSlot?.mealType === slot.mealType;
@@ -512,18 +531,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     userRegion={user?.region ?? 'India'}
                                     userDiet={user?.diet ?? 'veg'}
                                     pantryStaples={pantryStaples}
-                                    guestMode={guestMode}
+                                    guestMode={stableGuestMode}
                                     swapOpenKey={swapOpenKey}
-                                    onSwapOpen={(id) => setSwapOpenKey(swapOpenKey === id ? null : id)}
-                                    onSwapClose={() => setSwapOpenKey(null)}
+                                    onSwapOpen={stableSwapOpen}
+                                    onSwapClose={stableSwapClose}
                                     onSwapSelect={handleSwapSelect}
                                     onUpdateInline={handleUpdateInline}
                                     onRemove={handleRemove}
                                     onSuggestionAdd={handleSuggestionAdd}
-                                    onOpenSearch={() => { setQuickAddSlot(slot.label); setShowQuickAdd(true); }}
+                                    onOpenSearch={() => {
+                                        quickAddTrigger.current = { slot: slot.label };
+                                        handleOpenSearchStable();
+                                    }}
                                     swapCustomizeOpenKey={swapCustomizeOpenKey}
-                                    onSwapCustomizeOpen={(id) => setSwapCustomizeOpenKey(swapCustomizeOpenKey === id ? null : id)}
-                                    onSwapCustomizeClose={() => setSwapCustomizeOpenKey(null)}
+                                    onSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                    onSwapCustomizeClose={stableSwapCustomizeClose}
                                     onSwapCustomizeApply={handleSwapCustomizeApply}
                                     onAddAnother={handleAddAnother}
                                     isUserCompleted={isCurrentDay && isUserCompleted && !isUndoing}

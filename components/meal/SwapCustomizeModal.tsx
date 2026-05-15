@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useDebounce } from '../../hooks/useDebounce';
 import type { MealType, TrayItem } from '../../store/useTrayStore';
 import { applySmartDefaults } from '../../store/useTrayStore';
 import type { Meal } from '../../types/tray';
@@ -142,6 +143,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const [quantity, setQuantity] = useState(1);
   const [showSwapSearch, setShowSwapSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [showGlobal, setShowGlobal] = useState(false);
   const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(null);
   const [healthSort, setHealthSort] = useState<HealthSortKey | null>(null);
@@ -406,7 +408,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const swapSearchDishes = useMemo(() => {
     if (!showSwapSearch) return [];
 
-    const q = searchQuery.toLowerCase();
+    const q = debouncedSearchQuery.toLowerCase();
     const category = mealType;
     const isVegan = userDiet?.toLowerCase() === 'vegan';
     const allowedTypes = DIET_FILTER[userDiet?.toLowerCase() || 'veg'] || ['veg'];
@@ -449,7 +451,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     const regional = scored.filter(s => s.dish.region.toLowerCase().includes(regionKey));
     const global_ = scored.filter(s => !s.dish.region.toLowerCase().includes(regionKey));
     return showGlobal ? [...global_, ...regional] : [...regional, ...global_];
-  }, [showSwapSearch, dishes, customDishes, mealType, userDiet, userRegion, searchQuery, showGlobal, healthPreset, healthSort]);
+  }, [showSwapSearch, dishes, customDishes, mealType, userDiet, userRegion, debouncedSearchQuery, showGlobal, healthPreset, healthSort]);
 
   const dishVariants = useMemo(() => {
     if (!selectedSwapDish) return [];

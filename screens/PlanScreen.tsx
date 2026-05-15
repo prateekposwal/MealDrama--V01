@@ -3,7 +3,7 @@
 // Empty slots auto-fill. Guest mode at plan level.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
 import { useStore } from '../store/useStore';
 import type { SuggestionMeal } from '../lib/trayApi';
@@ -17,9 +17,13 @@ import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOTS } from '../utils/continuity';
-import { computeStyleWarnings } from '../constants/dishStyles';
+import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
+import { VirtualList } from '../components/new/VirtualList';
 
 const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
+
+const NOOP = () => {};
+const PARTIAL = () => () => {};
 
 const generateWeekDates = (startISO: string): string[] => {
     const start = new Date(startISO);
@@ -79,6 +83,26 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         return next;
     }, [completions, undoSlot]);
 
+    const stableGuestMode = useMemo(() => guestMode, [
+        guestMode.active, guestMode.guestCount, guestMode.extraServings,
+        guestMode.startDate, guestMode.endDate,
+    ]);
+
+    const stablePreferences = useMemo(() => user?.slotTimePreferences, [user?.slotTimePreferences]);
+
+    const stableNoopHandlers = useMemo(() => ({
+        open: NOOP,
+        close: NOOP,
+        select: PARTIAL,
+        updateInline: PARTIAL,
+        remove: PARTIAL,
+        suggestionAdd: PARTIAL,
+        openSearch: NOOP,
+        customizeOpen: NOOP,
+        customizeClose: NOOP,
+        customizeApply: PARTIAL,
+    }), []);
+
     const handleCompleteSlot = useCallback((date: string, mealType: MealType) => {
         completeSlot(date, mealType);
         setUndoSlot({ date, mealType });
@@ -94,6 +118,38 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
 
     const weekDates = useMemo(() => generateWeekDates(weekStart), [weekStart]);
+
+    const stableSwapOpen = useCallback((id: string) => {
+        setSwapOpenKey(prev => prev === id ? null : id);
+    }, []);
+
+    const stableSwapCustomizeOpen = useCallback((id: string) => {
+        setSwapCustomizeOpenKey(prev => prev === id ? null : id);
+    }, []);
+
+    const stableSwapClose = useCallback(() => setSwapOpenKey(null), []);
+    const stableCustomizeClose = useCallback(() => setSwapCustomizeOpenKey(null), []);
+
+    const quickAddTrigger = useRef({ date: '', label: '' });
+    const handleOpenSearchStable = useCallback(() => {
+        const { date, label } = quickAddTrigger.current;
+        setQuickAddDate(date);
+        setQuickAddSlot(label);
+        setShowQuickAdd(true);
+    }, []);
+
+    const styleWarningsCache = useMemo(() => {
+        const cache: Record<string, StyleWarning[]> = {};
+        const dates = [...new Set([...upcomingDates, ...pastDatesWithMeals])];
+        for (const date of dates) {
+            for (const { mealType } of SLOTS) {
+                const slotMeals = getMeals(date, mealType);
+                const key = `${date}::${mealType}`;
+                cache[key] = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
+            }
+        }
+        return cache;
+    }, [getMeals, upcomingDates, pastDatesWithMeals]);
 
     const goToPrevWeek = () => {
         const d = new Date(weekStart);
@@ -384,7 +440,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         const tomorrowDate = getISODate(new Date(new Date(date).getTime() + 86400000));
                                         const tomorrowMeals = getMeals(tomorrowDate, mealType);
                                         const slotMealsForDate = getMeals(date, mealType);
-                                        const styleWarnings = computeStyleWarnings(slotMealsForDate.map(m => ({ mealId: m.meal_id, name: m.name })));
+                                        const swKey = `${date}::${mealType}`;
+                                        const styleWarnings = styleWarningsCache[swKey] ?? [];
                                         return <React.Fragment key={`${date}-${key}`}>
                                             <LoopAutoFillSlot date={date} mealType={mealType} />
                                             <SlotBody
@@ -398,22 +455,21 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 userRegion={regionKey}
                                                 userDiet={userDiet}
                                                 pantryStaples={pantryStaples}
-                                                guestMode={guestMode}
+                                                guestMode={stableGuestMode}
                                                 swapOpenKey={swapOpenKey}
-                                                onSwapOpen={(id) => setSwapOpenKey(swapOpenKey === id ? null : id)}
-                                                onSwapClose={() => setSwapOpenKey(null)}
+                                                onSwapOpen={stableSwapOpen}
+                                                onSwapClose={stableSwapClose}
                                                 onSwapSelect={handleSwapSelect}
                                                 onUpdateInline={handleUpdateInline}
                                                 onRemove={handleRemove}
                                                 onSuggestionAdd={handleSuggestionAdd}
                                                 onOpenSearch={() => {
-                                                    setQuickAddDate(date);
-                                                    setQuickAddSlot(label);
-                                                    setShowQuickAdd(true);
+                                                    quickAddTrigger.current = { date, label };
+                                                    handleOpenSearchStable();
                                                 }}
                                                 swapCustomizeOpenKey={swapCustomizeOpenKey}
-                                                onSwapCustomizeOpen={(id) => setSwapCustomizeOpenKey(swapCustomizeOpenKey === id ? null : id)}
-                                                onSwapCustomizeClose={() => setSwapCustomizeOpenKey(null)}
+                                                onSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                                onSwapCustomizeClose={stableCustomizeClose}
                                                 onSwapCustomizeApply={handleSwapCustomizeApply}
                                                 onAddAnother={handleAddAnother}
                                                 tomorrowDate={tomorrowDate}
@@ -421,7 +477,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 onComplete={() => handleCompleteSlot(date, mealType)}
                                                 onUndoComplete={() => handleUndoComplete(date, mealType)}
                                                 styleWarnings={styleWarnings}
-                                                preferences={user?.slotTimePreferences}
+                                                preferences={stablePreferences}
                                             />
                                         </React.Fragment>
                                     })}
@@ -434,15 +490,20 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
             {/* ─── History (past days) ─── */}
             {planTab === 'history' && pastDatesWithMeals.length > 0 && (
-                <div className="px-4 space-y-6">
-                    {pastDatesWithMeals.map(date => {
+                <VirtualList
+                    items={pastDatesWithMeals}
+                    estimateSize={240}
+                    overscan={2}
+                    outerClassName="px-4"
+                    className="space-y-6"
+                    renderItem={(date) => {
                         const dateObj = new Date(date);
                         const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
                         const dayNum = dateObj.getDate();
                         const guestCount = guestMode.active ? guestMode.extraServings : 0;
 
                         return (
-                            <div key={date}>
+                            <div>
                                 <div className="flex items-center gap-3 mb-3 px-2">
                                     <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-400">
                                         <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
@@ -477,17 +538,17 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                     pantryStaples={pantryStaples}
                                                     guestMode={guestMode}
                                                     swapOpenKey={null}
-                                                    onSwapOpen={() => {}}
-                                                    onSwapClose={() => {}}
-                                                    onSwapSelect={() => {}}
-                                                    onUpdateInline={() => {}}
-                                                    onRemove={() => {}}
-                                                    onSuggestionAdd={() => {}}
-                                                    onOpenSearch={() => {}}
+                                                    onSwapOpen={stableNoopHandlers.open}
+                                                    onSwapClose={stableNoopHandlers.close}
+                                                    onSwapSelect={stableNoopHandlers.select}
+                                                    onUpdateInline={stableNoopHandlers.updateInline}
+                                                    onRemove={stableNoopHandlers.remove}
+                                                    onSuggestionAdd={stableNoopHandlers.suggestionAdd}
+                                                    onOpenSearch={stableNoopHandlers.openSearch}
                                                     swapCustomizeOpenKey={null}
-                                                    onSwapCustomizeOpen={() => {}}
-                                                    onSwapCustomizeClose={() => {}}
-                                                    onSwapCustomizeApply={() => () => {}}
+                                                    onSwapCustomizeOpen={stableNoopHandlers.customizeOpen}
+                                                    onSwapCustomizeClose={stableNoopHandlers.customizeClose}
+                                                    onSwapCustomizeApply={stableNoopHandlers.customizeApply}
                                                 />
                                             </div>
                                         );
@@ -495,8 +556,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                 </div>
                             </div>
                         );
-                    })}
-                </div>
+                    }}
+                />
             )}
 
             {/* ─── Empty state ─── */}
