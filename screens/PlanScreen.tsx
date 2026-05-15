@@ -61,6 +61,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
     const [quickAddDate, setQuickAddDate] = useState('');
+    const [showSlotPicker, setShowSlotPicker] = useState(false);
 
     const {
         getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
@@ -531,16 +532,82 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             <div className="fixed bottom-24 right-6 z-40">
                 <button
                     onClick={() => {
-                        setQuickAddDate(today);
-                        setQuickAddSlot('Lunch');
-                        setShowQuickAdd(true);
+                        setQuickAddDate(upcomingDates[0] || today);
+                        setShowSlotPicker(true);
                     }}
                     className="w-14 h-14 bg-[#FF385C] text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all"
-                    aria-label="Quick add meal"
+                    aria-label="Add meal"
                 >
                     <Plus size={24} />
                 </button>
             </div>
+
+            {/* Slot picker */}
+            {showSlotPicker && (
+                <div className="fixed inset-0 z-50" onClick={() => setShowSlotPicker(false)}>
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div
+                        className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-6 pb-10 animate-in slide-in-from-bottom duration-200 max-w-lg mx-auto"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <h3 className="text-lg font-black text-gray-900 mb-1">Add to which meal?</h3>
+                        <p className="text-xs text-gray-500 mb-4">Select a day and meal slot</p>
+
+                        {/* Date strip */}
+                        <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
+                            {(upcomingDates.length > 0 ? upcomingDates : [today]).slice(0, 7).map(d => {
+                                const dateObj = new Date(d);
+                                const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
+                                const dayNum = dateObj.getDate();
+                                const selected = d === quickAddDate;
+                                return (
+                                    <button
+                                        key={d}
+                                        onClick={() => setQuickAddDate(d)}
+                                        className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-center transition-all ${
+                                            selected ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
+                                        }`}
+                                    >
+                                        <span className="text-[8px] font-black uppercase tracking-widest block">{dayName}</span>
+                                        <span className="text-sm font-bold block mt-0.5">{dayNum}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Slots */}
+                        <div className="space-y-2">
+                            {SLOTS.map(({ key, label }) => (
+                                <button
+                                    key={key}
+                                    onClick={() => {
+                                        setQuickAddSlot(label);
+                                        setShowQuickAdd(true);
+                                        setShowSlotPicker(false);
+                                    }}
+                                    className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 active:scale-[0.98] transition-all hover:bg-gray-50"
+                                >
+                                    <span className="text-2xl w-10 h-10 flex items-center justify-center">
+                                        {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
+                                    </span>
+                                    <div className="text-left">
+                                        <span className="text-sm font-bold text-gray-900 block">{label}</span>
+                                        <span className="text-[10px] text-gray-400">
+                                            {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                                        </span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            onClick={() => setShowSlotPicker(false)}
+                            className="w-full mt-3 py-3 rounded-2xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Quick Add Modal */}
             <QuickAddModal
