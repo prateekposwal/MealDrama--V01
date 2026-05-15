@@ -108,8 +108,6 @@ const DISH_IMAGE_MAP: Record<string, string> = {
     'chaat': 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&h=400&fit=crop',
     'bhel': 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&h=400&fit=crop',
     'pani puri': 'https://images.unsplash.com/photo-1601050690597-df0568f70950?w=400&h=400&fit=crop',
-    'momos': 'https://images.unsplash.com/photo-1625938145744-585078861756?w=400&h=400&fit=crop',
-    'spring roll': 'https://images.unsplash.com/photo-1625938145744-585078861756?w=400&h=400&fit=crop',
 
     // ── Beverages ──────────────────────────────────────────────────
     'chaas': 'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=400&h=400&fit=crop',

@@ -19,7 +19,7 @@ import { PlateBalanceVisualizer } from '../components/health/PlateBalanceVisuali
 import { scorePlateBalance } from '../utils/nutritionScore';
 import { DISH_HEALTH_MAP, COMPONENT_HEALTH_MAP } from '../constants/healthGuidelines';
 import { ServingsBreakdown } from '../components/meal/ServingsBreakdown';
-import { SlotBody, SlotMode } from '../components/meal/SlotBody';
+import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
@@ -91,6 +91,47 @@ const categorizeSlots = (
     return result;
 };
 
+// ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
+interface DashboardSlotRowProps extends
+  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete'> {
+  onOpenSearchAction: (slotLabel: string) => void;
+  onCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
+  onUndoCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
+}
+
+const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
+  date, mealType, slotLabel,
+  onOpenSearchAction,
+  onCompleteAction,
+  onUndoCompleteAction,
+  ...rest
+}) => {
+  const onOpenSearch = useCallback(() => {
+    onOpenSearchAction(slotLabel);
+  }, [slotLabel, onOpenSearchAction]);
+
+  const onComplete = useCallback(() => {
+    onCompleteAction?.(date, mealType);
+  }, [date, mealType, onCompleteAction]);
+
+  const onUndoComplete = useCallback(() => {
+    onUndoCompleteAction?.(date, mealType);
+  }, [date, mealType, onUndoCompleteAction]);
+
+  return (
+    <SlotBody
+      date={date}
+      mealType={mealType}
+      slotLabel={slotLabel}
+      onOpenSearch={onOpenSearch}
+      onComplete={onCompleteAction ? onComplete : undefined}
+      onUndoComplete={onUndoCompleteAction ? onUndoComplete : undefined}
+      {...rest}
+    />
+  );
+});
+
+
 interface DashboardProps {
     user: any;
     onNavigate?: (tab: string) => void;
@@ -125,6 +166,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         setQuickAddSlot(quickAddTrigger.current.slot);
         setShowQuickAdd(true);
     }, []);
+    const openSearchAction = useCallback((slotLabel: string) => {
+        quickAddTrigger.current = { slot: slotLabel as 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner' };
+        handleOpenSearchStable();
+    }, [handleOpenSearchStable]);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [addAnotherToast, setAddAnotherToast] = useState<string | null>(null);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
@@ -520,7 +565,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         {sectionLabels[section]}
                                     </span>
                                 </div>
-                                <SlotBody
+                                <DashboardSlotRow
                                     date={displayDate}
                                     mealType={slot.mealType}
                                     slotLabel={slot.label}
@@ -539,10 +584,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     onUpdateInline={handleUpdateInline}
                                     onRemove={handleRemove}
                                     onSuggestionAdd={handleSuggestionAdd}
-                                    onOpenSearch={() => {
-                                        quickAddTrigger.current = { slot: slot.label };
-                                        handleOpenSearchStable();
-                                    }}
                                     swapCustomizeOpenKey={swapCustomizeOpenKey}
                                     onSwapCustomizeOpen={stableSwapCustomizeOpen}
                                     onSwapCustomizeClose={stableSwapCustomizeClose}
@@ -551,10 +592,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     isUserCompleted={isCurrentDay && isUserCompleted && !isUndoing}
                                     tomorrowDate={tomorrowDate}
                                     tomorrowMeals={tomorrowMeals}
-                                    onComplete={isCurrentDay ? () => handleCompleteSlot(today, slot.mealType) : undefined}
-                                    onUndoComplete={isCurrentDay ? () => handleUndoComplete(today, slot.mealType) : undefined}
                                     styleWarnings={styleWarnings}
                                     preferences={prefs}
+                                    onOpenSearchAction={openSearchAction}
+                                    onCompleteAction={isCurrentDay ? handleCompleteSlot : undefined}
+                                    onUndoCompleteAction={isCurrentDay ? handleUndoComplete : undefined}
                                 />
                             </div>
                         );

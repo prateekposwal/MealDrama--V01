@@ -1,4 +1,4 @@
-import React, { useRef, memo } from 'react';
+import React, { useRef, useMemo, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 interface VirtualListProps<T> {
@@ -22,12 +22,14 @@ function VirtualListInner<T>({
 }: VirtualListProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const virtualizer = useVirtualizer({
+  const virtualizerOptions = useMemo(() => ({
     count: items.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimateSize,
     overscan,
-  });
+  }), [items.length, estimateSize, overscan]);
+
+  const virtualizer = useVirtualizer(virtualizerOptions);
 
   const Tag = as;
 

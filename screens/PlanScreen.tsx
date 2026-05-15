@@ -4,20 +4,150 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
+import { useTrayStore, MealType, TrayItem, GuestMode } from '../store/useTrayStore';
 import { useStore } from '../store/useStore';
 import type { SuggestionMeal } from '../lib/trayApi';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { ChevronLeft, ChevronRight, Calendar, Users, Plus, Minus } from 'lucide-react';
 import type { Dish } from '../constants/dishLibrary';
-import { SlotBody } from '../components/meal/SlotBody';
+import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
+import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOTS } from '../utils/continuity';
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
+
+// ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
+interface PlanUpcomingSlotProps extends
+  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete'> {
+  onOpenSearchAction: (date: string, slotLabel: string) => void;
+  onCompleteAction: (date: string, mealType: MealType) => void;
+  onUndoCompleteAction: (date: string, mealType: MealType) => void;
+}
+
+const PlanUpcomingSlot = React.memo<PlanUpcomingSlotProps>(({
+  date, mealType, slotLabel,
+  onOpenSearchAction,
+  onCompleteAction,
+  onUndoCompleteAction,
+  ...rest
+}) => {
+  const onOpenSearch = useCallback(() => {
+    onOpenSearchAction(date, slotLabel);
+  }, [date, slotLabel, onOpenSearchAction]);
+
+  const onComplete = useCallback(() => {
+    onCompleteAction(date, mealType);
+  }, [date, mealType, onCompleteAction]);
+
+  const onUndoComplete = useCallback(() => {
+    onUndoCompleteAction(date, mealType);
+  }, [date, mealType, onUndoCompleteAction]);
+
+  return (
+    <SlotBody
+      date={date}
+      mealType={mealType}
+      slotLabel={slotLabel}
+      onOpenSearch={onOpenSearch}
+      onComplete={onComplete}
+      onUndoComplete={onUndoComplete}
+      {...rest}
+    />
+  );
+});
+
+
+// ─── History Day Row (stable, memoized  component for virtualized history) ───
+interface HistoryDayRowProps {
+  date: string;
+  dishes: Dish[];
+  regionKey: string;
+  userDiet: string;
+  pantryStaples: string[];
+  guestMode: GuestMode;
+  getMeals: (date: string, mealType: MealType) => TrayItem[];
+  noopHandlers: {
+    open: () => void;
+    close: () => void;
+    select: (...args: any[]) => any;
+    updateInline: (...args: any[]) => any;
+    remove: (...args: any[]) => any;
+    suggestionAdd: (...args: any[]) => any;
+    openSearch: () => void;
+    customizeOpen: (...args: any[]) => any;
+    customizeClose: () => void;
+    customizeApply: (...args: any[]) => any;
+  };
+}
+
+const HistoryDayRow = React.memo<HistoryDayRowProps>(({
+  date, dishes, regionKey, userDiet, pantryStaples,
+  guestMode, getMeals, noopHandlers,
+}) => {
+  const dateObj = new Date(date);
+  const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
+  const dayNum = dateObj.getDate();
+  const guestCount = guestMode.active ? guestMode.extraServings : 0;
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-3 px-2">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-400">
+          <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
+        </div>
+        <span className="text-lg font-bold text-gray-400">{dayNum}</span>
+        {guestCount > 0 && (
+          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-100/50 text-violet-400">+{guestCount} guests</span>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        {SLOTS.map(({ key, mealType, label }) => {
+          const slotMeals = getMeals(date, mealType);
+          if (slotMeals.length === 0) return null;
+          const slotMeta = SLOT_META[key];
+          return (
+            <div key={`${date}-${key}`}>
+              {slotMeta && (
+                <div className="flex items-center gap-1.5 mb-1 px-2">
+                  <span className="text-[9px] font-medium text-gray-400">{slotMeta.time}</span>
+                </div>
+              )}
+              <SlotBody
+                date={date}
+                mealType={mealType}
+                slotLabel={label}
+                meals={slotMeals}
+                mode="history"
+                dishes={dishes}
+                userRegion={regionKey}
+                userDiet={userDiet}
+                pantryStaples={pantryStaples}
+                guestMode={guestMode}
+                swapOpenKey={null}
+                onSwapOpen={noopHandlers.open}
+                onSwapClose={noopHandlers.close}
+                onSwapSelect={noopHandlers.select}
+                onUpdateInline={noopHandlers.updateInline}
+                onRemove={noopHandlers.remove}
+                onSuggestionAdd={noopHandlers.suggestionAdd}
+                onOpenSearch={noopHandlers.openSearch}
+                swapCustomizeOpenKey={null}
+                onSwapCustomizeOpen={noopHandlers.customizeOpen}
+                onSwapCustomizeClose={noopHandlers.customizeClose}
+                onSwapCustomizeApply={noopHandlers.customizeApply}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
 
 
 const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
@@ -138,18 +268,10 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         setShowQuickAdd(true);
     }, []);
 
-    const styleWarningsCache = useMemo(() => {
-        const cache: Record<string, StyleWarning[]> = {};
-        const dates = [...new Set([...upcomingDates, ...pastDatesWithMeals])];
-        for (const date of dates) {
-            for (const { mealType } of SLOTS) {
-                const slotMeals = getMeals(date, mealType);
-                const key = `${date}::${mealType}`;
-                cache[key] = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
-            }
-        }
-        return cache;
-    }, [getMeals, upcomingDates, pastDatesWithMeals]);
+    const openSearchAction = useCallback((date: string, label: string) => {
+        quickAddTrigger.current = { date, label };
+        handleOpenSearchStable();
+    }, [handleOpenSearchStable]);
 
     const goToPrevWeek = () => {
         const d = new Date(weekStart);
@@ -166,6 +288,20 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const regionKey = user?.region ?? 'India';
     const userDiet = user?.diet ?? 'veg';
     const pantryStaples = user?.pantryStaples ?? [];
+
+    const historyContainerRef = useRef<HTMLDivElement>(null);
+    const renderHistoryDay = useCallback((date: string) => (
+        <HistoryDayRow
+            date={date}
+            dishes={dishes}
+            regionKey={regionKey}
+            userDiet={userDiet}
+            pantryStaples={pantryStaples}
+            guestMode={stableGuestMode}
+            getMeals={getMeals}
+            noopHandlers={stableNoopHandlers}
+        />
+    ), [dishes, regionKey, userDiet, pantryStaples, stableGuestMode, getMeals, stableNoopHandlers]);
 
     /** Convert SuggestionMeal to Meal */
     const suggestionToMeal = useCallback((s: SuggestionMeal): Meal => ({
@@ -258,6 +394,19 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         }
         return weekDates.filter(d => d > today);
     }, [weekDates, today, mealLoop.config, planDays]);
+
+    const styleWarningsCache = useMemo(() => {
+        const cache: Record<string, StyleWarning[]> = {};
+        const dates = [...new Set([...upcomingDates, ...pastDatesWithMeals])];
+        for (const date of dates) {
+            for (const { mealType } of SLOTS) {
+                const slotMeals = getMeals(date, mealType);
+                const key = `${date}::${mealType}`;
+                cache[key] = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
+            }
+        }
+        return cache;
+    }, [getMeals, upcomingDates, pastDatesWithMeals]);
 
     // Week label
     const weekLabel = useMemo(() => {
@@ -444,7 +593,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         const styleWarnings = styleWarningsCache[swKey] ?? [];
                                         return <React.Fragment key={`${date}-${key}`}>
                                             <LoopAutoFillSlot date={date} mealType={mealType} />
-                                            <SlotBody
+                                            <PlanUpcomingSlot
                                                 date={date}
                                                 mealType={mealType}
                                                 slotLabel={label}
@@ -463,10 +612,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 onUpdateInline={handleUpdateInline}
                                                 onRemove={handleRemove}
                                                 onSuggestionAdd={handleSuggestionAdd}
-                                                onOpenSearch={() => {
-                                                    quickAddTrigger.current = { date, label };
-                                                    handleOpenSearchStable();
-                                                }}
                                                 swapCustomizeOpenKey={swapCustomizeOpenKey}
                                                 onSwapCustomizeOpen={stableSwapCustomizeOpen}
                                                 onSwapCustomizeClose={stableCustomizeClose}
@@ -474,10 +619,11 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 onAddAnother={handleAddAnother}
                                                 tomorrowDate={tomorrowDate}
                                                 tomorrowMeals={tomorrowMeals}
-                                                onComplete={() => handleCompleteSlot(date, mealType)}
-                                                onUndoComplete={() => handleUndoComplete(date, mealType)}
                                                 styleWarnings={styleWarnings}
                                                 preferences={stablePreferences}
+                                                onOpenSearchAction={openSearchAction}
+                                                onCompleteAction={handleCompleteSlot}
+                                                onUndoCompleteAction={handleUndoComplete}
                                             />
                                         </React.Fragment>
                                     })}
@@ -490,68 +636,23 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
             {/* ─── History (past days) ─── */}
             {planTab === 'history' && pastDatesWithMeals.length > 0 && (
-                <div className="px-4 space-y-6">
-                    {pastDatesWithMeals.map(date => {
-                        const dateObj = new Date(date);
-                        const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
-                        const dayNum = dateObj.getDate();
-                        const guestCount = guestMode.active ? guestMode.extraServings : 0;
-
-                        return (
-                            <div key={date}>
-                                <div className="flex items-center gap-3 mb-3 px-2">
-                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-400">
-                                        <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
-                                    </div>
-                                    <span className="text-lg font-bold text-gray-400">{dayNum}</span>
-                                    {guestCount > 0 && (
-                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-100/50 text-violet-400">+{guestCount} guests</span>
-                                    )}
-                                </div>
-
-                                <div className="space-y-3">
-                                    {SLOTS.map(({ key, mealType, label }) => {
-                                        const slotMeals = getMeals(date, mealType);
-                                        if (slotMeals.length === 0) return null;
-                                        const slotMeta = SLOT_META[key];
-                                        return (
-                                            <div key={`${date}-${key}`}>
-                                                {slotMeta && (
-                                                    <div className="flex items-center gap-1.5 mb-1 px-2">
-                                                        <span className="text-[9px] font-medium text-gray-400">{slotMeta.time}</span>
-                                                    </div>
-                                                )}
-                                                <SlotBody
-                                                    date={date}
-                                                    mealType={mealType}
-                                                    slotLabel={label}
-                                                    meals={slotMeals}
-                                                    mode="history"
-                                                    dishes={dishes}
-                                                    userRegion={regionKey}
-                                                    userDiet={userDiet}
-                                                    pantryStaples={pantryStaples}
-                                                    guestMode={stableGuestMode}
-                                                    swapOpenKey={null}
-                                                    onSwapOpen={stableNoopHandlers.open}
-                                                    onSwapClose={stableNoopHandlers.close}
-                                                    onSwapSelect={stableNoopHandlers.select}
-                                                    onUpdateInline={stableNoopHandlers.updateInline}
-                                                    onRemove={stableNoopHandlers.remove}
-                                                    onSuggestionAdd={stableNoopHandlers.suggestionAdd}
-                                                    onOpenSearch={stableNoopHandlers.openSearch}
-                                                    swapCustomizeOpenKey={null}
-                                                    onSwapCustomizeOpen={stableNoopHandlers.customizeOpen}
-                                                    onSwapCustomizeClose={stableNoopHandlers.customizeClose}
-                                                    onSwapCustomizeApply={stableNoopHandlers.customizeApply}
-                                                />
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        );
-                    })}
+                <div ref={historyContainerRef} className="px-4">
+                    {pastDatesWithMeals.length > 10 ? (
+                        <VirtualList
+                            items={pastDatesWithMeals}
+                            estimateSize={280}
+                            overscan={3}
+                            renderItem={renderHistoryDay}
+                            outerClassName="overflow-auto h-[calc(100vh-240px)]"
+                            className="space-y-6"
+                        />
+                    ) : (
+                        <div className="space-y-6">
+                            {pastDatesWithMeals.map(date => (
+                                <div key={date}>{renderHistoryDay(date)}</div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 

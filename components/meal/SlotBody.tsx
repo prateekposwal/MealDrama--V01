@@ -18,7 +18,7 @@ import type { StyleWarning } from '../../constants/dishStyles';
 
 export type SlotMode = 'active' | 'upcoming' | 'completed' | 'history' | 'builder';
 
-interface SlotBodyProps {
+export interface SlotBodyProps {
   date: string;
   mealType: MealType;
   slotLabel: string;
