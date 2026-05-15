@@ -25,6 +25,15 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     console.error('[ErrorBoundary] Caught:', error, info);
   }
 
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  handleReload = () => {
+    this.setState({ hasError: false, error: null });
+    window.location.reload();
+  };
+
   render() {
     if (this.state.hasError) {
       return this.props.fallback || (
@@ -32,12 +41,22 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           <AlertTriangle size={40} className="text-red-400" />
           <p className="text-lg font-bold text-gray-900">Something went wrong</p>
           <p className="text-sm text-gray-500 text-center max-w-md">{this.state.error?.message}</p>
-          <button
-            onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
-            className="mt-4 px-6 py-3 rounded-[20px] bg-[#FF385C] text-white font-bold text-sm"
-          >
-            Reload App
-          </button>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={this.handleRetry}
+              aria-label="Try again"
+              className="px-6 py-3 rounded-[20px] bg-gray-100 text-gray-800 font-bold text-sm active:scale-95 transition-all"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={this.handleReload}
+              aria-label="Reload app"
+              className="px-6 py-3 rounded-[20px] bg-[#FF385C] text-white font-bold text-sm active:scale-95 transition-all"
+            >
+              Reload App
+            </button>
+          </div>
         </div>
       );
     }

@@ -12,6 +12,7 @@ import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
 import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
+import { processQueue, getPendingCount, enqueue } from './utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
 import type { Dish } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
@@ -93,6 +94,20 @@ const App: React.FC = () => {
   const [manageTraySlot, setManageTraySlot] = useState<string | undefined>(undefined);
   const [showLoopConfig, setShowLoopConfig] = useState(false);
   const [loopSkipped, setLoopSkipped] = useState(false);
+
+  // ─── Offline queue auto-sync on reconnect ───
+  useEffect(() => {
+    const handleOnline = async () => {
+      const pending = getPendingCount();
+      if (pending === 0) return;
+      const result = await processQueue();
+      if (result.synced > 0) {
+        setToast({ message: `Synced ${result.synced} pending change${result.synced > 1 ? 's' : ''}`, type: 'success' });
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [setToast]);
   // ────────────────────────────────────────────────────────────────────────────
 
   // Inline onboarding flow from Profile (Edit Mode)
@@ -179,19 +194,25 @@ const App: React.FC = () => {
             setManageTray(true);
           }}
           onApply={async (config: MealLoopConfig) => {
-            console.log('[LoopConfig] Applying config:', JSON.stringify(config, null, 2));
-            console.log('[LoopConfig] Source pool slots:', Object.fromEntries(
-              Object.entries(sourcePool).map(([k, v]) => [k, v.length])
-            ));
+            if (!navigator.onLine) {
+              enqueue('loop_save', { config, userId: user?.id, sourceDishIds: Object.values(sourcePool).flat().map((d: Dish) => d.id) });
+              applyLoopConfig(config, sourcePool, fetchedDishes);
+              setToast({ message: 'Loop config saved locally (offline) — will sync when reconnected', type: 'info' });
+              window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
+              setShowLoopConfig(false);
+              setLoopSkipped(false);
+              setManageTray(false);
+              setActiveTab('dashboard');
+              return;
+            }
             try {
               await api.post('/loop-config', {
                 userId: user?.id,
                 config,
                 sourceDishIds: Object.values(sourcePool).flat().map((d: Dish) => d.id),
               });
-              console.log('[LoopConfig] API save succeeded');
             } catch (e) {
-              console.warn('[LoopConfig] API save failed, saving locally only:', e);
+              console.warn('[LoopConfig] API save failed, saving locally:', e);
             }
             applyLoopConfig(config, sourcePool, fetchedDishes);
             console.log('[LoopConfig] State updated, navigating to dashboard');
