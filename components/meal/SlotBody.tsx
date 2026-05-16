@@ -415,29 +415,29 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
       {/* ─── Aggregated slot items per category ─── */}
       {showAggregated && (
-        <div className="pt-1 pb-2 space-y-2 aggregated-categories">
+        <div className="pt-0 pb-1 space-y-1 aggregated-categories">
           {categoryConfig.map(cat => cat.items.length > 0 && (
             <div key={cat.label} className="aggregated-category">
-              <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">{cat.label}</p>
-              <div className="flex flex-wrap items-center gap-1.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{cat.label}</p>
+              <div className="flex flex-wrap items-center gap-1">
                 {cat.items.map((agg: AggregatedCategory) => (
-                  <span key={agg.name} className="text-[10px] font-bold px-2.5 py-1.5 rounded-xl border inline-flex items-center gap-1.5 aggregated-chip select-none" style={{ transition: 'opacity 0.2s ease, transform 0.2s ease' }}>
+                  <span key={agg.name} className="text-[10px] font-bold px-2 py-1 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={{ transition: 'opacity 0.2s ease, transform 0.2s ease' }}>
                     <span className={`${cat.color} contents`}>
                       {cat.label === 'Dessert' && '🍨 '}{agg.name}
                     </span>
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-0.5">
                       <button
                         onClick={() => handleAggregatedQty(agg.name, -1)}
-                        className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-sm font-bold leading-none"
+                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
                         aria-label={`Decrease ${agg.name}`}
                       >−</button>
-                      <span className="text-sm font-bold text-gray-700 min-w-[20px] text-center tabular-nums select-none">{agg.totalQty}</span>
+                      <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center tabular-nums select-none">{agg.totalQty}</span>
                       <button
                         onClick={() => handleAggregatedQty(agg.name, 1)}
-                        className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-sm font-bold leading-none"
+                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
                         aria-label={`Increase ${agg.name}`}
                       >+</button>
-                      <span className="text-[10px] text-gray-400 select-none">{agg.unit}</span>
+                      <span className="text-[9px] text-gray-400 select-none">{agg.unit}</span>
                     </span>
                   </span>
                 ))}

@@ -104,7 +104,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
       <div
         className="relative w-full sm:max-w-lg max-h-[90vh] bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden"
