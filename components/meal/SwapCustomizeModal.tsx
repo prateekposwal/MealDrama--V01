@@ -160,7 +160,10 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     const base = dish?.name;
     if (!base) return '';
     if (!selectedVariant) return base;
-    return selectedVariant.name.includes(base) ? selectedVariant.name : `${base} ${selectedVariant.name}`;
+    if (selectedVariant.name.includes(base)) return selectedVariant.name;
+    if (selectedVariant.cookingStyle) return `${base} ${selectedVariant.cookingStyle}`;
+    if (selectedVariant.addOn) return `${base} ${selectedVariant.addOn}`;
+    return selectedVariant.name;
   }, [dish?.name, selectedVariant]);
   const regionKey = (userRegion ?? '').toLowerCase().replace(' india', '');
   const { user, updateProfile, customDishes, addCustomDish } = useStore();
@@ -408,9 +411,11 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const buildUpdatesObject = useCallback(() => {
     const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
     if (!currentDish) return null;
-    const fullName = selectedVariant
-      ? (selectedVariant.name.includes(currentDish.name) ? selectedVariant.name : `${currentDish.name} ${selectedVariant.name}`)
-      : currentDish.name;
+    const fullName = !selectedVariant ? currentDish.name
+      : selectedVariant.name.includes(currentDish.name) ? selectedVariant.name
+      : selectedVariant.cookingStyle ? `${currentDish.name} ${selectedVariant.cookingStyle}`
+      : selectedVariant.addOn ? `${currentDish.name} ${selectedVariant.addOn}`
+      : selectedVariant.name;
     const title = generateMealTitle(
       fullName,
       [...new Set(selectedCategories.side)],
@@ -491,9 +496,11 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     // Legacy: consumers without onChange (should not happen after migration)
     const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
     if (!currentDish) return;
-    const fullName = selectedVariant
-      ? (selectedVariant.name.includes(currentDish.name) ? selectedVariant.name : `${currentDish.name} ${selectedVariant.name}`)
-      : currentDish.name;
+    const fullName = !selectedVariant ? currentDish.name
+      : selectedVariant.name.includes(currentDish.name) ? selectedVariant.name
+      : selectedVariant.cookingStyle ? `${currentDish.name} ${selectedVariant.cookingStyle}`
+      : selectedVariant.addOn ? `${currentDish.name} ${selectedVariant.addOn}`
+      : selectedVariant.name;
     const title = generateMealTitle(
       fullName,
       selectedCategories.side,

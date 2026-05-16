@@ -12,7 +12,8 @@ import { getSmartSuggestions } from './smartSuggestions';
 function enrichName(dishName: string, variant: DishVariant): string {
   if (variant.name.includes(dishName)) return variant.name;
   if (variant.cookingStyle) return `${dishName} ${variant.cookingStyle}`;
-  return `${dishName} ${variant.name}`;
+  if (variant.addOn) return `${dishName} ${variant.addOn}`;
+  return variant.name;
 }
 
 const SELF_BREAD = ['paratha', 'naan', 'roti', 'puri', 'bread', 'toast', 'pav', 'bhature', 'flatbread', 'thepla'];
