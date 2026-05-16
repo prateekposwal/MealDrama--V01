@@ -376,7 +376,11 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
-        addMealToSlot(date, mealType, dishToMeal(dish, variant));
+        addMealToSlot(date, mealType, dishToMeal(dish, variant), {
+            variant: variant?.name,
+            variantId: variant?.id,
+            addon: variant?.addOn,
+        });
         setShowQuickAdd(false);
     }, [addMealToSlot]);
 

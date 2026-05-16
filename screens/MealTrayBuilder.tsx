@@ -181,6 +181,10 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 beverages: planItem?.beverages ?? [],
                 dessert: planItem?.dessert ?? [],
                 itemQtys: planItem?.itemQtys ?? {},
+                style: planItem?.style,
+                variant: planItem?.variant,
+                variantId: planItem?.variantId,
+                addon: planItem?.addon,
                 start_time: planItem?.start_time || def?.start,
                 end_time: planItem?.end_time || def?.end,
             });
@@ -204,6 +208,10 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 beverages: planItem.beverages ?? [],
                 dessert: planItem.dessert ?? [],
                 itemQtys: planItem.itemQtys ?? {},
+                style: planItem.style,
+                variant: planItem.variant,
+                variantId: planItem.variantId,
+                addon: planItem.addon,
                 start_time: planItem.start_time || def?.start,
                 end_time: planItem.end_time || def?.end,
             });
@@ -317,6 +325,9 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         addMealToSlot(date, mealType, dishToMeal(dish, variant), {
             start_time: t?.start,
             end_time: t?.end,
+            variant: variant?.name,
+            variantId: variant?.id,
+            addon: variant?.addOn,
         });
     setShowQuickAdd(false);
   }, [addMealToSlot, slotTimes]);
