@@ -1,6 +1,7 @@
 import type { Dish, Ingredient, IngredientCategory, DishVariant } from '../constants/dishLibrary';
 import { getMealResolution, type MealResolution, type CategorySelection } from '../store/useStore';
 import { cachedIngredients } from './cache';
+import { enrichName } from './dishToMeal';
 
 const ing = (name: string, qty: number, unit: string, category: IngredientCategory): Ingredient =>
   ({ name, quantity: qty, unit, category, inStock: false });
@@ -323,9 +324,43 @@ function aggregateIngredients(
 }
 
 // FIX-01: Infer ingredients from dishId when dish not found in local catalog
-function inferIngredientsFromDishId(dishId: string): Ingredient[] {
+function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredient[] {
     const idLower = dishId.toLowerCase();
     const result: Ingredient[] = [];
+
+    // Variant-aware protein inference: only run when dishName adds new info beyond dishId
+    if (dishName && dishName.toLowerCase() !== idLower) {
+        const n = dishName.toLowerCase();
+        const hasKeyword = (kw: string) => {
+            const re = new RegExp(`\\b${kw}\\b`, 'i');
+            return re.test(dishName) || n.includes(kw.toLowerCase());
+        };
+
+        if (hasKeyword('Chicken') && !hasKeyword('Chickpea') && !n.includes('chick')) {
+            result.push({ name: 'Chicken', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+        }
+        if (hasKeyword('Mutton') || hasKeyword('Lamb') || hasKeyword('Goat')) {
+            result.push({ name: 'Mutton', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+        }
+        if (hasKeyword('Fish') || hasKeyword('Prawn') || hasKeyword('Shrimp') || hasKeyword('Seafood')) {
+            result.push({ name: 'Fish', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
+        }
+        if (hasKeyword('Paneer') || hasKeyword('Cottage Cheese')) {
+            result.push({ name: 'Paneer', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
+        }
+        if ((hasKeyword('Veg') || hasKeyword('Vegetable') || hasKeyword('Mixed')) && !n.includes('non-veg') && !n.includes('meat')) {
+            result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        }
+        if (hasKeyword('Egg') && !hasKeyword('Eggplant') && !n.includes('baingan') && !n.includes('brinjal')) {
+            result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
+        }
+        if (hasKeyword('Beef')) {
+            result.push({ name: 'Beef', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+        }
+        if (hasKeyword('Pork')) {
+            result.push({ name: 'Pork', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+        }
+    }
     
     // INF-01: Bhindi/Okra inference
     if (idLower.includes('bhindi') || idLower.includes('okra')) {
@@ -812,15 +847,25 @@ export function getIngredientsForMealOption(
         if (!variant) variant = dish.variants[0];
         if (variant) {
             const r: Ingredient[] = [...(variant.ingredients || [])];
+            const variantInclusiveName = variant && variantId
+                ? enrichName(dish.name, variant)
+                : dish.name;
             if (r.length === 0) {
-                r.push(...inferIngredientsFromDishId(dishId));
-                r.push(...inferIngredientsFromDishId(dish.name));
+                const fromInference = [
+                    ...inferIngredientsFromDishId(dishId, variantInclusiveName),
+                    ...inferIngredientsFromDishId(variantInclusiveName),
+                ];
+                const seen = new Set<string>();
+                for (const ing of fromInference) {
+                    const key = `${ing.name.toLowerCase()}:${ing.category}`;
+                    if (!seen.has(key)) { seen.add(key); r.push(ing); }
+                }
             }
             const existingNames = new Set(r.map(i => i.name.toLowerCase()));
-            for (const ing of inferIngredientsFromDishId(dishId)) {
+            for (const ing of inferIngredientsFromDishId(dishId, variantInclusiveName)) {
                 if (!existingNames.has(ing.name.toLowerCase())) r.push(ing);
             }
-            for (const ing of inferIngredientsFromDishId(dish.name)) {
+            for (const ing of inferIngredientsFromDishId(variantInclusiveName)) {
                 if (!existingNames.has(ing.name.toLowerCase())) r.push(ing);
             }
             r.push(..._resolveAccompaniments(variant), ..._inferFromDishName(dish, new Set(r.map(i => i.name.toLowerCase()))));
@@ -1093,7 +1138,7 @@ export function deriveIngredientsForDay(
     if (date === today && now >= slotDate) return result; // Slot time passed today
 
     const ingredients = getIngredientsForMealOption(meal.dishId, meal.variantId || '', dishes, meal.categorySelections);
-    const source = meal.variant ? `${meal.name} ${meal.variant}` : meal.name;
+    const source = meal.name;
     const qty = meal.quantity || 1;
 
     for (const ing of ingredients) {

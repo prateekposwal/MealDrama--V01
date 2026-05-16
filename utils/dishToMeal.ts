@@ -9,7 +9,7 @@ import { GravyType, type Dish, type DishVariant } from '../constants/dishLibrary
 import type { Meal } from '../types/tray';
 import { getSmartSuggestions } from './smartSuggestions';
 
-function enrichName(dishName: string, variant: DishVariant): string {
+export function enrichName(dishName: string, variant: DishVariant): string {
   if (variant.name.includes(dishName)) return variant.name;
   if (variant.cookingStyle) return `${dishName} ${variant.cookingStyle}`;
   if (variant.addOn) return `${dishName} ${variant.addOn}`;
