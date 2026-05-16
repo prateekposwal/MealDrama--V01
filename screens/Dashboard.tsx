@@ -26,7 +26,36 @@ import { dishToMeal } from '../utils/dishToMeal';
 import { getShareStrings, ShareLanguage } from '../utils/share';
 import { resolveNextActiveDate } from '../utils/continuity';
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
-import { resolveSlotTimes } from '../types/tray';
+import { resolveSlotTimes, aggregateSlotItems } from '../types/tray';
+
+/** Fallback whole-grain keywords matched against dish/component names when health maps are missing */
+const WHOLE_GRAIN_NAMES = [
+  'brown rice', 'brown bread', 'whole wheat', 'whole meal',
+  'multigrain', 'multi-grain', 'whole grain',
+  'roti', 'phulka', 'bhakri', 'jolada', 'bafla', 'thepla',
+  'oats', 'oatmeal', 'millet', 'ragi', 'jowar', 'bajra', 'quinoa',
+  'paratha', 'pav',
+];
+
+/** Fallback refined-grain keywords */
+const REFINED_GRAIN_NAMES = [
+  'white rice', 'white bread', 'refined',
+  'maida', 'naan', 'puri', 'bhature', 'bread',
+  'biryani', 'pulao',
+  'rice',
+];
+
+function inferGrainCategory(name: string): string | null {
+  const lower = name.toLowerCase();
+  for (const kw of WHOLE_GRAIN_NAMES) {
+    if (lower.includes(kw)) { console.log('[FALLBACK]', name, 'matches whole-grain keyword:', kw); return 'whole-grain'; }
+  }
+  for (const kw of REFINED_GRAIN_NAMES) {
+    if (lower.includes(kw)) { console.log('[FALLBACK]', name, 'matches refined-grain keyword:', kw); return 'refined-grain'; }
+  }
+  console.log('[FALLBACK]', name, 'no grain keyword match');
+  return null;
+}
 
 /** Convert SuggestionMeal (API) to Meal (defaults engine) */
 function suggestionToMeal(s: SuggestionMeal): Meal {
@@ -284,17 +313,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             .map(slot => {
                 const meals = getMeals(today, slot.mealType);
                 if (meals.length === 0) return null;
-                return meals.map(m => {
-                    const parts: string[] = [m.name];
-                    if (m.gravy) parts.push(m.gravy);
-                    if (m.roti) parts.push(m.roti);
-                    if (m.rice) parts.push(m.rice);
-                    if (m.sides?.length) parts.push(m.sides.join(', '));
-                    if (m.beverages?.length) parts.push(m.beverages.join(', '));
-                    const label = parts.join(' • ');
-                    const qty = (m.quantity || 1) > 1 ? ` x${m.quantity}` : '';
-                    return `• ${slot.label}: ${label}${qty}`;
+                const dishNames = meals.map(m => {
+                    const dishQty = (m.quantity || 1) > 1 ? ` x${m.quantity}` : '';
+                    return `  • ${m.name}${dishQty}`;
                 }).join('\n');
+                const agg = aggregateSlotItems(meals);
+                const allComps = [
+                    ...agg.gravy.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
+                    ...agg.roti.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
+                    ...agg.rice.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
+                    ...agg.sides.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
+                    ...agg.beverages.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
+                    ...agg.dessert.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
+                ];
+                const compLines = allComps
+                    .filter(c => c.qty > 0)
+                    .map(c => `  • ${c.name} x${c.qty} ${c.unit}`)
+                    .join('\n');
+                return `• ${slot.label}:\n${dishNames}${compLines ? '\n' + compLines : ''}`;
             })
             .filter(Boolean);
         return `🍱 *${copy.dailyTitle}*\n\n${today}\n${copy.todayPlan}:\n${lines.join('\n')}\n\nRegion: ${user?.region ?? ''}`;
@@ -314,7 +350,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         guestMode.active, guestMode.guestCount, guestMode.extraServings,
         guestMode.startDate, guestMode.endDate,
     ]);
-    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences), [getMeals, today, committedCompletions, preferences, slotTimesRefreshKey]);
+    const mealDataDays = useTrayStore(s => s.plan.days);
+    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences), [getMeals, today, committedCompletions, preferences, slotTimesRefreshKey, mealDataDays, JSON.stringify(plan.days[today])]);
     const activeSlots = categorizedSlots.filter(s => s.section === 'active');
     const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
     const completedSlots = categorizedSlots.filter(s => s.section === 'completed');
@@ -338,37 +375,125 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const plateScore = useMemo(() => {
       const allMeals = [...activeSlots, ...upcomingSlots, ...completedSlots].flatMap(({ slot }) => {
         const meals = getMeals(today, slot.mealType);
-        return meals.map(m => {
-          const meta = DISH_HEALTH_MAP[m.meal_id];
-          const categories = [...(meta?.healthCategories ?? [])];
-          const tags = [...(meta?.tags ?? [])];
+        if (meals.length === 0) return [];
 
-          // Include health categories from meal components (roti, rice, gravy, sides, etc.)
-          const componentNames = [
+        const categories: string[] = [];
+        const tags: string[] = [];
+
+        for (const m of meals) {
+          const meta = DISH_HEALTH_MAP[m.meal_id];
+          if (meta) {
+            categories.push(...meta.healthCategories);
+            tags.push(...meta.tags);
+            if (!meta.healthCategories.some(c => c === 'whole-grain' || c === 'refined-grain')) {
+              const inferred = inferGrainCategory(m.name);
+              if (inferred) categories.push(inferred);
+            }
+          } else {
+            const inferred = inferGrainCategory(m.name);
+            if (inferred) categories.push(inferred);
+          }
+        }
+
+        const seen = new Set<string>();
+        for (const m of meals) {
+          const names = [
             m.roti, m.rice, m.gravy,
             ...(m.sides ?? []),
             ...(m.beverages ?? []),
             ...(m.dessert ?? []),
           ].filter(Boolean) as string[];
-          for (const name of componentNames) {
-            const componentMeta = COMPONENT_HEALTH_MAP[name];
-            if (componentMeta) {
-              categories.push(...componentMeta.healthCategories);
-              tags.push(...componentMeta.tags);
+          for (const name of names) {
+            const key = name.trim().toLowerCase();
+            if (!seen.has(key)) {
+              seen.add(key);
+              const componentMeta = COMPONENT_HEALTH_MAP[name];
+              if (componentMeta) {
+                categories.push(...componentMeta.healthCategories);
+                tags.push(...componentMeta.tags);
+                if (!componentMeta.healthCategories.some(c => c === 'whole-grain' || c === 'refined-grain')) {
+                  const inferred = inferGrainCategory(name);
+                  if (inferred) categories.push(inferred);
+                }
+              } else {
+                const inferred = inferGrainCategory(name);
+                if (inferred) categories.push(inferred);
+              }
             }
           }
+        }
 
-          return {
-            name: m.name,
-            healthCategories: categories,
-            tags,
-            quantity: m.quantity,
-          };
-        });
+        return [{
+          name: slot.mealType,
+          healthCategories: categories,
+          tags,
+          quantity: 1,
+        }];
       });
-      return scorePlateBalance(allMeals);
-    }, [today, activeSlots, upcomingSlots, completedSlots, getMeals]);
 
+      // ─── Keyword-based whole-grain detection (catches items MISSING from health maps) ───
+      const GRAIN_KEYWORDS = ['roti', 'phulka', 'bhakri', 'paratha', 'thepla', 'brown rice', 'oats', 'millet', 'jowar', 'bajra', 'ragi', 'whole wheat', 'multigrain', 'bran'];
+      const rawMeals = [...activeSlots, ...upcomingSlots, ...completedSlots].flatMap(({ slot }) => getMeals(today, slot.mealType));
+      const activeItems = rawMeals.filter(m => (m.quantity || 1) > 0);
+      const grainNames: string[] = [];
+      for (const m of activeItems) {
+        const dishName = m.name.toLowerCase();
+        if (GRAIN_KEYWORDS.some(k => dishName.includes(k))) grainNames.push(m.name);
+        const comps = [m.roti, m.rice, ...(m.sides ?? []), ...(m.beverages ?? []), ...(m.dessert ?? [])].filter(Boolean) as string[];
+        for (const c of comps) {
+          if (GRAIN_KEYWORDS.some(k => c.toLowerCase().includes(k))) {
+            grainNames.push(`${m.name}→${c}`);
+          }
+        }
+      }
+      if (grainNames.length > 0) {
+        for (let i = 0; i < grainNames.length; i++) {
+          allMeals.push({ name: `keyword-grain-${i}`, healthCategories: ['whole-grain'], tags: [], quantity: 1 });
+        }
+      }
+
+      const result = scorePlateBalance(allMeals);
+
+      // ─── Brute-force keyword detection for Healthy Fats & Low Sugar ───
+      // Checks ALL component names (dish name + roti, rice, sides, beverages, dessert)
+      const HEALTHY_FAT_KEYWORDS = ['ghee', 'butter', 'paneer', 'cheese', 'coconut', 'avocado', 'fish', 'almond', 'cashew', 'walnut', 'peanut', 'nuts', 'sesame', 'til', 'mustard oil', 'olive oil', 'sunflower oil', 'coconut oil', 'sesame oil', 'fish oil', 'seed', 'flaxseed', 'chia', 'omega', 'tahini'];
+      const LOW_SUGAR_KEYWORDS = ['water', 'chaas', 'buttermilk', 'nimbu', 'coconut water', 'salad', 'raita', 'curd', 'dahi', 'pickle', 'chutney', 'no sugar', 'unsweetened', 'sugar free', 'zero sugar', 'natural sweetener', 'stevia', 'jaggery', 'date', 'khajur', 'gur', 'low glycemic', 'diabetic friendly'];
+
+      const getAllItemNames = (item: TrayItem): string[] => {
+        return [
+          item.name,
+          item.roti,
+          item.rice,
+          item.gravy,
+          ...(item.sides ?? []),
+          ...(item.beverages ?? []),
+          ...(item.dessert ?? []),
+        ].filter(Boolean) as string[];
+      };
+
+      const itemMatchesKeywords = (item: TrayItem, keywords: string[]): boolean => {
+        const allNames = getAllItemNames(item).map(n => n.toLowerCase());
+        return keywords.some(k => allNames.some(n => n.includes(k)));
+      };
+
+      console.log('[FATS/SUGAR-CALC] Input items:', allMeals.map(m => ({ name: m.name, quantity: m.quantity, tags: m.tags })));
+
+      const fatsMatched = activeItems.filter(i => (i.quantity ?? 1) > 0 && itemMatchesKeywords(i, HEALTHY_FAT_KEYWORDS));
+      console.log('[FATS-FILTER] Matched:', fatsMatched.map(i => i.name), 'Count:', fatsMatched.length);
+      const healthyFatsCount = fatsMatched.reduce((sum, i) => sum + (i.quantity ?? 1), 0);
+
+      const sugarMatched = activeItems.filter(i => (i.quantity ?? 1) > 0 && itemMatchesKeywords(i, LOW_SUGAR_KEYWORDS));
+      console.log('[SUGAR-FILTER] Matched:', sugarMatched.map(i => i.name), 'Count:', sugarMatched.length);
+      const lowSugarCount = sugarMatched.reduce((sum, i) => sum + (i.quantity ?? 1), 0);
+
+      result.categories.healthyFat = Math.min(10, healthyFatsCount);
+      result.categories.limitSugary = Math.min(5, lowSugarCount);
+      result.total = Math.max(0, result.categories.vegFruit + result.categories.wholeGrain + result.categories.protein + result.categories.healthyFat + result.categories.limitSugary + result.categories.limitRedMeat);
+
+      console.log('[METRIC-RENDER] HealthyFats:', healthyFatsCount, 'LowSugar:', lowSugarCount);
+
+      return result;
+    }, [today, activeSlots, upcomingSlots, completedSlots, getMeals, mealDataDays, JSON.stringify(plan.days[today])]);
     const loopConfig = useTrayStore(s => s.mealLoop.config);
     const loopConfigured = loopConfig !== null;
 
@@ -679,7 +804,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             )}
 
             {/* FAB */}
-            <div className="fixed bottom-24 right-6 z-40">
+            <div className="fixed bottom-24 right-6 z-[60]">
             <button
                 onClick={() => setShowSlotPicker(true)}
                 className="w-14 h-14 bg-[#FF385C] text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all"
@@ -691,7 +816,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
             {/* Slot picker */}
             {showSlotPicker && (
-                <div className="fixed inset-0 z-50" onClick={() => setShowSlotPicker(false)}>
+                <div className="fixed inset-0 z-[60]" onClick={() => setShowSlotPicker(false)}>
                     <div className="absolute inset-0 bg-black/30" />
                     <div
                         className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-6 pb-10 animate-in slide-in-from-bottom duration-200 max-w-lg mx-auto"

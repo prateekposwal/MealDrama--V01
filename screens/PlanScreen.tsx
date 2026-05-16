@@ -18,7 +18,7 @@ import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOTS } from '../utils/continuity';
-import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
+import { computeStyleWarnings } from '../constants/dishStyles';
 
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
 interface PlanUpcomingSlotProps extends
@@ -395,19 +395,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         return weekDates.filter(d => d > today);
     }, [weekDates, today, mealLoop.config, planDays]);
 
-    const styleWarningsCache = useMemo(() => {
-        const cache: Record<string, StyleWarning[]> = {};
-        const dates = [...new Set([...upcomingDates, ...pastDatesWithMeals])];
-        for (const date of dates) {
-            for (const { mealType } of SLOTS) {
-                const slotMeals = getMeals(date, mealType);
-                const key = `${date}::${mealType}`;
-                cache[key] = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
-            }
-        }
-        return cache;
-    }, [getMeals, upcomingDates, pastDatesWithMeals]);
-
     // Week label
     const weekLabel = useMemo(() => {
         if (mealLoop.config && upcomingDates.length > 0) {
@@ -589,8 +576,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         const tomorrowDate = getISODate(new Date(new Date(date).getTime() + 86400000));
                                         const tomorrowMeals = getMeals(tomorrowDate, mealType);
                                         const slotMealsForDate = getMeals(date, mealType);
-                                        const swKey = `${date}::${mealType}`;
-                                        const styleWarnings = styleWarningsCache[swKey] ?? [];
+                                        const styleWarnings = computeStyleWarnings(slotMealsForDate.map(m => ({ mealId: m.meal_id, name: m.name })));
                                         return <React.Fragment key={`${date}-${key}`}>
                                             <LoopAutoFillSlot date={date} mealType={mealType} />
                                             <PlanUpcomingSlot
@@ -686,7 +672,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             )}
 
             {/* FAB */}
-            <div className="fixed bottom-24 right-6 z-40">
+            <div className="fixed bottom-24 right-6 z-[60]">
                 <button
                     onClick={() => {
                         setQuickAddDate(upcomingDates[0] || today);
@@ -701,7 +687,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
             {/* Slot picker */}
             {showSlotPicker && (
-                <div className="fixed inset-0 z-50" onClick={() => setShowSlotPicker(false)}>
+                <div className="fixed inset-0 z-[60]" onClick={() => setShowSlotPicker(false)}>
                     <div className="absolute inset-0 bg-black/30" />
                     <div
                         className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-6 pb-10 animate-in slide-in-from-bottom duration-200 max-w-lg mx-auto"

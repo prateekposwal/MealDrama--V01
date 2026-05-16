@@ -12,6 +12,8 @@ import { EMPTY_LOOP_STATE, SLOT_TIME_DEFAULTS, getSlotDefaultTimes } from '../ty
 import type { Meal, MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, SavedTemplate, MealLoopState, MealLoopConfig, MealLoopAssignment } from '../types/tray';
 import { buildLoopAssignments as buildAssignments, handleMidCycleAdd } from '../utils/mealLoopEngine';
 import { dishToMeal } from '../utils/dishToMeal';
+import { generateMealTitle } from '../utils/generateMealTitle';
+import { getDishStyle } from '../constants/dishStyles';
 import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../constants/dishLibrary';
 import { useStore } from './useStore';
@@ -209,10 +211,13 @@ export const useTrayStore = create<TrayStore>()(
         const defaults = applySmartDefaults(meal, mealType, undefined, { useSmartSuggestions: true });
 
         const timeDef = getTimeDef(mealType);
+        const embeddedCarb = defaults.roti ?? defaults.rice ?? undefined;
+        const autoTitle = overrides?.title ?? generateMealTitle(meal.name, defaults.sides, defaults.beverages, embeddedCarb);
         const newItem: TrayItem = {
           id: uid(),
           meal_id: meal.id,
           name: meal.name,
+          title: autoTitle,
           icon: meal.icon,
           quantity: overrides?.quantity ?? 1,
           servings: overrides?.servings ?? 1,
@@ -225,16 +230,32 @@ export const useTrayStore = create<TrayStore>()(
           beverages: defaults.beverages,
           dessert: defaults.dessert,
           itemQtys: defaults.itemQtys,
-          // Optional overrides
+          // Resolve style from dish metadata (meal.id)
+          style: getDishStyle(meal.id),
+          // Preserve variant/style from overrides if caller enriched the Meal with dish metadata
+          variant: overrides?.variant,
+          variantId: overrides?.variantId,
           addon: overrides?.addon,
           // Default time window for this slot type
           start_time: overrides?.start_time || timeDef.start,
           end_time: overrides?.end_time || timeDef.end,
         };
 
-        // Optimistic update
+        // Optimistic update (with dedup: same meal_id → increment quantity instead)
         set((s) => {
           const day = s.plan.days[date] || emptyDayMeals();
+          const existing = day[mealType].find(m => m.meal_id === newItem.meal_id);
+          if (existing) {
+            return {
+              plan: {
+                ...s.plan,
+                days: { ...s.plan.days, [date]: { ...day, [mealType]: day[mealType].map(m =>
+                  m.id === existing.id ? { ...m, quantity: (m.quantity || 1) + (newItem.quantity || 1) } : m
+                ) } },
+              },
+              saveStatus: s.saveStatus,
+            };
+          }
           return {
             plan: {
               ...s.plan,
@@ -332,6 +353,8 @@ export const useTrayStore = create<TrayStore>()(
           // Call helper with NEW meal + slot context for fresh defaults
           const defaults = applySmartDefaults(newMeal, mealType, undefined, { useSmartSuggestions: true });
           const timeDef = getTimeDef(mealType);
+          const swapCarb = defaults.roti ?? defaults.rice ?? undefined;
+          const swapTitle = generateMealTitle(newMeal.name, defaults.sides, defaults.beverages, swapCarb);
 
           const updatedItems = items.map(item =>
             item.id === itemId
@@ -339,8 +362,10 @@ export const useTrayStore = create<TrayStore>()(
                   ...item,
                   meal_id: newMeal.id,
                   name: newMeal.name,
+                  title: swapTitle,
                   icon: newMeal.icon,
                   smartVersion: 1,
+                  style: getDishStyle(newMeal.id),
                   // Reset chips to NEW meal's smart defaults
                   gravy: defaults.gravy,
                   roti: defaults.roti,
@@ -667,14 +692,18 @@ export const useTrayStore = create<TrayStore>()(
               const meal = dishToMeal(dish);
               const defaults = applySmartDefaults(meal, a.mealType, undefined, { useSmartSuggestions: true });
               const timeDef = getTimeDef(a.mealType);
+              const loopCarb = defaults.roti ?? defaults.rice ?? undefined;
+              const loopTitle = generateMealTitle(meal.name, defaults.sides, defaults.beverages, loopCarb);
               newDays[a.date][a.mealType].push({
                 id: uid(),
                 meal_id: meal.id,
-                name: meal.name,
-                icon: meal.icon,
+          name: meal.name,
+          title: loopTitle,
+          icon: meal.icon,
                 quantity: 1,
                 servings: 1,
                 smartVersion: 1,
+                style: getDishStyle(meal.id),
                 gravy: defaults.gravy,
                 roti: defaults.roti,
                 rice: defaults.rice,

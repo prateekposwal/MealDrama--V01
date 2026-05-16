@@ -67,9 +67,14 @@ export function dishToMeal(dish: Dish): Meal {
     { useSmartSuggestions: true },
   );
 
+  const defaultVariant = dish.variants?.[0];
+  const fullName = defaultVariant
+    ? (defaultVariant.name.includes(dish.name) ? defaultVariant.name : `${dish.name} ${defaultVariant.name}`)
+    : dish.name;
+
   return {
     id: dish.id,
-    name: dish.name,
+    name: fullName,
     icon: dish.icon,
     region: dish.region,
     baseGravy: dish.gravyType ? String(dish.gravyType) : undefined,

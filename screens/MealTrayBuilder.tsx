@@ -151,6 +151,8 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
 
     // Display meals: map each unique dish in the slot to its plan data (has full customization).
     // Deduplicates by dishId so the same dish doesn't appear twice.
+    // Includes items from both trayLibrary AND planDays — dishes added via Quick Add
+    // are only in planDays (not trayLibrary), so both sources must be merged.
     const displayMeals = useMemo((): TrayItem[] => {
         const slotKey = currentSlot.mealType;
         const trayItems = trayLibrary[slotKey] || [];
@@ -158,16 +160,17 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         const planMap = new Map(planItems.map(p => [p.meal_id, p]));
         const seen = new Set<string>();
         const def = SLOT_TIME_DEFAULTS[slotKey];
-        return trayItems.filter(item => {
-            if (seen.has(item.dishId)) return false;
+        const result: TrayItem[] = [];
+        // 1. Items from trayLibrary (merging with plan data)
+        for (const item of trayItems) {
+            if (seen.has(item.dishId)) continue;
             seen.add(item.dishId);
-            return true;
-        }).map(item => {
             const planItem = planMap.get(item.dishId);
-            return {
+            result.push({
                 id: item.id,
                 meal_id: item.dishId,
-                name: item.name,
+                name: planItem?.name ?? item.name,
+                title: planItem?.title,
                 icon: item.icon,
                 quantity: planItem?.quantity ?? item.quantity ?? 1,
                 servings: planItem?.servings ?? 1,
@@ -180,8 +183,32 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 itemQtys: planItem?.itemQtys ?? {},
                 start_time: planItem?.start_time || def?.start,
                 end_time: planItem?.end_time || def?.end,
-            };
-        });
+            });
+        }
+        // 2. Items from planDays NOT already in trayLibrary (e.g. Quick Add)
+        for (const planItem of planItems) {
+            if (seen.has(planItem.meal_id)) continue;
+            seen.add(planItem.meal_id);
+            result.push({
+                id: planItem.id,
+                meal_id: planItem.meal_id,
+                name: planItem.name,
+                title: planItem.title,
+                icon: planItem.icon,
+                quantity: planItem.quantity ?? 1,
+                servings: planItem.servings ?? 1,
+                gravy: planItem.gravy ?? null,
+                roti: planItem.roti ?? null,
+                rice: planItem.rice ?? null,
+                sides: planItem.sides ?? [],
+                beverages: planItem.beverages ?? [],
+                dessert: planItem.dessert ?? [],
+                itemQtys: planItem.itemQtys ?? {},
+                start_time: planItem.start_time || def?.start,
+                end_time: planItem.end_time || def?.end,
+            });
+        }
+        return result;
     }, [trayLibrary, currentSlot.mealType, planDays, today]);
 
     const totalQty = displayMeals.length;
@@ -239,6 +266,11 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             updateItemInline(date, mealType, itemId, updates);
         };
     }, [updateItemInline]);
+
+    const handleModalChange = useCallback((itemId: string, updates: Partial<TrayItem>) => {
+        if (!currentSlot) return;
+        updateItemInline(today, currentSlot.mealType, itemId, updates);
+    }, [updateItemInline, today, currentSlot]);
 
     const handleSwapCustomizeApply = useCallback((itemId: string, updates: Partial<TrayItem>) => {
         const planItems = planDays[today]?.[currentSlot.mealType] || [];
@@ -618,6 +650,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 if (!activeItem || !currentSlot) return null;
                 return (
                     <SwapCustomizeModal
+                        key={`${currentSlot.label}_${today}`}
                         isOpen={swapCustomizeOpenKey !== null}
                         onClose={() => setSwapCustomizeOpenKey(null)}
                         date={today}
@@ -629,6 +662,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         userDiet={userDiet}
                         onApply={handleSwapCustomizeApply}
                         onAddAnother={handleAddAnother}
+                        onChange={handleModalChange}
                     />
                 );
             })()}

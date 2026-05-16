@@ -5,8 +5,9 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import type { MealType, TrayItem, GuestMode } from '../../store/useTrayStore';
-import { computeEffectiveServings, resolveSlotTimes, aggregateSlotItems } from '../../types/tray';
+import { computeEffectiveServings, resolveSlotTimes } from '../../types/tray';
 import type { AggregatedCategory } from '../../types/tray';
+import { useNormalizedComposition } from './useNormalizedComposition';
 import type { Dish } from '../../constants/dishLibrary';
 import type { SuggestionMeal } from '../../lib/trayApi';
 import { MealCard } from './MealCard';
@@ -15,6 +16,8 @@ import { SwapCustomizeModal } from './SwapCustomizeModal';
 import DishImage from '../new/DishImage';
 import { CheckCheck, ChevronRight, Shuffle, Sparkles, X, Plus } from 'lucide-react';
 import type { StyleWarning } from '../../constants/dishStyles';
+import { useStore } from '../../store/useStore';
+import { generateMealTitle } from '../../utils/generateMealTitle';
 
 export type SlotMode = 'active' | 'upcoming' | 'completed' | 'history' | 'builder';
 
@@ -151,6 +154,28 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
     [date, mealType, onSwapCustomizeApply],
   );
 
+  const handleModalChange = useCallback(
+    (itemId: string, updates: Partial<TrayItem>) => {
+      const currentItem = meals.find(m => m.id === itemId);
+      if (!currentItem) {
+        onUpdateInline(date, mealType, itemId)(updates);
+        return;
+      }
+      // Replace array fields entirely (no additive merge — prevents stale-accumulation
+      // where toggled-off items survive via previous-state merge).
+      const merged: Partial<TrayItem> = { ...updates };
+      // Preserve scalar fields not present in updates (e.g. gravy, roti, rice are
+      // already present in updates from buildUpdatesObject, but just in case):
+      for (const key of ['gravy', 'roti', 'rice'] as const) {
+        if (!(key in updates) && currentItem[key] !== undefined) {
+          merged[key] = currentItem[key];
+        }
+      }
+      onUpdateInline(date, mealType, itemId)(merged);
+    },
+    [date, mealType, onUpdateInline, meals],
+  );
+
   const [addDishOpen, setAddDishOpen] = useState(false);
 
   const ADD_DISH_DUMMY: TrayItem = {
@@ -160,7 +185,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
     sides: [], beverages: [], dessert: [], itemQtys: {},
   };
 
-  const aggregated = useMemo(() => aggregateSlotItems(meals), [meals]);
+  const aggregated = useNormalizedComposition(meals);
+  const setToast = useStore(s => s.setToast);
 
   const handleAggregatedQty = useCallback((name: string, delta: number) => {
     const hasItem = (item: TrayItem) =>
@@ -170,11 +196,40 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
     if (targets.length === 0) return;
     let remaining = Math.abs(delta);
     const sign = delta > 0 ? 1 : -1;
+    let removed = false;
     for (const item of targets) {
       if (remaining <= 0) break;
       const current = item.itemQtys?.[name] ?? 1;
-      const next = Math.max(1, current + sign);
-      if (next !== current) {
+      const next = current + sign;
+      if (sign < 0 && next <= 0) {
+        const updatedSides = item.sides?.filter(s => s !== name) || [];
+        const updatedBeverages = item.beverages?.filter(b => b !== name) || [];
+        const updatedDessert = item.dessert?.filter(d => d !== name) || [];
+        const updatedRoti = item.roti === name ? null : item.roti;
+        const updatedRice = item.rice === name ? null : item.rice;
+        const updatedGravy = item.gravy === name ? null : item.gravy;
+        const title = generateMealTitle(
+          item.name,
+          updatedSides,
+          updatedBeverages,
+          updatedRice ?? updatedRoti ?? undefined,
+        );
+        const updates: Partial<TrayItem> = { title };
+        if (updatedGravy !== item.gravy) updates.gravy = updatedGravy;
+        else if (updatedRice !== item.rice) updates.rice = updatedRice;
+        else if (updatedRoti !== item.roti) updates.roti = updatedRoti;
+        if (updatedSides.length !== (item.sides?.length ?? 0)) updates.sides = updatedSides;
+        if (updatedBeverages.length !== (item.beverages?.length ?? 0)) updates.beverages = updatedBeverages;
+        if (updatedDessert.length !== (item.dessert?.length ?? 0)) updates.dessert = updatedDessert;
+        if (item.itemQtys) {
+          const newQtys = { ...item.itemQtys };
+          delete newQtys[name];
+          updates.itemQtys = Object.keys(newQtys).length > 0 ? newQtys : undefined;
+        }
+        onUpdateInline(date, mealType, item.id)(updates);
+        remaining -= 1;
+        removed = true;
+      } else if (next !== current) {
         const capped = sign > 0 ? Math.min(remaining, next - current) : -Math.min(remaining, current - 1);
         if (capped !== 0) {
           onUpdateInline(date, mealType, item.id)({ itemQtys: { ...item.itemQtys, [name]: current + capped } });
@@ -182,7 +237,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         }
       }
     }
-  }, [meals, date, mealType, onUpdateInline]);
+    if (removed) setToast({ message: `${name} removed`, type: 'info' });
+  }, [meals, date, mealType, onUpdateInline, setToast]);
 
   const categoryConfig = [
     { items: aggregated.gravy, label: 'Gravy', color: 'bg-amber-50 text-amber-700 border-amber-100' },
@@ -193,7 +249,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
     { items: aggregated.dessert, label: 'Dessert', color: 'bg-pink-50 text-pink-700 border-pink-100' },
   ];
 
-  const showAggregated = !isUserCompleted && meals.length > 0 && (!mergeExtraItems || meals.length === 1);
+  // Show aggregated summary as the single source of truth for slot composition
+  const showAggregated = !isUserCompleted && meals.length > 0;
 
   return (
     <div className="space-y-3">
@@ -290,40 +347,6 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                           </span>
                         )}
                       </div>
-                      {(extra.gravy || extra.roti || extra.rice || extra.sides?.length > 0 || extra.beverages?.length > 0 || extra.dessert?.length > 0) && (
-                        <div className="flex flex-wrap items-center gap-1 mt-0.5">
-                          {extra.gravy && (
-                            <span className="text-[8px] font-bold bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full border border-amber-100">
-                              {extra.gravy}
-                            </span>
-                          )}
-                          {extra.roti && (
-                            <span className="text-[8px] font-bold bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded-full border border-orange-100">
-                              {extra.roti}
-                            </span>
-                          )}
-                          {extra.rice && (
-                            <span className="text-[8px] font-bold bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded-full border border-blue-100">
-                              {extra.rice}
-                            </span>
-                          )}
-                          {extra.sides?.length > 0 && (
-                            <span className="text-[8px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded-full border border-gray-100">
-                              {extra.sides.join(', ')}
-                            </span>
-                          )}
-                          {extra.beverages?.length > 0 && (
-                            <span className="text-[8px] font-medium text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded-full border border-gray-100">
-                              {extra.beverages.join(', ')}
-                            </span>
-                          )}
-                          {extra.dessert?.length > 0 && (
-                            <span className="text-[8px] font-bold bg-pink-50 text-pink-700 px-1.5 py-0.5 rounded-full border border-pink-100">
-                              🍨 {extra.dessert.join(', ')}
-                            </span>
-                          )}
-                        </div>
-                      )}
                     </div>
                     {editable && (
                       <div className="flex items-center gap-1">
@@ -391,25 +414,29 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
       {/* ─── Aggregated slot items per category ─── */}
       {showAggregated && (
-        <div className="pt-1 pb-2 space-y-2">
+        <div className="pt-1 pb-2 space-y-2 aggregated-categories">
           {categoryConfig.map(cat => cat.items.length > 0 && (
-            <div key={cat.label}>
+            <div key={cat.label} className="aggregated-category">
               <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">{cat.label}</p>
               <div className="flex flex-wrap items-center gap-1.5">
                 {cat.items.map((agg: AggregatedCategory) => (
-                  <span key={agg.name} className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${cat.color} inline-flex items-center gap-1`}>
-                    {cat.label === 'Dessert' && '🍨 '}{agg.name}
-                    <span className="inline-flex items-center gap-0.5 ml-1">
+                  <span key={agg.name} className="text-[10px] font-bold px-2.5 py-1.5 rounded-xl border inline-flex items-center gap-1.5 aggregated-chip select-none" style={{ transition: 'opacity 0.2s ease, transform 0.2s ease' }}>
+                    <span className={`${cat.color} contents`}>
+                      {cat.label === 'Dessert' && '🍨 '}{agg.name}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
                       <button
                         onClick={() => handleAggregatedQty(agg.name, -1)}
-                        className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-gray-100 text-[8px] font-bold text-gray-600 active:bg-gray-200 leading-none"
+                        className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-sm font-bold leading-none"
+                        aria-label={`Decrease ${agg.name}`}
                       >−</button>
-                      <span className="text-[9px] font-bold text-gray-700 min-w-[8px] text-center tabular-nums">{agg.totalQty}</span>
+                      <span className="text-sm font-bold text-gray-700 min-w-[20px] text-center tabular-nums select-none">{agg.totalQty}</span>
                       <button
                         onClick={() => handleAggregatedQty(agg.name, 1)}
-                        className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-gray-100 text-[8px] font-bold text-gray-600 active:bg-gray-200 leading-none"
+                        className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-sm font-bold leading-none"
+                        aria-label={`Increase ${agg.name}`}
                       >+</button>
-                      <span className="text-[7px] text-gray-400 ml-0.5">{agg.unit}</span>
+                      <span className="text-[10px] text-gray-400 select-none">{agg.unit}</span>
                     </span>
                   </span>
                 ))}
@@ -476,6 +503,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {/* Swap Customize Modal */}
       {activeCustomizeItem && onSwapCustomizeApply && (
         <SwapCustomizeModal
+          key={`${slotLabel}_${date}`}
           isOpen={swapCustomizeOpenKey !== null}
           onClose={() => onSwapCustomizeClose?.()}
           date={date}
@@ -487,12 +515,14 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           userDiet={userDiet}
           onApply={handleModalApply}
           onAddAnother={onAddAnother}
+          onChange={handleModalChange}
         />
       )}
 
       {/* Add Dish Modal (opens directly in search/add mode) */}
       {addDishOpen && onAddAnother && (
         <SwapCustomizeModal
+          key={`add_${slotLabel}_${date}`}
           isOpen={addDishOpen}
           onClose={() => setAddDishOpen(false)}
           date={date}
@@ -505,8 +535,30 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           onApply={() => {}}
           onAddAnother={onAddAnother}
           initialAddMode={true}
+          onChange={handleModalChange}
         />
       )}
+      <style>{`
+        .aggregated-category {
+          transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .aggregated-chip {
+          touch-action: manipulation;
+          transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        .aggregated-chip:hover {
+          transform: scale(1.02);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .aggregated-category,
+          .aggregated-chip {
+            transition: none !important;
+          }
+          .aggregated-chip:hover {
+            transform: none;
+          }
+        }
+      `}</style>
     </div>
   );
 });

@@ -89,6 +89,10 @@ export interface TrayItem {
   dessert: string[];
   /** Per-item quantities (item name → qty, e.g. "Roti" → 4, "Chaas" → 2) */
   itemQtys: Record<string, number>;
+  /** Variant type name for multi-variant dishes (e.g. "Chicken", "Veg") */
+  variant?: string;
+  /** Variant ID for multi-variant dishes */
+  variantId?: string;
   /** Optional addon */
   addon?: string;
   /** Timestamp of last swap */

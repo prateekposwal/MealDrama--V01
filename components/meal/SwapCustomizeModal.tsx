@@ -104,6 +104,8 @@ interface SwapCustomizeModalProps {
   ) => void;
   onAddAnother?: (date: string, mealType: MealType, dish: Dish) => void;
   initialAddMode?: boolean;
+  /** Called in real-time when selections change (no modal close) */
+  onChange?: (itemId: string, updates: Partial<TrayItem>) => void;
 }
 
 const allCategories: IndianMealCategory[] = ['bread', 'rice', 'side', 'beverage', 'dessert'];
@@ -133,6 +135,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   onApply,
   onAddAnother,
   initialAddMode,
+  onChange,
 }) => {
   const [dish, setDish] = useState<Dish | null>(null);
   const [meal, setMeal] = useState<Meal | null>(null);
@@ -149,7 +152,16 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const [healthSort, setHealthSort] = useState<HealthSortKey | null>(null);
   const [selectedSwapDish, setSelectedSwapDish] = useState<Dish | null>(null);
   const selectedSwapDishRef = useRef<Dish | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<DishVariant | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Variant-inclusive display name for the dish header
+  const displayName = useMemo(() => {
+    const base = dish?.name;
+    if (!base) return '';
+    if (!selectedVariant) return base;
+    return selectedVariant.name.includes(base) ? selectedVariant.name : `${base} ${selectedVariant.name}`;
+  }, [dish?.name, selectedVariant]);
   const regionKey = (userRegion ?? '').toLowerCase().replace(' india', '');
   const { user, updateProfile, customDishes, addCustomDish } = useStore();
   const allergyMode = user?.allergyMode ?? false;
@@ -158,6 +170,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [addAnotherMode, setAddAnotherMode] = useState(false);
   const initRef = useRef<string | null>(null);
+  const seededMealRef = useRef<string | null>(null);
+  const explicitlyRemovedRef = useRef<Set<string>>(new Set());
   const [showCustomDishForm, setShowCustomDishForm] = useState(false);
   const [customDishName, setCustomDishName] = useState('');
   const [customDishStyle, setCustomDishStyle] = useState<string>('Gravy');
@@ -176,17 +190,28 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       const current = prev[cat];
       const max = CATEGORY_CONFIG[cat].max;
       const already = current.includes(item);
-      if (already) return { ...prev, [cat]: current.filter(i => i !== item) };
+      if (already) {
+        explicitlyRemovedRef.current.add(`${cat}_${item.toLowerCase().trim()}`);
+        return { ...prev, [cat]: current.filter(i => i !== item) };
+      }
       if (!overrideLimit && current.length >= max) return { ...prev, [cat]: [item] };
       return { ...prev, [cat]: [...current, item] };
     });
+    syncNeeded.current = true;
   }, [overrideLimit]);
+
+  const handleClose = useCallback(() => {
+    explicitlyRemovedRef.current.clear();
+    seededMealRef.current = null;
+    onClose();
+  }, [onClose]);
 
   const handleStyleSelect = useCallback((group: DishStyleGroup) => {
     const suggestions = getPairingSuggestions(group);
     setSelectedStyleGroup(group);
     setSelectedCategories(suggestions);
     setShowStylePicker(false);
+    syncNeeded.current = true;
   }, []);
 
   useEffect(() => {
@@ -199,41 +224,24 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         setHealthPreset(null);
         setHealthSort(null);
         setSelectedSwapDish(null);
+        setSelectedVariant(null);
         setOverrideLimit(false);
         setShowStylePicker(false);
         setShowCustomDishForm(false);
         setCustomDishStyle('Gravy');
         setCustomDishDiet('veg');
         setCustomDishName('');
-        setExpandedCategories({});
         initRef.current = '__add_mode__';
         return;
       }
       if (initRef.current === item.meal_id) return;
-      const sourceDish = dishes.find(d => d.id === item.meal_id) || dishes.find(d => d.name === item.name);
-      if (sourceDish) {
-        const m = dishToMeal(sourceDish);
-        const defaults = applySmartDefaults(m, mealType);
-        const style = getDishStyle(sourceDish.id);
-        setDish(sourceDish);
-        setMeal(m);
-        setQuantity(1);
-        setSelectedStyleGroup(style ? internalToStyleGroup(style) : null);
-        setSelectedCategories({
-          bread: item.roti ? [item.roti] : (defaults.roti ? [defaults.roti] : []),
-          rice: item.rice ? [item.rice] : (defaults.rice ? [defaults.rice] : []),
-          side: item.sides?.length ? item.sides : defaults.sides,
-          beverage: item.beverages?.length ? item.beverages : defaults.beverages,
-          dessert: item.dessert?.length ? item.dessert : defaults.dessert,
-        });
-        initRef.current = item.meal_id;
-      }
       setShowSwapSearch(false);
       setSearchQuery('');
       setShowGlobal(false);
       setHealthPreset(null);
       setHealthSort(null);
       setSelectedSwapDish(null);
+      setSelectedVariant(null);
       setOverrideLimit(false);
       setShowStylePicker(false);
       setAddAnotherMode(false);
@@ -241,10 +249,36 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       setCustomDishStyle('Gravy');
       setCustomDishDiet('veg');
       setCustomDishName('');
-      setExpandedCategories({});
+      const sourceDish = dishes.find(d => d.id === item.meal_id) || dishes.find(d => d.name === item.name);
+      if (sourceDish) {
+        const m = dishToMeal(sourceDish);
+        const style = getDishStyle(sourceDish.id);
+        // Restore variant if item has one
+        const restoredVariant = item.variant && item.variantId
+          ? sourceDish.variants.find(v => v.id === item.variantId || v.name === item.variant) ?? null
+          : null;
+        if (restoredVariant) setSelectedVariant(restoredVariant);
+        setDish(sourceDish);
+        setMeal(m);
+        setQuantity(1);
+        setSelectedStyleGroup(style ? internalToStyleGroup(style) : null);
+        if (seededMealRef.current !== item.meal_id) {
+          seededMealRef.current = item.meal_id;
+          const removed = explicitlyRemovedRef.current;
+          setSelectedCategories({
+            bread: item.roti ? [item.roti].filter(s => !removed.has(`bread_${s.toLowerCase().trim()}`)) : [],
+            rice: item.rice ? [item.rice].filter(s => !removed.has(`rice_${s.toLowerCase().trim()}`)) : [],
+            side: item.sides?.length ? item.sides.filter(s => !removed.has(`side_${s.toLowerCase().trim()}`)) : [],
+            beverage: item.beverages?.length ? item.beverages.filter(s => !removed.has(`beverage_${s.toLowerCase().trim()}`)) : [],
+            dessert: item.dessert?.length ? item.dessert.filter(s => !removed.has(`dessert_${s.toLowerCase().trim()}`)) : [],
+          });
+        }
+        initRef.current = item.meal_id;
+      }
     } else {
       initRef.current = null;
       setAddAnotherMode(false);
+      setSelectedVariant(null);
     }
   }, [isOpen, item.meal_id, item.roti, item.rice, item.sides, item.beverages, item.dessert, dishes, mealType]);
 
@@ -294,6 +328,12 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     setShowSwapSearch(false);
     setSearchQuery('');
     setSelectedSwapDish(null);
+    if (relevantVariants.length === 1) {
+      setSelectedVariant(relevantVariants[0]!);
+    } else {
+      setSelectedVariant(null);
+    }
+    syncNeeded.current = true;
   }, [addAnotherMode, mealType, userDiet, onAddAnother, date]);
 
   const handleSwapVariantSelect = useCallback((variant: DishVariant) => {
@@ -303,6 +343,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       onAddAnother?.(date, mealType, d);
       setSelectedSwapDish(null);
       selectedSwapDishRef.current = null;
+      setSelectedVariant(null);
       setSearchQuery('');
       return;
     }
@@ -312,6 +353,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     const variantAddOn = variant.addOn?.toLowerCase() ?? '';
     const variantPrefersRoti = variantAddOn.includes('roti') || variantAddOn.includes('naan') || variantAddOn.includes('paratha');
     const variantPrefersRice = variantAddOn.includes('rice');
+    setSelectedVariant(variant);
     setDish(d);
     setMeal(m);
     setSelectedStyleGroup(style ? internalToStyleGroup(style) : null);
@@ -326,6 +368,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     setSearchQuery('');
     setSelectedSwapDish(null);
     selectedSwapDishRef.current = null;
+    syncNeeded.current = true;
   }, [addAnotherMode, mealType, selectedSwapDish, onAddAnother, date]);
 
   const handleCreateCustomDish = useCallback(() => {
@@ -362,20 +405,102 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     setShowCustomDishForm(false);
   }, [customDishName, customDishStyle, customDishDiet, regionKey, mealType, addCustomDish, handleSwapSelect]);
 
+  const buildUpdatesObject = useCallback(() => {
+    const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
+    if (!currentDish) return null;
+    const fullName = selectedVariant
+      ? (selectedVariant.name.includes(currentDish.name) ? selectedVariant.name : `${currentDish.name} ${selectedVariant.name}`)
+      : currentDish.name;
+    const title = generateMealTitle(
+      fullName,
+      [...new Set(selectedCategories.side)],
+      [...new Set(selectedCategories.beverage)],
+      selectedCategories.rice[0] ?? selectedCategories.bread[0] ?? undefined,
+    );
+    const suggestions = getPairingSuggestions(selectedStyleGroup ?? 'Gravy');
+    const customizationLog = {
+      dishId: currentDish.id,
+      dishName: currentDish.name,
+      style: selectedStyleGroup ?? undefined,
+      categories: allCategories.map(cat => ({
+        category: cat,
+        suggested: suggestions[cat] ?? [],
+        chosen: [...new Set(selectedCategories[cat])],
+        timestamp: Date.now(),
+      })),
+    };
+    return {
+      meal_id: currentDish.id,
+      name: fullName,
+      icon: currentDish.icon,
+      variant: selectedVariant?.name,
+      variantId: selectedVariant?.id,
+      quantity,
+      title,
+      style: selectedStyleGroup ?? undefined,
+      gravy: null,
+      roti: selectedCategories.bread[0] ?? null,
+      rice: selectedCategories.rice[0] ?? null,
+      sides: [...new Set(selectedCategories.side)],
+      beverages: [...new Set(selectedCategories.beverage)],
+      dessert: [...new Set(selectedCategories.dessert)],
+      customizations: customizationLog.categories,
+    };
+  }, [dish, item.meal_id, dishes, selectedVariant, quantity, selectedCategories, selectedStyleGroup]);
+
+  // ── User-interaction sync guard: only sync when explicitly triggered by user interaction ──
+  const syncNeeded = useRef(false);
+
+  useEffect(() => {
+    if (!syncNeeded.current) return;
+    syncNeeded.current = false;
+    if (!onChange) return;
+    const updates = buildUpdatesObject();
+    if (updates) onChange(item.id, updates);
+  }, [selectedCategories, quantity, onChange, buildUpdatesObject, item.id]);
+
+  // ── Strict deduplication: normalize selections to Map ──
+  // Key = `${name.toLowerCase().trim()}_${category}` ensures casing/spacing doesn't create duplicates.
+  // Merge on repeat add: existing.qty += 1. Never push duplicates.
+  // Each Map entry includes mapKey for stable React rendering.
+  const selectionMap = useMemo(() => {
+    const map = new Map<string, { name: string; qty: number; category: IndianMealCategory; mapKey: string }>();
+    for (const cat of allCategories) {
+      for (const item of selectedCategories[cat]) {
+        const mapKey = `${item.toLowerCase().trim()}_${cat}`;
+        const existing = map.get(mapKey);
+        if (existing) {
+          existing.qty += 1;
+        } else {
+          map.set(mapKey, { name: item, qty: 1, category: cat, mapKey });
+        }
+      }
+    }
+    return map;
+  }, [selectedCategories]);
+
+  // ── Apply: data already synced in real-time, just close ──
   const handleApply = useCallback(() => {
+    if (onChange) {
+      // Data synced via effect on every interaction; just close
+      explicitlyRemovedRef.current.clear();
+      seededMealRef.current = null;
+      onClose();
+      return;
+    }
+    // Legacy: consumers without onChange (should not happen after migration)
     const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
     if (!currentDish) return;
+    const fullName = selectedVariant
+      ? (selectedVariant.name.includes(currentDish.name) ? selectedVariant.name : `${currentDish.name} ${selectedVariant.name}`)
+      : currentDish.name;
     const title = generateMealTitle(
-      currentDish.name,
+      fullName,
       selectedCategories.side,
       selectedCategories.beverage,
       selectedCategories.rice[0] ?? selectedCategories.bread[0] ?? undefined,
     );
     const suggestions = getPairingSuggestions(selectedStyleGroup ?? 'Gravy');
-    const chosen: string[] = [];
-    for (const cat of allCategories) {
-      chosen.push(...selectedCategories[cat]);
-    }
     const customizationLog = {
       dishId: currentDish.id,
       dishName: currentDish.name,
@@ -389,8 +514,10 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     };
     onApply(item.id, {
       meal_id: currentDish.id,
-      name: currentDish.name,
+      name: fullName,
       icon: currentDish.icon,
+      variant: selectedVariant?.name,
+      variantId: selectedVariant?.id,
       quantity,
       title,
       style: selectedStyleGroup ?? undefined,
@@ -402,8 +529,10 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       dessert: selectedCategories.dessert,
       customizations: customizationLog.categories,
     });
+    explicitlyRemovedRef.current.clear();
+    seededMealRef.current = null;
     onClose();
-  }, [dish, item.id, item.meal_id, dishes, quantity, selectedCategories, selectedStyleGroup, onApply, onClose]);
+  }, [onChange, buildUpdatesObject, onApply, onClose, dish, item.id, item.meal_id, dishes, selectedVariant, quantity, selectedCategories, selectedStyleGroup]);
 
   const swapSearchDishes = useMemo(() => {
     if (!showSwapSearch) return [];
@@ -488,7 +617,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} aria-hidden="true" />
       <div
         className="relative w-full sm:max-w-lg max-h-[90vh] bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden pb-16"
         role="dialog"
@@ -501,7 +630,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
-                  if (initialAddMode) { onClose(); return; }
+                  if (initialAddMode) { handleClose(); return; }
                   if (selectedSwapDish) {
                     setSelectedSwapDish(null);
                   } else {
@@ -535,7 +664,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                 Customize
               </h2>
               <button
-                onClick={onClose} className="w-8 h-8 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90" aria-label="Close">
+                onClick={handleClose} className="w-8 h-8 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90" aria-label="Close">
                 <X size={14} className="text-gray-500" />
               </button>
             </div>
@@ -801,7 +930,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                     <DishImage name={dish.name} slot={mealType} size="md" />
                     <div className="flex-1 min-w-0">
                       <span className="text-sm font-bold text-gray-900 truncate block">
-                        {dish.name}
+                        {displayName}
                       </span>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-medium text-gray-400 capitalize">
@@ -830,7 +959,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                     <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Qty</span>
                     <div className="flex items-center gap-1">
                       <button
-                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                        onClick={() => { setQuantity(Math.max(1, quantity - 1)); syncNeeded.current = true; }}
+
                         disabled={quantity <= 1}
                         className="w-7 h-7 rounded-lg flex items-center justify-center bg-white border border-gray-200 text-gray-600 active:scale-90 disabled:opacity-30"
                         aria-label="Decrease quantity">
@@ -840,7 +970,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                         {quantity}
                       </span>
                       <button
-                        onClick={() => setQuantity(Math.min(50, quantity + 1))}
+                        onClick={() => { setQuantity(Math.min(50, quantity + 1)); syncNeeded.current = true; }}
                         disabled={quantity >= 50}
                         className="w-7 h-7 rounded-lg flex items-center justify-center bg-white border border-gray-200 text-gray-600 active:scale-90 disabled:opacity-30"
                         aria-label="Increase quantity">
@@ -911,32 +1041,33 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                       </div>
                     )}
 
-                    {/* ─── Selections Summary — always visible ─── */}
-                    {allCategories.some(cat => selectedCategories[cat].length > 0) && (
+                    {/* ─── Selections Summary — always visible (deduplicated via selectionMap) ─── */}
+                    {selectionMap.size > 0 && (
                       <div className="rounded-2xl bg-[#FF385C]/5 border border-[#FF385C]/15 p-3">
                         <p className="text-[9px] font-black uppercase tracking-widest text-[#FF385C] mb-2">Your Selections</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {allCategories.map(cat =>
-                            selectedCategories[cat].map(item => {
-                              const icon = CATEGORY_CONFIG[cat].icon;
-                              return (
-                                <span
-                                  key={`${cat}-${item}`}
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-[#FF385C]/20 text-[#FF385C] text-[10px] font-bold shadow-sm"
+                          {Array.from(selectionMap.values()).map(({ name, qty, category, mapKey }) => {
+                            const icon = CATEGORY_CONFIG[category].icon;
+                            return (
+                              <span
+                                key={mapKey}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-[#FF385C]/20 text-[#FF385C] text-[10px] font-bold shadow-sm"
+                              >
+                                {icon && <span className="text-[11px]">{icon}</span>}
+                                <span>{name}</span>
+                                {qty > 1 && (
+                                  <span className="text-[8px] font-bold text-[#FF385C]/60 ml-0.5">×{qty}</span>
+                                )}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); toggleCategoryItemWrap(category, name); }}
+                                  className="ml-0.5 hover:bg-[#FF385C]/10 rounded-full p-0.5"
+                                  aria-label={`Remove ${name}`}
                                 >
-                                  {icon && <span className="text-[11px]">{icon}</span>}
-                                  <span>{item}</span>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); toggleCategoryItemWrap(cat, item); }}
-                                    className="ml-0.5 hover:bg-[#FF385C]/10 rounded-full p-0.5"
-                                    aria-label={`Remove ${item}`}
-                                  >
-                                    <X size={10} />
-                                  </button>
-                                </span>
-                              );
-                            })
-                          )}
+                                  <X size={10} />
+                                </button>
+                              </span>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1109,7 +1240,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         {!showSwapSearch && (
           <div className="shrink-0 px-5 py-4 border-t border-gray-100 bg-white flex gap-3">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all">
               Cancel
             </button>

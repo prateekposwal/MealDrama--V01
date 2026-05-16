@@ -336,13 +336,18 @@ export function computeStyleWarnings(meals: { mealId: string; name: string }[]):
   if (gravyItems.length >= 2) {
     const swap = getSwapSuggestion('gravy');
     if (swap) {
-      warnings.push({
-        type: 'duplicate-gravy',
-        message: `Swap ${gravyItems[0].name} for ${swap.suggestion} for better balance`,
-        swapFrom: gravyItems[0].mealId,
-        swapTo: swap.suggestion,
-        swapToId: swap.exampleDishId,
-      });
+      const alreadyAdded = meals.some(m =>
+        m.name.toLowerCase().trim() === swap.suggestion.toLowerCase().trim()
+      );
+      if (!alreadyAdded) {
+        warnings.push({
+          type: 'duplicate-gravy',
+          message: `Swap ${gravyItems[0]!.name} for ${swap.suggestion} for better balance`,
+          swapFrom: gravyItems[0]!.mealId,
+          swapTo: swap.suggestion,
+          swapToId: swap.exampleDishId,
+        });
+      }
     }
   }
   return warnings;

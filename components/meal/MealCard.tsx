@@ -43,29 +43,7 @@ interface MealCardProps {
     hideChips?: boolean;
 }
 
-const QtyStepper: React.FC<{
-  name: string;
-  qty: number;
-  unit: string;
-  onUpdate: (name: string, delta: number) => void;
-}> = React.memo(({ name, qty, unit, onUpdate }) => (
-  <span className="inline-flex items-center gap-0.5 ml-1">
-    <button
-      onClick={(e) => { e.stopPropagation(); onUpdate(name, -1); }}
-      className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-gray-100 text-[8px] font-bold text-gray-600 active:bg-gray-200 leading-none"
-    >
-      −
-    </button>
-    <span className="text-[9px] font-bold text-gray-700 min-w-[8px] text-center tabular-nums">{qty}</span>
-    <button
-      onClick={(e) => { e.stopPropagation(); onUpdate(name, 1); }}
-      className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-gray-100 text-[8px] font-bold text-gray-600 active:bg-gray-200 leading-none"
-    >
-      +
-    </button>
-    <span className="text-[7px] text-gray-400 ml-0.5">{unit}</span>
-  </span>
-));
+
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
     `${String(i).padStart(2, '0')}:00`
@@ -138,7 +116,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
     item, mealType, slot, dishes, userRegion, userDiet,
     isLocked, isMissed, onRemove, editable = true,
     swapCustomizeOpen, onSwapCustomizeOpen, onSwapCustomizeClose,
-    onUpdateInline, hideTime = false, hideChips = false,
+    onUpdateInline, hideTime = false,
 }) => {
     const [editingTime, setEditingTime] = useState(false);
     const dish = useMemo(
@@ -148,16 +126,6 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
 
     const healthScore = useMemo(() => dish ? scoreDish(dish) : 0, [dish]);
     const meta = SLOT_META[slot];
-
-    const handleItemQtyUpdate = useCallback((name: string, delta: number) => {
-        if (!onUpdateInline) return;
-        const current = item.itemQtys?.[name] ?? 1;
-        const next = Math.max(1, current + delta);
-        if (next === current) return;
-        onUpdateInline({ itemQtys: { ...item.itemQtys, [name]: next } });
-    }, [onUpdateInline, item.itemQtys]);
-
-    const qty = (name: string) => item.itemQtys?.[name] ?? 1;
 
     const userPrefs = useStore.getState().user?.slotTimePreferences;
     const slotTimeDef = getSlotDefaultTimes(mealType, userPrefs as any);
@@ -234,7 +202,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                 <DishImage name={item.name} slot={slot} size="lg" />
                 <div className="flex-1 min-w-0">
                     <h4 className="font-extrabold text-xl tracking-tight leading-tight flex items-center flex-wrap gap-1.5 text-gray-900">
-                        <span className="truncate">{item.title || item.name}</span>
+                        <span className="truncate">{item.name}</span>
                         {item.quantity > 1 && (
                             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
                                 x{item.quantity}
@@ -252,45 +220,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                         )}
                         <HealthScoreBadge score={healthScore} size="sm" />
                     </h4>
-                    {!hideChips && (item.gravy || item.roti || item.rice || item.sides?.length > 0 || item.beverages?.length > 0 || item.dessert?.length > 0) && (
-                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                            {item.gravy && (
-                                <span className="text-[9px] font-bold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full border border-amber-100">
-                                    {item.gravy}
-                                </span>
-                            )}
-                            {item.roti && (
-                                <span className="text-[9px] font-bold bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full border border-orange-100">
-                                    {item.roti}
-                                    <QtyStepper name={item.roti} qty={qty(item.roti)} unit="pcs" onUpdate={handleItemQtyUpdate} />
-                                </span>
-                            )}
-                            {item.rice && (
-                                <span className="text-[9px] font-bold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
-                                    {item.rice}
-                                    <QtyStepper name={item.rice} qty={qty(item.rice)} unit="bowls" onUpdate={handleItemQtyUpdate} />
-                                </span>
-                            )}
-                            {item.sides?.length > 0 && item.sides.map(s => (
-                                <span key={s} className="text-[9px] font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
-                                    {s}
-                                    <QtyStepper name={s} qty={qty(s)} unit="servings" onUpdate={handleItemQtyUpdate} />
-                                </span>
-                            ))}
-                            {item.beverages?.length > 0 && item.beverages.map(b => (
-                                <span key={b} className="text-[9px] font-medium text-gray-500 bg-gray-50 px-2 py-0.5 rounded-full border border-gray-100">
-                                    {b}
-                                    <QtyStepper name={b} qty={qty(b)} unit="glasses" onUpdate={handleItemQtyUpdate} />
-                                </span>
-                            ))}
-                            {item.dessert?.length > 0 && item.dessert.map(d => (
-                                <span key={d} className="text-[9px] font-bold bg-pink-50 text-pink-700 px-2 py-0.5 rounded-full border border-pink-100">
-                                    🍨 {d}
-                                    <QtyStepper name={d} qty={qty(d)} unit="pcs" onUpdate={handleItemQtyUpdate} />
-                                </span>
-                            ))}
-                        </div>
-                    )}
+
                 </div>
             </div>
 
