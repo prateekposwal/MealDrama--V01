@@ -5,15 +5,21 @@
 // Now uses getSmartSuggestions for side/beverage pairings instead of hardcoded.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { GravyType, type Dish } from '../constants/dishLibrary';
+import { GravyType, type Dish, type DishVariant } from '../constants/dishLibrary';
 import type { Meal } from '../types/tray';
 import { getSmartSuggestions } from './smartSuggestions';
+
+function enrichName(dishName: string, variant: DishVariant): string {
+  if (variant.name.includes(dishName)) return variant.name;
+  if (variant.cookingStyle) return `${dishName} ${variant.cookingStyle}`;
+  return `${dishName} ${variant.name}`;
+}
 
 const SELF_BREAD = ['paratha', 'naan', 'roti', 'puri', 'bread', 'toast', 'pav', 'bhature', 'flatbread', 'thepla'];
 const SELF_RICE = ['rice', 'biryani', 'pulao', 'khichdi', 'chawal'];
 const MAIN_DISH = ['gravy', 'curry', 'sabzi', 'dal', 'lentils', 'kofta', 'stew'];
 
-export function dishToMeal(dish: Dish): Meal {
+export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
   const isSelfBread = SELF_BREAD.some(t => dish.tags.includes(t));
   const isSelfRice = SELF_RICE.some(t => dish.tags.includes(t));
   const isMainDish = MAIN_DISH.some(t => dish.tags.includes(t));
@@ -67,9 +73,9 @@ export function dishToMeal(dish: Dish): Meal {
     { useSmartSuggestions: true },
   );
 
-  const defaultVariant = dish.variants?.[0];
-  const fullName = defaultVariant
-    ? (defaultVariant.name.includes(dish.name) ? defaultVariant.name : `${dish.name} ${defaultVariant.name}`)
+  const effectiveVariant = variant ?? dish.variants?.[0];
+  const fullName = effectiveVariant
+    ? enrichName(dish.name, effectiveVariant)
     : dish.name;
 
   return {

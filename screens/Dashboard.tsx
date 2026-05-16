@@ -13,7 +13,7 @@ import WhatsAppShareModal from '../components/new/WhatsAppShareModal';
 
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { MapPin, Flame, ChevronRight, Plus, X, Info, CheckCircle2, Heart, Phone, MessageCircle, RefreshCw, ArrowRight } from 'lucide-react';
-import type { Dish } from '../constants/dishLibrary';
+import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { HealthTipsPanel } from '../components/health/HealthTipsPanel';
 import { PlateBalanceVisualizer } from '../components/health/PlateBalanceVisualizer';
 import { scorePlateBalance } from '../utils/nutritionScore';
@@ -286,9 +286,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     }, [addMealToSlot]);
 
     // Quick add modal result — pass Dish to store, store applies defaults
-    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish) => {
+    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
-        addMealToSlot(date, mealType, dishToMeal(dish));
+        addMealToSlot(date, mealType, dishToMeal(dish, variant));
         setShowQuickAdd(false);
     }, [addMealToSlot]);
 

@@ -10,7 +10,7 @@ import type { SuggestionMeal } from '../lib/trayApi';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { ChevronLeft, ChevronRight, Calendar, Users, Plus, Minus } from 'lucide-react';
-import type { Dish } from '../constants/dishLibrary';
+import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
@@ -374,9 +374,9 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         }
     }, [getMeals, addMealToSlot, updateItemInline, dishToMeal, setToast]);
 
-    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish) => {
+    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
-        addMealToSlot(date, mealType, dishToMeal(dish));
+        addMealToSlot(date, mealType, dishToMeal(dish, variant));
         setShowQuickAdd(false);
     }, [addMealToSlot]);
 

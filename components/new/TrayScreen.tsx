@@ -120,6 +120,11 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
         };
     }, [removeMealFromSlot]);
 
+    const handleModalChange = useCallback((itemId: string, updates: Partial<TrayItem>) => {
+      if (!swapCustomizeContext) return;
+      updateItemInline(swapCustomizeContext.date, swapCustomizeContext.mealType, itemId, updates);
+    }, [updateItemInline, swapCustomizeContext]);
+
     const handleSwapCustomizeApply = useCallback((date: string, mealType: MealType, itemId: string) => {
       return (updates: Partial<TrayItem>) => {
         updateItemInline(date, mealType, itemId, updates);
@@ -135,7 +140,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
 
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant: any) => {
         const mealType = slot.toLowerCase() as MealType;
-        addMealToSlot(date, mealType, dishToMeal(dish));
+        addMealToSlot(date, mealType, dishToMeal(dish, variant));
         setQuickAddOpen(false);
     }, [addMealToSlot, dishToMeal]);
 
@@ -201,7 +206,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center" onClick={onClose}>
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-end justify-center" onClick={onClose}>
             <div
                 className="w-full max-w-lg rounded-t-3xl flex flex-col max-h-[90vh] animate-in slide-in-from-bottom duration-300 bg-white"
                 onClick={e => e.stopPropagation()}
@@ -361,6 +366,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                 if (!item) return null;
                 return (
                     <SwapCustomizeModal
+                        key={`${swapCustomizeContext.slotLabel}_${swapCustomizeContext.date}`}
                         isOpen={true}
                         onClose={() => setSwapCustomizeContext(null)}
                         date={swapCustomizeContext.date}
@@ -373,6 +379,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                         onApply={(itemId, updates) => {
                             handleSwapCustomizeApply(swapCustomizeContext.date, swapCustomizeContext.mealType, itemId)(updates);
                         }}
+                        onChange={handleModalChange}
                     />
                 );
             })()}

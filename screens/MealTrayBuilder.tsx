@@ -15,7 +15,7 @@ import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock } from 'lucide-react';
-import type { Dish } from '../constants/dishLibrary';
+import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOT_TIME_DEFAULTS, aggregateSlotItems } from '../types/tray';
 import type { AggregatedCategory } from '../types/tray';
@@ -311,10 +311,10 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         };
     }, [addMealToSlot, suggestionToMeal, slotTimes, today]);
 
-    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish) => {
+    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
         const t = slotTimes[mealType];
-        addMealToSlot(date, mealType, dishToMeal(dish), {
+        addMealToSlot(date, mealType, dishToMeal(dish, variant), {
             start_time: t?.start,
             end_time: t?.end,
         });
