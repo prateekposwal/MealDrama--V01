@@ -5,6 +5,7 @@ import { applySmartDefaults } from '../../store/useTrayStore';
 import type { Meal } from '../../types/tray';
 import type { Dish, DishVariant, Region, Category } from '../../constants/dishLibrary';
 import { dishToMeal } from '../../utils/dishToMeal';
+import { resolveDisplayName } from '../../utils/resolveDisplayName';
 import { scoreDish } from '../../utils/nutritionScore';
 import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import {
@@ -157,13 +158,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
 
   // Variant-inclusive display name for the dish header
   const displayName = useMemo(() => {
-    const base = dish?.name;
-    if (!base) return '';
-    if (!selectedVariant) return base;
-    if (selectedVariant.name.includes(base)) return selectedVariant.name;
-    if (selectedVariant.cookingStyle) return `${base} ${selectedVariant.cookingStyle}`;
-    if (selectedVariant.addOn) return `${base} ${selectedVariant.addOn}`;
-    return selectedVariant.name;
+    if (!dish?.name) return '';
+    return resolveDisplayName(dish.name, selectedVariant);
   }, [dish?.name, selectedVariant]);
   const regionKey = (userRegion ?? '').toLowerCase().replace(' india', '');
   const { user, updateProfile, customDishes, addCustomDish } = useStore();
@@ -411,11 +407,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const buildUpdatesObject = useCallback(() => {
     const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
     if (!currentDish) return null;
-    const fullName = !selectedVariant ? currentDish.name
-      : selectedVariant.name.includes(currentDish.name) ? selectedVariant.name
-      : selectedVariant.cookingStyle ? `${currentDish.name} ${selectedVariant.cookingStyle}`
-      : selectedVariant.addOn ? `${currentDish.name} ${selectedVariant.addOn}`
-      : selectedVariant.name;
+    const fullName = resolveDisplayName(currentDish.name, selectedVariant);
     const title = generateMealTitle(
       fullName,
       [...new Set(selectedCategories.side)],
@@ -496,11 +488,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     // Legacy: consumers without onChange (should not happen after migration)
     const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
     if (!currentDish) return;
-    const fullName = !selectedVariant ? currentDish.name
-      : selectedVariant.name.includes(currentDish.name) ? selectedVariant.name
-      : selectedVariant.cookingStyle ? `${currentDish.name} ${selectedVariant.cookingStyle}`
-      : selectedVariant.addOn ? `${currentDish.name} ${selectedVariant.addOn}`
-      : selectedVariant.name;
+    const fullName = resolveDisplayName(currentDish.name, selectedVariant);
     const title = generateMealTitle(
       fullName,
       selectedCategories.side,

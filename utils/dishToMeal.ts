@@ -8,13 +8,7 @@
 import { GravyType, type Dish, type DishVariant } from '../constants/dishLibrary';
 import type { Meal } from '../types/tray';
 import { getSmartSuggestions } from './smartSuggestions';
-
-export function enrichName(dishName: string, variant: DishVariant): string {
-  if (variant.name.includes(dishName)) return variant.name;
-  if (variant.cookingStyle) return `${dishName} ${variant.cookingStyle}`;
-  if (variant.addOn) return `${dishName} ${variant.addOn}`;
-  return variant.name;
-}
+import { resolveDisplayName } from './resolveDisplayName';
 
 const SELF_BREAD = ['paratha', 'naan', 'roti', 'puri', 'bread', 'toast', 'pav', 'bhature', 'flatbread', 'thepla'];
 const SELF_RICE = ['rice', 'biryani', 'pulao', 'khichdi', 'chawal'];
@@ -74,10 +68,7 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
     { useSmartSuggestions: true },
   );
 
-  const effectiveVariant = variant ?? dish.variants?.[0];
-  const fullName = effectiveVariant
-    ? enrichName(dish.name, effectiveVariant)
-    : dish.name;
+  const fullName = resolveDisplayName(dish.name, variant ?? dish.variants?.[0]);
 
   return {
     id: dish.id,

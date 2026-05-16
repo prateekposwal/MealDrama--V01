@@ -1,7 +1,7 @@
 import type { Dish, Ingredient, IngredientCategory, DishVariant } from '../constants/dishLibrary';
 import { getMealResolution, type MealResolution, type CategorySelection } from '../store/useStore';
 import { cachedIngredients } from './cache';
-import { enrichName } from './dishToMeal';
+import { resolveDisplayName } from './resolveDisplayName';
 
 const ing = (name: string, qty: number, unit: string, category: IngredientCategory): Ingredient =>
   ({ name, quantity: qty, unit, category, inStock: false });
@@ -848,7 +848,7 @@ export function getIngredientsForMealOption(
         if (variant) {
             const r: Ingredient[] = [...(variant.ingredients || [])];
             const variantInclusiveName = variant && variantId
-                ? enrichName(dish.name, variant)
+                ? resolveDisplayName(dish.name, variant)
                 : dish.name;
             if (r.length === 0) {
                 const fromInference = [
