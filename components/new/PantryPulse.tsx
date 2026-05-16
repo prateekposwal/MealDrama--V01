@@ -99,7 +99,7 @@ const PantryPulse: React.FC = () => {
                     itemQtys: item.itemQtys,
                 };
                 const pool = customDishes.length > 0 ? [...dishes, ...customDishes] : dishes;
-                const ings = getIngredientsForMealOption(item.meal_id, '', pool, catSelections);
+                const ings = getIngredientsForMealOption(item.meal_id, item.variantId || '', pool, catSelections);
                 const subItemKeys = new Set<string>();
                 const pushIng = (ing: Ingredient, source: string) => {
                     subItemKeys.add(`${ing.name}:${ing.category}`);

@@ -169,6 +169,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     };
 
     const handleSelectVariant = (variant: DishVariant) => {
+        console.log('[QuickAddModal:handleSelectVariant] selectedDish.id:', selectedDish?.id, 'selectedDish.name:', selectedDish?.name, 'variant.name:', variant.name);
         if (selectedDish) {
             onAddMeal(date, slot, selectedDish, variant);
             handleClose();
@@ -293,14 +294,14 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
 
     return (
         <div
-            className="fixed inset-0 z-50 bg-black/50 flex items-end justify-center"
+            className="fixed inset-0 z-[60] bg-black/50 flex items-end justify-center"
             onClick={handleClose}
             role="dialog"
             aria-modal="true"
             aria-label={`Add meal to ${slot}`}
         >
             <div
-                className="w-full max-w-lg rounded-t-3xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-300 bg-white"
+                className="w-full max-w-lg rounded-t-3xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-300 bg-white pb-16"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}

@@ -130,6 +130,7 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'thecha-green-chili-chutney': [ing('Green Chilli', 6, 'pc', 'produce'), ing('Garlic', 4, 'pc', 'produce')],
   'koshimbir-salad': [ing('Onions', 1, 'pc', 'produce'), ing('Tomatoes', 1, 'pc', 'produce'), ing('Cucumber', 1, 'pc', 'produce')],
   // ─── Side display-name aliases (from indian_meal_categories) ─
+  'peanut-butter': [ing('Peanut Butter', 1, 'jar', 'pantry')],
   'masala-raita': [ing('Yogurt', 100, 'g', 'dairy'), ing('Spices', 1, 'packet', 'spices')],
   'kachumber-salad': [ing('Cucumber', 1, 'pc', 'produce'), ing('Tomatoes', 1, 'pc', 'produce'), ing('Onions', 1, 'pc', 'produce'), ing('Lemon', 1, 'pc', 'produce')],
   'lime-pickle': [ing('Lime Pickle', 30, 'g', 'pantry')],

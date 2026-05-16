@@ -61,7 +61,15 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const [swapCustomizeOpenKey, setSwapCustomizeOpenKey] = useState<string | null>(null);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Breakfast');
+    const [addDishOpen, setAddDishOpen] = useState(false);
     const [addAnotherToast, setAddAnotherToast] = useState<string | null>(null);
+
+    const ADD_DISH_DUMMY: TrayItem = {
+        id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
+        quantity: 1, servings: 1, smartVersion: 1,
+        gravy: null, roti: null, rice: null,
+        sides: [], beverages: [], dessert: [], itemQtys: {},
+    };
     // Scope: select only tray-needed fields from store — NOT the full user object
     const trayLibrary = useStore(s => s.trayLibrary);
     const removeFromTray = useStore(s => s.removeFromTray);
@@ -166,10 +174,11 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             if (seen.has(item.dishId)) continue;
             seen.add(item.dishId);
             const planItem = planMap.get(item.dishId);
+            const displayName = planItem?.name ?? item.name;
             result.push({
-                id: item.id,
+                id: planItem?.id ?? item.id,
                 meal_id: item.dishId,
-                name: planItem?.name ?? item.name,
+                name: displayName,
                 title: planItem?.title,
                 icon: item.icon,
                 quantity: planItem?.quantity ?? item.quantity ?? 1,
@@ -292,7 +301,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 addToTray(currentSlot.mealType, {
                     id: dish.id,
                     dishId: dish.id,
-                    name: dish.name,
+                    name: updates.name || dish.name,
                     icon: dish.icon,
                     sourceRegion: dish.region,
                 });
@@ -302,10 +311,10 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         setSwapCustomizeOpenKey(null);
     }, [updateItemInline, swapMealInSlot, today, currentSlot?.mealType, planDays, dishes, removeFromTray, addToTray]);
 
-    const handleRemove = useCallback((mealType: MealType, mealId: string) => {
+    const handleRemove = useCallback((mealType: MealType, item: TrayItem) => {
         return () => {
-            removeFromTray(mealType, mealId);
-            removeMealFromSlot(today, mealType, mealId);
+            removeFromTray(mealType, item.meal_id);
+            removeMealFromSlot(today, mealType, item.id);
         };
     }, [removeFromTray, removeMealFromSlot, today]);
 
@@ -332,18 +341,26 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     setShowQuickAdd(false);
   }, [addMealToSlot, slotTimes]);
 
-  const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish) => {
+  const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
+    const meal = dishToMeal(dish, variant);
     const existing = getMeals(date, mealType);
     const existingItem = existing.find(m => m.meal_id === dish.id);
     if (existingItem) {
       updateItemInline(date, mealType, existingItem.id, {
         quantity: (existingItem.quantity || 1) + 1,
+        sides: [...new Set([...(existingItem.sides || []), ...(meal.sideOptions || [])])],
+        variant: variant?.name || existingItem.variant,
+        variantId: variant?.id || existingItem.variantId,
+        addon: variant?.addOn || existingItem.addon,
       });
     } else {
       const t = slotTimes[mealType];
-      addMealToSlot(date, mealType, dishToMeal(dish), {
+      addMealToSlot(date, mealType, meal, {
         start_time: t?.start,
         end_time: t?.end,
+        variant: variant?.name,
+        variantId: variant?.id,
+        addon: variant?.addOn,
       });
     }
     setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)}`);
@@ -488,12 +505,9 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                             )}
                         </div>
 
-                        {/* Quick Add trigger — always at top for easy access */}
+                        {/* Quick Add trigger — opens SwapCustomizeModal in add mode */}
                         <button
-                            onClick={() => {
-                                setQuickAddSlot(currentSlot.label);
-                                setShowQuickAdd(true);
-                            }}
+                            onClick={() => setAddDishOpen(true)}
                             className="w-full flex items-center gap-2 p-3 rounded-xl border-2 border-dashed transition-all active:scale-[0.98] border-gray-200 text-gray-500"
                         >
                             <Sparkles size={14} className="text-[#FF385C]" />
@@ -520,7 +534,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                                 onSwapClose={() => setSwapOpenKey(null)}
                                 onSwapSelect={handleSwapSelect(today, currentSlot.mealType, item.id)}
                                 onUpdateInline={handleUpdateInline(today, currentSlot.mealType, item.id)}
-                                onRemove={handleRemove(currentSlot.mealType, item.id)}
+                                onRemove={handleRemove(currentSlot.mealType, item)}
                                 swapCustomizeOpen={swapCustomizeOpenKey === item.id}
                                 onSwapCustomizeOpen={() => setSwapCustomizeOpenKey(swapCustomizeOpenKey === item.id ? null : item.id)}
                                 onSwapCustomizeClose={() => setSwapCustomizeOpenKey(null)}
@@ -677,6 +691,26 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                     />
                 );
             })()}
+
+            {/* Add Dish Modal — opens SwapCustomizeModal in search/add mode */}
+            {addDishOpen && currentSlot && (
+                <SwapCustomizeModal
+                    key={`add_${currentSlot.label}_${today}`}
+                    isOpen={addDishOpen}
+                    onClose={() => setAddDishOpen(false)}
+                    date={today}
+                    mealType={currentSlot.mealType}
+                    slotLabel={currentSlot.label}
+                    item={ADD_DISH_DUMMY}
+                    dishes={dishes}
+                    userRegion={regionKey}
+                    userDiet={userDiet}
+                    onApply={() => {}}
+                    onAddAnother={handleAddAnother}
+                    onChange={handleModalChange}
+                    initialAddMode={true}
+                />
+            )}
         </div>
     );
 };

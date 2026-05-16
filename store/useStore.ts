@@ -442,7 +442,14 @@ export const useStore = create<StoreState>()(
         set((state) => {
           const key = slot.toLowerCase() as keyof TrayLibrary;
           const tray = state.trayLibrary[key] || [];
-          if (tray.find(m => m.id === meal.id)) return state;
+          const existing = tray.find(m => m.id === meal.id);
+          if (existing) {
+            if (existing.name === meal.name && existing.icon === meal.icon) return state;
+            const updated = tray.map(m => m.id === meal.id ? { ...m, name: meal.name, icon: meal.icon, sourceRegion: meal.sourceRegion ?? m.sourceRegion } : m);
+            invalidateMealResolutionCache();
+            if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
+            return { trayLibrary: { ...state.trayLibrary, [key]: updated } };
+          }
           invalidateMealResolutionCache();
           if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
           return {

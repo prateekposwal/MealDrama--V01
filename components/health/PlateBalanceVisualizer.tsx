@@ -19,6 +19,8 @@ const categoryLabels: Record<string, string> = {
 export const PlateBalanceVisualizer: React.FC<PlateBalanceVisualizerProps> = React.memo(({ score, diet }) => {
   const isPlantBased = ['veg', 'vegan', 'eggitarian'].includes(diet?.toLowerCase() ?? '');
 
+  console.log('[METRIC-RENDER] HealthyFats:', score.categories.healthyFat, 'LowSugar:', score.categories.limitSugary);
+
   const adjustedMax = isPlantBased ? score.max - 5 : score.max;
   const pct = Math.round((score.total / adjustedMax) * 100);
 

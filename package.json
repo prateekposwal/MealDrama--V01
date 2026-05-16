@@ -16,7 +16,6 @@
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/ios": "^8.0.0",
-    "@google/genai": "^1.35.0",
     "@tanstack/react-virtual": "^3.13.24",
     "immer": "^11.1.7",
     "lucide-react": "^0.562.0",

@@ -7,6 +7,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import type { MealType, TrayItem, GuestMode } from '../../store/useTrayStore';
 import { computeEffectiveServings, resolveSlotTimes } from '../../types/tray';
 import type { AggregatedCategory } from '../../types/tray';
+import type { DishVariant } from '../../constants/dishLibrary';
 import { useNormalizedComposition } from './useNormalizedComposition';
 import type { Dish } from '../../constants/dishLibrary';
 import type { SuggestionMeal } from '../../lib/trayApi';
@@ -44,7 +45,7 @@ export interface SlotBodyProps {
   onSwapCustomizeOpen?: (itemId: string) => void;
   onSwapCustomizeClose?: () => void;
   onSwapCustomizeApply?: (date: string, mealType: MealType, itemId: string) => (updates: Partial<TrayItem>) => void;
-  onAddAnother?: (date: string, mealType: MealType, dish: Dish) => void;
+  onAddAnother?: (date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => void;
 
   /** Mark this slot as completed (user action) */
   onComplete?: () => void;

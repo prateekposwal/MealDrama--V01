@@ -103,7 +103,7 @@ interface SwapCustomizeModalProps {
       }>;
     },
   ) => void;
-  onAddAnother?: (date: string, mealType: MealType, dish: Dish) => void;
+  onAddAnother?: (date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => void;
   initialAddMode?: boolean;
   /** Called in real-time when selections change (no modal close) */
   onChange?: (itemId: string, updates: Partial<TrayItem>) => void;
@@ -307,7 +307,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       return;
     }
     if (addAnotherMode) {
-      onAddAnother?.(date, mealType, newDish);
+      onAddAnother?.(date, mealType, newDish, relevantVariants.length === 1 ? relevantVariants[0] : undefined);
       setSearchQuery('');
       return;
     }
@@ -339,7 +339,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     const d = selectedSwapDish ?? selectedSwapDishRef.current;
     if (!d) return;
     if (addAnotherMode) {
-      onAddAnother?.(date, mealType, d);
+      onAddAnother?.(date, mealType, d, variant);
       setSelectedSwapDish(null);
       selectedSwapDishRef.current = null;
       setSelectedVariant(null);
@@ -899,7 +899,13 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                       onClick={() => {
                         const first = swapSearchDishes[0]?.dish;
                         if (first) {
-                          onAddAnother?.(date, mealType, first);
+                          const relevantVariants = first.variants.filter(v => {
+                            if (!v.mealContext) return true;
+                            const isVegan = userDiet?.toLowerCase() === 'vegan';
+                            if (isVegan) return false;
+                            return v.mealContext.includes(mealType.toLowerCase()) || !v.mealContext;
+                          });
+                          onAddAnother?.(date, mealType, first, relevantVariants[0]);
                           setSearchQuery('');
                         }
                       }}

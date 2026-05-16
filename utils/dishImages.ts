@@ -136,15 +136,44 @@ export function getDishImageUrl(dishName?: string, slot?: string): string | null
 
     const search = (dishName || '').toLowerCase();
 
-    // Direct match first
+    // 1. Exact match first
     if (dishName && DISH_IMAGE_MAP[search]) return DISH_IMAGE_MAP[search];
 
-    // Partial match
+    // 2. Variant keyword match: if dish name includes a known variant type,
+    //    show the corresponding protein/type image (e.g. "Thukpa Chicken" → chicken)
+    const VARIANT_KEYWORDS: Record<string, string> = {
+        chicken: 'chicken',
+        mutton: 'mutton',
+        lamb: 'mutton',
+        goat: 'mutton',
+        fish: 'fish',
+        prawn: 'prawn',
+        shrimp: 'prawn',
+        paneer: 'paneer',
+        egg: 'egg',
+        veg: 'vegetable',
+        vegetable: 'vegetable',
+    };
+    for (const [kw, mapKey] of Object.entries(VARIANT_KEYWORDS)) {
+        if (search.includes(kw) && DISH_IMAGE_MAP[mapKey]) {
+            return DISH_IMAGE_MAP[mapKey];
+        }
+    }
+
+    // 3. Prefix match: check if base name (before any last-word suffix) matches
+    //    (e.g. "Thukpa Chicken" → try "Thukpa")
+    const words = search.split(' ');
+    if (words.length > 1) {
+        const baseName = words.slice(0, -1).join(' ');
+        if (DISH_IMAGE_MAP[baseName]) return DISH_IMAGE_MAP[baseName];
+    }
+
+    // 4. Partial match (original loose logic)
     for (const [key, url] of Object.entries(DISH_IMAGE_MAP)) {
         if (search.includes(key) || key.includes(search)) return url;
     }
 
-    // Slot fallback
+    // 5. Slot fallback
     if (slot && SLOT_FALLBACKS[slot]) return SLOT_FALLBACKS[slot];
 
     return null;

@@ -241,7 +241,7 @@ export const useTrayStore = create<TrayStore>()(
           end_time: overrides?.end_time || timeDef.end,
         };
 
-        // Optimistic update (with dedup: same meal_id → increment quantity instead)
+        // Optimistic update (with dedup: same meal_id → increment quantity + merge sides)
         set((s) => {
           const day = s.plan.days[date] || emptyDayMeals();
           const existing = day[mealType].find(m => m.meal_id === newItem.meal_id);
@@ -250,7 +250,14 @@ export const useTrayStore = create<TrayStore>()(
               plan: {
                 ...s.plan,
                 days: { ...s.plan.days, [date]: { ...day, [mealType]: day[mealType].map(m =>
-                  m.id === existing.id ? { ...m, quantity: (m.quantity || 1) + (newItem.quantity || 1) } : m
+                  m.id === existing.id ? {
+                    ...m,
+                    quantity: (m.quantity || 1) + (newItem.quantity || 1),
+                    sides: [...new Set([...(m.sides || []), ...(newItem.sides || [])])],
+                    variant: newItem.variant || m.variant,
+                    variantId: newItem.variantId || m.variantId,
+                    addon: newItem.addon || m.addon,
+                  } : m
                 ) } },
               },
               saveStatus: s.saveStatus,

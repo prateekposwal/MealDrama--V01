@@ -333,6 +333,10 @@ export function applySmartDefaults(
       { useSmartSuggestions: true },
     );
     sides = smart.sides.items;
+    const variantSides = meal.sideOptions ?? [];
+    if (variantSides.length > 0) {
+      sides = [...new Set([...variantSides, ...sides])].slice(0, 3);
+    }
     beverages = smart.beverages.items;
     dessert = smart.dessert.items;
 

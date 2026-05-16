@@ -68,7 +68,8 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
     { useSmartSuggestions: true },
   );
 
-  const fullName = resolveDisplayName(dish.name, variant ?? dish.variants?.[0]);
+  const resolvedVariant = variant ?? dish.variants?.[0];
+  const fullName = resolveDisplayName(dish.name, resolvedVariant);
 
   return {
     id: dish.id,
@@ -84,8 +85,8 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
     sideOptions,
     beverageOptions,
     suggestedPairings: {
-      sides: suggestions.sides.items.length > 0 ? suggestions.sides.items.slice(0, 2) : sideOptions?.slice(0, 2),
-      beverages: suggestions.beverages.items.length > 0 ? suggestions.beverages.items.slice(0, 2) : beverageOptions.slice(0, 2),
+      sides: [...new Set([...(sideOptions ?? []), ...suggestions.sides.items])].slice(0, 3),
+      beverages: [...new Set([...beverageOptions, ...suggestions.beverages.items])].slice(0, 2),
     },
     tags: dish.tags,
   };

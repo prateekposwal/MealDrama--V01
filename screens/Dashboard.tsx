@@ -8,6 +8,7 @@ import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../lib/trayApi';
 import QuickAddModal from '../components/new/QuickAddModal';
+import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import TrayScreen from '../components/new/TrayScreen';
 import WhatsAppShareModal from '../components/new/WhatsAppShareModal';
 
@@ -205,6 +206,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [showTrayScreen, setShowTrayScreen] = useState(false);
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType } | null>(null);
     const [showSlotPicker, setShowSlotPicker] = useState(false);
+    const [addDishOpen, setAddDishOpen] = useState(false);
+    const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
+
+    const ADD_DISH_DUMMY: TrayItem = {
+        id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
+        quantity: 1, servings: 1, smartVersion: 1,
+        gravy: null, roti: null, rice: null,
+        sides: [], beverages: [], dessert: [], itemQtys: {},
+    };
 
     const currentSlotMeals = useTrayStore(s => s.plan.days[today]?.[quickAddSlot.toLowerCase() as MealType]);
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
@@ -296,16 +306,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         setShowQuickAdd(false);
     }, [addMealToSlot]);
 
-    const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish) => {
+    const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
+        const meal = dishToMeal(dish, variant);
         const existing = getMeals(date, mealType);
         const existingItem = existing.find(m => m.meal_id === dish.id);
         if (existingItem) {
             updateItemInline(date, mealType, existingItem.id, {
                 quantity: (existingItem.quantity || 1) + 1,
+                sides: [...new Set([...(existingItem.sides || []), ...(meal.sideOptions || [])])],
+                variant: variant?.name || existingItem.variant,
+                variantId: variant?.id || existingItem.variantId,
+                addon: variant?.addOn || existingItem.addon,
             });
             setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)}`);
         } else {
-            addMealToSlot(date, mealType, dishToMeal(dish));
+            addMealToSlot(date, mealType, meal, {
+                variant: variant?.name,
+                variantId: variant?.id,
+                addon: variant?.addOn,
+            });
             setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)}`);
         }
         setTimeout(() => setAddAnotherToast(null), 3000);
@@ -835,8 +854,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                 <button
                                     key={key}
                                     onClick={() => {
-                                        setQuickAddSlot(label);
-                                        setShowQuickAdd(true);
+                                        setAddDishSlot(key.toLowerCase() as MealType);
+                                        setAddDishOpen(true);
                                         setShowSlotPicker(false);
                                     }}
                                     className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 active:scale-[0.98] transition-all hover:bg-gray-50"
@@ -875,6 +894,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 onAddMeal={handleQuickAddMeal}
                 selectedDishIds={selectedDishIds}
             />
+
+            {/* Add Dish Modal — SwapCustomizeModal in search/add mode (FAB flow) */}
+            {addDishOpen && (
+                <SwapCustomizeModal
+                    key={`add_${addDishSlot}_${today}`}
+                    isOpen={addDishOpen}
+                    onClose={() => setAddDishOpen(false)}
+                    date={today}
+                    mealType={addDishSlot}
+                    slotLabel={addDishSlot.charAt(0).toUpperCase() + addDishSlot.slice(1)}
+                    item={ADD_DISH_DUMMY}
+                    dishes={dishes}
+                    userRegion={user?.region ?? 'India'}
+                    userDiet={user?.diet ?? 'veg'}
+                    onApply={() => {}}
+                    onAddAnother={handleAddAnother}
+                    onChange={() => {}}
+                    initialAddMode={true}
+                />
+            )}
 
             {/* Tray Screen */}
             <TrayScreen
