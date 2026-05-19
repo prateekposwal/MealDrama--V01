@@ -3,24 +3,94 @@
 // Eliminates duplicated MealCard prop-passing + empty-state + lock/missed logic
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import type { MealType, TrayItem, GuestMode } from '../../store/useTrayStore';
-import { computeEffectiveServings, resolveSlotTimes } from '../../types/tray';
+import { computeEffectiveServings, resolveSlotTimes, isAfterEnd } from '../../types/tray';
 import type { AggregatedCategory } from '../../types/tray';
 import type { DishVariant } from '../../constants/dishLibrary';
 import { useNormalizedComposition } from './useNormalizedComposition';
 import type { Dish } from '../../constants/dishLibrary';
 import type { SuggestionMeal } from '../../lib/trayApi';
 import { MealCard } from './MealCard';
+import { SLOT_META } from './MealCard';
 import { SmartSuggestionChips } from './SmartSuggestionChips';
 import { SwapCustomizeModal } from './SwapCustomizeModal';
 import DishImage from '../new/DishImage';
-import { CheckCheck, ChevronRight, Shuffle, Sparkles, X, Plus } from 'lucide-react';
+import { CheckCheck, ChevronRight, Forward, Shuffle, Sparkles, X, Plus } from 'lucide-react';
 import type { StyleWarning } from '../../constants/dishStyles';
 import { useStore } from '../../store/useStore';
+import { useTrayStore } from '../../store/useTrayStore';
 import { generateMealTitle } from '../../utils/generateMealTitle';
+import { pickFeaturedMeals } from '../../utils/mealRotation';
 
-export type SlotMode = 'active' | 'upcoming' | 'completed' | 'history' | 'builder';
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
+    `${String(i).padStart(2, '0')}:00`
+);
+
+const TimeBadge: React.FC<{
+    start: string;
+    end: string;
+    onEdit: () => void;
+}> = ({ start, end, onEdit }) => (
+    <button
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-800 text-[11px] font-bold tracking-tight hover:bg-gray-200 active:scale-95 transition-all min-w-[110px] justify-center"
+        title="Edit time window"
+    >
+        🕒 {start} – {end}
+    </button>
+);
+
+const TimeEditor: React.FC<{
+    start: string;
+    end: string;
+    onSave: (start: string, end: string) => void;
+    onCancel: () => void;
+}> = ({ start, end, onSave, onCancel }) => {
+    const [s, setS] = useState(start);
+    const [e, setE] = useState(end);
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handler = (ev: MouseEvent) => {
+            if (ref.current && !ref.current.contains(ev.target as Node)) onCancel();
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [onCancel]);
+
+    return (
+        <div
+            ref={ref}
+            className="inline-flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-100 border border-gray-200"
+            onClick={(e) => e.stopPropagation()}
+        >
+            <select
+                value={s}
+                onChange={e => setS(e.target.value)}
+                className="text-[9px] font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
+            >
+                {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+            <span className="text-[9px] text-gray-400">–</span>
+            <select
+                value={e}
+                onChange={e => setE(e.target.value)}
+                className="text-[9px] font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
+            >
+                {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
+            </select>
+            <button
+                onClick={() => onSave(s, e)}
+                className="text-[9px] font-bold text-white bg-[#FF385C] px-1.5 py-0.5 rounded-full ml-1 active:scale-90"
+            >
+                OK
+            </button>
+        </div>
+    );
+};
+
+export type SlotMode = 'active' | 'upcoming' | 'completed' | 'history' | 'builder' | 'skipped';
 
 export interface SlotBodyProps {
   date: string;
@@ -38,7 +108,10 @@ export interface SlotBodyProps {
   onSwapClose: () => void;
   onSwapSelect: (date: string, mealType: MealType, itemId: string) => (newMealId: string, chipOverrides?: Record<string, unknown>) => void;
   onUpdateInline: (date: string, mealType: MealType, itemId: string) => (updates: Partial<TrayItem>) => void;
+  /** Per-item remove */
   onRemove: (date: string, mealType: MealType, itemId: string) => () => void;
+  /** Slot-level skip — skips the entire meal slot */
+  onSkipSlot?: () => void;
   onSuggestionAdd: (date: string, mealType: MealType) => (suggestion: SuggestionMeal) => void;
   onOpenSearch: () => void;
   swapCustomizeOpenKey?: string | null;
@@ -51,6 +124,8 @@ export interface SlotBodyProps {
   onComplete?: () => void;
   /** Undo completion */
   onUndoComplete?: () => void;
+  /** Undo skip — restores the full meal group */
+  onUndoSkip?: () => void;
   /** Whether this slot has been completed by the user */
   isUserCompleted?: boolean;
   /** Tomorrow's meals for this slot (for preview) */
@@ -66,6 +141,9 @@ export interface SlotBodyProps {
 
   /** Per-slot time preferences from user profile — overrides SLOT_TIME_DEFAULTS */
   preferences?: Record<string, { start: string; end: string }>;
+
+  /** Opens the full Meal Tray to see all dishes in this slot */
+  onOpenTray?: () => void;
 }
 
 const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
@@ -73,8 +151,8 @@ const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
 function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals: TrayItem[], mealType: MealType, preferences?: Record<string, { start: string; end: string }>) {
   const today = getISODate(new Date());
   const isToday = date === today;
-  const now = new Date().getHours() + new Date().getMinutes() / 60;
-  const { endHour } = resolveSlotTimes(meals, mealType, preferences);
+  const { start, end } = resolveSlotTimes(meals, mealType, preferences);
+  const pastEnd = isAfterEnd(start, end);
 
   let isLocked = false;
   let isMissed = false;
@@ -85,8 +163,8 @@ function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals:
   switch (mode) {
     case 'active':
       if (isToday) {
-        isLocked = now > endHour;
-        isMissed = now > endHour;
+        isLocked = pastEnd;
+        isMissed = pastEnd;
       }
       editable = true;
       showSuggestions = true;
@@ -94,8 +172,8 @@ function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals:
       break;
     case 'upcoming':
       if (isToday) {
-        isLocked = now > endHour;
-        isMissed = now > endHour;
+        isLocked = pastEnd;
+        isMissed = pastEnd;
       }
       editable = true;
       showSuggestions = true;
@@ -120,6 +198,13 @@ function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals:
       editable = true;
       showSuggestions = true;
       break;
+    case 'skipped':
+      isLocked = false;
+      isMissed = false;
+      editable = false;
+      showSuggestions = false;
+      cardClass = 'rounded-[28px] opacity-40 pointer-events-none select-none';
+      break;
   }
 
   return { isLocked, isMissed, editable, showSuggestions, cardClass };
@@ -132,16 +217,32 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   swapOpenKey, onSwapOpen, onSwapClose,
   onSwapSelect, onUpdateInline, onRemove,
   onSuggestionAdd, onOpenSearch,
-  swapCustomizeOpenKey, onSwapCustomizeOpen, onSwapCustomizeClose, onSwapCustomizeApply, onAddAnother,
-  onComplete, onUndoComplete, isUserCompleted, tomorrowMeals, tomorrowDate,
+  swapCustomizeOpenKey,     onUndoSkip,
+    onSwapCustomizeOpen, onSwapCustomizeClose, onSwapCustomizeApply, onAddAnother,
+  onComplete, onSkipSlot, onUndoComplete, isUserCompleted, tomorrowMeals, tomorrowDate,
   styleWarnings,
   mergeExtraItems,
   preferences,
+  onOpenTray,
 }) => {
   const { isLocked, isMissed, editable, showSuggestions, cardClass } = useMemo(
     () => getModeBehavior(mode, date, slotLabel, meals, mealType, preferences),
     [mode, date, slotLabel, meals, mealType, preferences],
   );
+
+  const completions = useTrayStore(s => s.completions);
+  const skipped = useTrayStore(s => s.skipped);
+  const lastFeaturedTimes = useTrayStore(s => s.lastFeaturedTimes);
+  const markFeatured = useTrayStore(s => s.markFeatured);
+
+  const featured = useMemo(() => {
+    if (!mergeExtraItems || meals.length <= 2) return null;
+    const result = pickFeaturedMeals(meals, dishes, date, mealType, {
+      userRegion, userDiet, completions, skipped, lastFeaturedTimes,
+    });
+    markFeatured([result.primary.meal_id, ...(result.secondary ? [result.secondary.meal_id] : [])]);
+    return result;
+  }, [meals, dishes, date, mealType, userRegion, userDiet, completions, skipped, lastFeaturedTimes, markFeatured, mergeExtraItems]);
 
   const activeCustomizeItem = useMemo(
     () => meals.find(m => m.id === swapCustomizeOpenKey) ?? null,
@@ -252,11 +353,42 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
   // Show aggregated summary as the single source of truth for slot composition
   const showAggregated = !isUserCompleted && meals.length > 0;
+  const [aggregatedExpanded, setAggregatedExpanded] = useState(false);
+
+  const slotMicrocopy = useMemo(() => {
+    const options: Record<MealType, string[]> = {
+      breakfast: ['Balanced for your morning ☀️', 'Light & energizing choices', 'Fresh start'],
+      lunch: ['Hearty & wholesome', 'Midday nourishment', 'Popular in your region 🌏'],
+      snacks: ['Quick bites', 'Light pick-me-ups', 'Evening treat'],
+      dinner: ['Evening comfort 🌙', 'Winding down', 'Family-style favorites'],
+    };
+    const picks = options[mealType] ?? ['Perfect for today'];
+    const idx = (meals.length + mealType.length) % picks.length;
+    return picks[idx];
+  }, [mealType, meals.length]);
 
   return (
     <div className="space-y-3">
-      {/* ─── User-completed: show Tomorrow preview ─── */}
-      {isUserCompleted && tomorrowDate && (
+      {/* ─── Skipped banner with undo CTA ─── */}
+      {mode === 'skipped' && onUndoSkip && (
+        <div className="rounded-[20px] bg-amber-50 border border-amber-200 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-300">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-amber-600">⏭️</span>
+              <span className="text-xs font-bold text-amber-700">{slotLabel} — Skipped</span>
+            </div>
+            <button
+              onClick={onUndoSkip}
+              className="text-[10px] font-bold text-amber-700 underline active:opacity-60 flex items-center gap-1"
+            >
+              Restore Meal
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── User-completed: show Tomorrow preview (not in history/completed) ─── */}
+      {isUserCompleted && tomorrowDate && mode !== 'history' && mode !== 'completed' && (
         <div className="rounded-[20px] bg-emerald-50 border border-emerald-200 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-emerald-100">
             <div className="flex items-center gap-2">
@@ -292,45 +424,57 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 >
                   Add dish <ChevronRight size={10} />
                 </button>
-              </div>
+        </div>
             )}
           </div>
         </div>
       )}
 
-      {/* ─── Normal meal cards ─── */}
+      {/* Contextual microcopy (above card group) */}
+      {!isUserCompleted && meals.length > 0 && mode === 'active' && editable && (
+        <div className="flex items-center gap-2 px-0.5">
+          <div className="w-1 h-1 rounded-full bg-[#FF385C]/40" />
+          <p className="text-[11px] text-gray-500 font-medium">{slotMicrocopy}</p>
+        </div>
+      )}
+
+      {/* ─── Normal meal cards (with staggered entrance + hover effects) ─── */}
       {!isUserCompleted && meals.length > 0 && (
-        <div className={`${cardClass} ${mergeExtraItems && meals.length > 1 ? 'space-y-0' : ''}`}>
+        <div className={`${cardClass} ${mergeExtraItems && meals.length > 1 ? 'space-y-0' : ''} card-section-enter`}>
+
           {mergeExtraItems && meals.length > 1 ? (
             <>
-              <MealCard
-                item={meals[0]}
-                date={date}
-                mealType={mealType}
-                slot={slotLabel}
-                dishes={dishes}
-                userRegion={userRegion}
-                userDiet={userDiet}
-                isLocked={isLocked}
-                isMissed={isMissed}
-                editable={editable}
-                guestExtra={computeEffectiveServings(meals[0].quantity || 1, date, guestMode).extra}
-                swapOpen={swapOpenKey === meals[0].id}
-                onSwapOpen={() => onSwapOpen(meals[0].id)}
-                onSwapClose={onSwapClose}
-                onSwapSelect={onSwapSelect(date, mealType, meals[0].id)}
-                onUpdateInline={onUpdateInline(date, mealType, meals[0].id)}
-                onRemove={onRemove(date, mealType, meals[0].id)}
-                swapCustomizeOpen={swapCustomizeOpenKey === meals[0].id}
-                onSwapCustomizeOpen={() => onSwapCustomizeOpen?.(meals[0].id)}
-                onSwapCustomizeClose={() => onSwapCustomizeClose?.()}
-              />
-              <div className="px-5 pb-4 -mt-2 space-y-1.5">
-                {meals.slice(1).map(extra => (
-                  <div
-                    key={extra.id}
-                    className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100"
-                  >
+              <div style={{ '--i': 0 } as React.CSSProperties} className="card-enter">
+                <MealCard
+                  item={featured?.primary ?? meals[0]!}
+                  date={date}
+                  mealType={mealType}
+                  slot={slotLabel}
+                  dishes={dishes}
+                  userRegion={userRegion}
+                  userDiet={userDiet}
+                  isLocked={isLocked}
+                  isMissed={isMissed}
+                  editable={editable}
+                  guestExtra={computeEffectiveServings((featured?.primary ?? meals[0]!).quantity || 1, date, guestMode).extra}
+                  swapOpen={swapOpenKey === (featured?.primary ?? meals[0]!).id}
+                  onSwapOpen={() => onSwapOpen((featured?.primary ?? meals[0]!).id)}
+                  onSwapClose={onSwapClose}
+                  onSwapSelect={onSwapSelect(date, mealType, (featured?.primary ?? meals[0]!).id)}
+                  onUpdateInline={onUpdateInline(date, mealType, (featured?.primary ?? meals[0]!).id)}
+                  onRemove={onRemove(date, mealType, (featured?.primary ?? meals[0]!).id)}
+                  swapCustomizeOpen={swapCustomizeOpenKey === (featured?.primary ?? meals[0]!).id}
+                  onSwapCustomizeOpen={() => onSwapCustomizeOpen?.((featured?.primary ?? meals[0]!).id)}
+                  onSwapCustomizeClose={() => onSwapCustomizeClose?.()}
+                />
+              </div>
+              {(featured?.secondary || (meals.length === 2 ? meals[1] : undefined)) && (
+                <div className="px-5 pb-4 -mt-2 space-y-1.5">
+                  {(() => {
+                    const extra = featured?.secondary ?? (meals.length === 2 ? meals[1]! : null);
+                    if (!extra) return null;
+                    return (
+                  <div key={extra.id} style={{ '--i': 1 } as React.CSSProperties} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100 extra-card-enter">
                     <DishImage name={extra.name} slot={slotLabel} size="sm" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -360,7 +504,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                         </button>
                         <button
                           onClick={onRemove(date, mealType, extra.id)}
-                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-red-50 border border-red-100 text-red-400 active:scale-90 transition-all flex-shrink-0"
+                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all flex-shrink-0"
                           aria-label={`Remove ${extra.name}`}
                         >
                           <X size={10} />
@@ -368,12 +512,22 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {meals.length > 2 && onOpenTray && (
+                <button
+                  onClick={onOpenTray}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
+                >
+                  See all {meals.length} dishes
+                </button>
+              )}
             </>
           ) : (
-            meals.map(item => (
-              <div key={item.id}>
+            meals.map((item, idx) => (
+              <div key={item.id} style={{ '--i': idx } as React.CSSProperties} className="card-enter">
                 <MealCard
                   item={item}
                   date={date}
@@ -402,49 +556,77 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         </div>
       )}
 
+      {/* ─── Aggregated slot items per category (collapsible) ─── */}
+      {showAggregated && (
+        <div className="py-2 aggregated-categories">
+          <button
+            onClick={() => setAggregatedExpanded(prev => !prev)}
+            className={`group w-full rounded-xl border-2 ${SLOT_META[slotLabel]?.color || 'border-emerald-200'} ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/80'} hover:brightness-95 active:scale-[0.98] transition-all px-4 py-3`}
+          >
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center -space-x-2">
+                    <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
+                    {meals.length > 1 && (
+                      <DishImage name={meals[1]?.name || slotLabel} slot={slotLabel} size="sm" />
+                    )}
+                  </div>
+                  <div className="text-left">
+                  <span className={`text-xs font-black uppercase tracking-widest ${SLOT_META[slotLabel]?.color?.replace('border-', 'text-').replace('100', '700') || 'text-emerald-800'}`}>{slotLabel}</span>
+                  <span className="block text-[10px] font-medium text-gray-600 group-hover:hidden">Flavor Flow Mapping</span>
+                  <span className="hidden group-hover:block text-[10px] font-semibold text-gray-700">Build your ideal {slotLabel.toLowerCase()}</span>
+                </div>
+              </div>
+            </div>
+          </button>
+          {aggregatedExpanded && (
+            <div className="space-y-1 mt-1">
+              {categoryConfig.map(cat => cat.items.length > 0 && (
+                <div key={cat.label} className="aggregated-category">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{cat.label}</p>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {cat.items.map((agg: AggregatedCategory) => (
+                      <span key={agg.name} className="text-[10px] font-bold px-2 py-1 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={{ transition: 'opacity 0.2s ease, transform 0.2s ease' }}>
+                        <span className={`${cat.color} contents`}>
+                          {cat.label === 'Dessert' && '🍨 '}{agg.name}
+                        </span>
+                        <span className="inline-flex items-center gap-0.5">
+                          {editable && (
+                            <button
+                              onClick={() => handleAggregatedQty(agg.name, -1)}
+                              className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
+                              aria-label={`Decrease ${agg.name}`}
+                            >−</button>
+                          )}
+                          <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center tabular-nums select-none">{agg.totalQty}</span>
+                          {editable && (
+                            <button
+                              onClick={() => handleAggregatedQty(agg.name, 1)}
+                              className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
+                              aria-label={`Increase ${agg.name}`}
+                            >+</button>
+                          )}
+                          <span className="text-[9px] text-gray-400 select-none">{agg.unit}</span>
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ─── Add Dish button (slots with meals) ─── */}
       {editable && onAddAnother && meals.length > 0 && (
         <button
           onClick={() => setAddDishOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
+          className="group w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-dashed border-emerald-300 text-emerald-500 hover:text-emerald-600 hover:border-emerald-400 hover:shadow-lg hover:shadow-emerald-200/50 active:scale-[0.98] transition-all text-[10px] font-bold"
         >
-          <Plus size={12} />
+          <Plus size={12} className="transition-transform duration-200 group-hover:rotate-90" />
           Add Dish
         </button>
-      )}
-
-      {/* ─── Aggregated slot items per category ─── */}
-      {showAggregated && (
-        <div className="pt-0 pb-1 space-y-1 aggregated-categories">
-          {categoryConfig.map(cat => cat.items.length > 0 && (
-            <div key={cat.label} className="aggregated-category">
-              <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{cat.label}</p>
-              <div className="flex flex-wrap items-center gap-1">
-                {cat.items.map((agg: AggregatedCategory) => (
-                  <span key={agg.name} className="text-[10px] font-bold px-2 py-1 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={{ transition: 'opacity 0.2s ease, transform 0.2s ease' }}>
-                    <span className={`${cat.color} contents`}>
-                      {cat.label === 'Dessert' && '🍨 '}{agg.name}
-                    </span>
-                    <span className="inline-flex items-center gap-0.5">
-                      <button
-                        onClick={() => handleAggregatedQty(agg.name, -1)}
-                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
-                        aria-label={`Decrease ${agg.name}`}
-                      >−</button>
-                      <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center tabular-nums select-none">{agg.totalQty}</span>
-                      <button
-                        onClick={() => handleAggregatedQty(agg.name, 1)}
-                        className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
-                        aria-label={`Increase ${agg.name}`}
-                      >+</button>
-                      <span className="text-[9px] text-gray-400 select-none">{agg.unit}</span>
-                    </span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
       )}
 
       {!isUserCompleted && meals.length === 0 && showSuggestions && !isLocked && (
@@ -461,9 +643,9 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {!isUserCompleted && meals.length === 0 && showSuggestions && !isLocked && editable && onAddAnother && (
         <button
           onClick={() => setAddDishOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
+          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-emerald-600 hover:border-emerald-400 active:scale-[0.98] transition-all text-[10px] font-bold group"
         >
-          <Plus size={12} />
+          <Plus size={12} className="transition-transform duration-200 group-hover:rotate-90" />
           Add Dish
         </button>
       )}
@@ -474,15 +656,28 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         </div>
       )}
 
-      {/* ─── Mark Complete button (active slots with meals) ─── */}
-      {!isUserCompleted && mode === 'active' && meals.length > 0 && onComplete && (
-        <button
-          onClick={onComplete}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 active:scale-[0.98] transition-all text-xs font-bold"
-        >
-          <CheckCheck size={14} />
-          Mark {slotLabel} as Complete
-        </button>
+      {/* ─── Slot-level actions: Skip & Mark Complete ─── */}
+      {!isUserCompleted && mode === 'active' && meals.length > 0 && (
+        <div className="flex gap-2">
+          {onComplete && (
+            <button
+              onClick={onComplete}
+              className="group flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-emerald-300 text-emerald-500 hover:text-emerald-600 hover:border-emerald-400 active:scale-[0.98] transition-all text-[10px] font-bold"
+            >
+              <CheckCheck size={10} className="transition-transform duration-200 group-hover:scale-110" />
+              Complete
+            </button>
+          )}
+          {onSkipSlot && (
+            <button
+              onClick={onSkipSlot}
+              className="group flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
+            >
+              <Forward size={10} className="transition-transform duration-200 group-hover:-translate-x-0.5" />
+              Skip {slotLabel}
+            </button>
+          )}
+        </div>
       )}
 
       {/* ─── Style Balance Warnings (e.g. 2x Gravy) — only in editable modes ─── */}
@@ -540,6 +735,24 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         />
       )}
       <style>{`
+        .card-section-enter {
+          animation: fadeInUp 0.45s ease-out both;
+        }
+        .card-enter {
+          animation: cardIn 0.35s ease-out calc(var(--i, 0) * 0.07s) both;
+        }
+        .extra-card-enter {
+          animation: fadeInUp 0.3s ease-out calc(var(--i, 0) * 0.05s) both;
+        }
+        .card-enter:hover {
+          transform: scale(1.02);
+          box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .card-enter {
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          border-radius: 28px;
+        }
         .aggregated-category {
           transition: opacity 0.3s ease, transform 0.3s ease;
         }
@@ -550,16 +763,31 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         .aggregated-chip:hover {
           transform: scale(1.02);
         }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes cardIn {
+          from { opacity: 0; transform: translateY(12px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
         @media (prefers-reduced-motion: reduce) {
+          .card-section-enter,
+          .card-enter,
+          .extra-card-enter,
           .aggregated-category,
           .aggregated-chip {
+            animation: none !important;
             transition: none !important;
+            transform: none !important;
           }
-          .aggregated-chip:hover {
-            transform: none;
+          .card-enter:hover {
+            transform: none !important;
+            box-shadow: none !important;
           }
         }
       `}</style>
+
     </div>
   );
 });

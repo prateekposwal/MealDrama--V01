@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { ChevronRight, Phone, Loader2 } from 'lucide-react';
+import { generatePrimaryId } from '../../types/identity';
 interface LoginScreenProps {
-    onLogin: (userId: string) => void;
+    onLogin: (userId: string, primaryId: string) => void;
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
@@ -12,8 +13,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
     const handleCreateUser = async () => {
         const userId = crypto.randomUUID();
+        const primaryId = generatePrimaryId();
         localStorage.setItem('mealdrama-user-id', userId);
-        onLogin(userId);
+        localStorage.setItem('mealdrama-primary-id', primaryId);
+        onLogin(userId, primaryId);
     };
 
     const handleSendOTP = () => {
@@ -38,38 +41,51 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     return (
         <div className="min-h-screen bg-white flex flex-col max-w-lg mx-auto">
             {/* Hero */}
-            <div className="relative flex-shrink-0 h-72 bg-gradient-to-br from-[#FF385C] via-[#E31C5F] to-[#c00c4a] flex items-end pb-10 px-8 overflow-hidden">
-                {/* Fresh produce collage */}
-                <div className="absolute inset-0 overflow-hidden">
-                    {[
-                        { emoji: '🥬', size: '6rem', top: '10%', left: '5%', rotate: '-12deg', opacity: '0.18' },
-                        { emoji: '🍅', size: '5rem', top: '20%', left: '72%', rotate: '8deg', opacity: '0.15' },
-                        { emoji: '🥕', size: '4.5rem', top: '55%', left: '15%', rotate: '20deg', opacity: '0.18' },
-                        { emoji: '🌽', size: '5rem', top: '8%', left: '52%', rotate: '-5deg', opacity: '0.14' },
-                        { emoji: '🧅', size: '4.5rem', top: '65%', left: '68%', rotate: '-15deg', opacity: '0.17' },
-                        { emoji: '🥦', size: '6rem', top: '38%', left: '82%', rotate: '10deg', opacity: '0.15' },
-                        { emoji: '🫑', size: '4rem', top: '48%', left: '38%', rotate: '-20deg', opacity: '0.16' },
-                        { emoji: '🍆', size: '5rem', top: '75%', left: '42%', rotate: '15deg', opacity: '0.14' },
-                        { emoji: '🥒', size: '4.5rem', top: '12%', left: '28%', rotate: '5deg', opacity: '0.16' },
-                        { emoji: '🍋', size: '3.5rem', top: '35%', left: '58%', rotate: '-8deg', opacity: '0.15' },
-                        { emoji: '🥔', size: '4.5rem', top: '82%', left: '18%', rotate: '12deg', opacity: '0.17' },
-                        { emoji: '🌶️', size: '4rem', top: '58%', left: '85%', rotate: '-18deg', opacity: '0.14' },
-                    ].map((item, i) => (
-                        <span key={i} className="absolute select-none pointer-events-none" style={{ fontSize: item.size, top: item.top, left: item.left, transform: `rotate(${item.rotate})`, opacity: item.opacity }}>{item.emoji}</span>
-                    ))}
-                </div>
+            <div className="relative flex-shrink-0 h-56 flex items-end pb-6 px-8 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-[#FF385C] via-[#E31C5F] to-[#c00c4a]" />
+                <img
+                    src="/hero-food-bg.jpg"
+                    alt=""
+                    className="absolute inset-0 w-full h-full object-cover opacity-30"
+                    loading="lazy"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
                 <div className="relative">
                     <h1 className="text-5xl font-black text-white tracking-tight leading-none">Meal<span className="opacity-60">Drama</span></h1>
-                    <p className="text-white text-lg font-bold mt-3">'आज खाने में क्या बनाऊं?' — हर घर का सवाल। अब बस।
-Let the drama cook.</p>
+                    <p className="text-white text-lg font-bold mt-3">Cook less confusion. Serve more happiness.</p>
                 </div>
             </div>
 
-            <div className="flex-1 p-8 flex flex-col">
+            <div className="flex-1 px-8 py-6 flex flex-col">
                 {mode === 'landing' && (
-                    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-4 mt-4">
-                        <h2 className="text-3xl font-bold tracking-tight mb-2">Cook, let's begin.</h2>
-                        <p className="text-gray-500 mb-4">Plan meals. Swap drama. Let the kitchen do the talking.</p>
+                    <div className="animate-in fade-in slide-in-from-bottom-4 flex flex-col gap-3">
+                        <div className="mb-3">
+                            <p className="text-2xl font-bold tracking-tight text-gray-900 leading-snug">"आज खाने में क्या बनाऊं?"</p>
+                            <p className="text-base font-semibold text-gray-700 mt-2">Now there's a better way.</p>
+                        </div>
+                        <div className="grid gap-2">
+                            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-100/50">
+                                <span className="text-2xl">🍛</span>
+                                <div>
+                                    <p className="text-sm font-bold text-gray-800">Regional meals</p>
+                                    <p className="text-[11px] text-gray-500">North, South, East, West — food from home</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100/50">
+                                <span className="text-2xl">👨‍👩‍👧</span>
+                                <div>
+                                    <p className="text-sm font-bold text-gray-800">Shared planning</p>
+                                    <p className="text-[11px] text-gray-500">Cook knows what's for dinner before you ask</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-100/50">
+                                <span className="text-2xl">⚡</span>
+                                <div>
+                                    <p className="text-sm font-bold text-gray-800">Quick add & swaps</p>
+                                    <p className="text-[11px] text-gray-500">Swap dishes, adjust portions, done in seconds</p>
+                                </div>
+                            </div>
+                        </div>
 
                         {/* Google Sign In (mock) */}
                         <button
@@ -94,7 +110,7 @@ Let the drama cook.</p>
                             Phone it in
                         </button>
 
-                        <p className="text-xs text-center text-gray-400 mt-6 px-4 leading-relaxed font-medium">
+                        <p className="text-xs text-center text-gray-400 mt-4 px-4 leading-relaxed font-medium">
                             Your food data stays private. No spam. Just meals.
                         </p>
                     </div>

@@ -259,6 +259,24 @@ describe('getIngredientsForMealOption', () => {
     expect(result.some(i => i.name === 'Rice')).toBe(true);
     expect(result.some(i => i.name === 'Urad Dal')).toBe(true);
   });
+
+  it('does not infer eggs from eggplant/baingan dishes', () => {
+    const dish = makeDish('north-baingan-bharta', 'Baingan Bharta (Smoked Eggplant)');
+    const result = getIngredientsForMealOption('north-baingan-bharta', '', [dish]);
+    expect(result.some(i => i.name === 'Eggs')).toBe(false);
+  });
+
+  it('does not infer eggs from baingan variant', () => {
+    const dish = makeDish('north-baingan-bharta', 'Baingan Bharta (Smoked Eggplant)', {
+      variants: [{ id: 'baingan-bharta-phulka', name: 'Baingan Bharta with Phulka', mealContext: 'lunch' }],
+    });
+    const result = getIngredientsForMealOption('north-baingan-bharta', 'baingan-bharta-phulka', [dish]);
+    expect(result.some(i => i.name === 'Eggs')).toBe(false);
+    expect(result.some(i => i.name === 'White Bread')).toBe(false);
+    expect(result.some(i => i.name === 'Milk')).toBe(false);
+    expect(result.some(i => i.name === 'Sugar')).toBe(false);
+    expect(result.some(i => i.name === 'Butter')).toBe(false);
+  });
 });
 
 // ─── isDishVeganCompatible ────────────────────────────────────────────────────

@@ -1,14 +1,13 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import type { Dish, DishVariant } from '../../constants/dishLibrary';
-import { X, Search, Plus, Sparkles, Clock, Check, ChevronLeft, Edit3, Trash2 } from 'lucide-react';
+import { X, Search, Plus, Sparkles, Clock, Check, ChevronLeft, Edit3, Trash2, Loader2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import DishImage from './DishImage';
 import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import { HealthFilterBar } from '../health/HealthFilterBar';
-import { scoreDish } from '../../utils/nutritionScore';
-import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
-import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
+import { rankDishes, getRegionKey, getDishVariants, DIET_FILTER } from '../../utils/dishSearch';
+import { useDebounce } from '../../hooks/useDebounce';
 
 const CUSTOM_STYLES = ['Gravy', 'Dry', 'Fried', 'Roasted', 'Raw', 'Steamed', 'Grilled', 'Curry', 'Soup', 'Bread'];
 const CUSTOM_TAGS = ['healthy', 'high-protein', 'fiber', 'low-calorie', 'indulgent', 'probiotic', 'antioxidant', 'vitamins', 'iron', 'calcium'];
@@ -17,13 +16,6 @@ const uid = () => Math.random().toString(36).substring(2, 10);
 let customDishCounter = 0;
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
-
-const DIET_FILTER: Record<string, string[]> = {
-    veg: ['veg'],
-    'non-veg': ['veg', 'non-veg', 'eggitarian'],
-    eggitarian: ['veg', 'eggitarian', 'non-veg'],
-    vegan: ['veg', 'vegan'],
-};
 
 const SLOT_HEADER: Record<Slot, { icon: string; title: string; subtitle: string }> = {
     Breakfast: { icon: '🌅', title: 'Subah ka naashta?', subtitle: 'Quick picks for morning' },
@@ -60,6 +52,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     const allDishes = useMemo(() => [...dishes, ...customDishes], [dishes, customDishes]);
 
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounce(search, 200);
     const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
     const [showGlobal, setShowGlobal] = useState(false);
     const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(null);
@@ -75,69 +68,25 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     const [ingredientName, setIngredientName] = useState('');
     const [ingredientQty, setIngredientQty] = useState('');
     const [ingredientUnit, setIngredientUnit] = useState('g');
-    const regionKey = (userRegion ?? '').toLowerCase().replace(' india', '');
+    const regionKey = getRegionKey(userRegion);
 
     // Filter and rank dishes
-    const rankedDishes = useMemo(() => {
-        const q = search.toLowerCase();
-        const category = slot.toLowerCase();
-        const isVegan = userDiet?.toLowerCase() === 'vegan';
-        const allowedTypes = DIET_FILTER[userDiet?.toLowerCase() || 'veg'] || ['veg'];
-
-        const selectedSet = new Set(selectedDishIds);
-        let filtered = allDishes.filter(d => {
-            if (selectedSet.has(d.id)) return false;
-            const isCustom = d.tags?.includes('user_created');
-            if (!isCustom && !d.category.some(c => c.includes(category))) {
-                if (!q) return false;
-            }
-            if (isVegan && d.type !== 'veg' && d.type !== 'vegan') return false;
-            if (!isVegan && !allowedTypes.includes(d.type)) return false;
-            if (q) {
-                const matchName = d.name.toLowerCase().includes(q);
-                const matchTags = d.tags.some(t => t.toLowerCase().includes(q));
-                const matchVariant = d.variants.some(v => v.name.toLowerCase().includes(q));
-                if (!matchName && !matchTags && !matchVariant) return false;
-            }
-            return true;
-        });
-
-        if (healthPreset) {
-            filtered = filterDishesByHealth(filtered, getFilterPreset(healthPreset));
-        }
-
-        // Score and sort
-        const scored = filtered.map(d => {
-            let score = 0;
-            if (d.region.toLowerCase().includes(regionKey)) score += 10;
-            if (d.tags.includes('popular') || d.tags.includes('hero')) score += 5;
-            if (d.states.some(s => s.toLowerCase().includes(regionKey))) score += 3;
-            return { dish: d, score, healthScore: scoreDish(d) };
-        });
-
-        if (healthSort) {
-            const sortedIds = sortDishesByHealth(scored.map(s => s.dish), healthSort).map(d => d.id);
-            scored.sort((a, b) => sortedIds.indexOf(a.dish.id) - sortedIds.indexOf(b.dish.id));
-        } else {
-            scored.sort((a, b) => b.score - a.score);
-        }
-
-        // Regional first unless showGlobal is true
-        const regional = scored.filter(s => s.dish.region.toLowerCase().includes(regionKey));
-        const global = scored.filter(s => !s.dish.region.toLowerCase().includes(regionKey));
-        return showGlobal ? [...global, ...regional] : [...regional, ...global];
-    }, [dishes, slot, userDiet, regionKey, search, showGlobal, healthPreset, healthSort]);
+    const rankedDishes = useMemo(() => rankDishes({
+        dishes: allDishes,
+        slot,
+        diet: userDiet,
+        regionKey,
+        query: debouncedSearch,
+        showGlobal,
+        healthPreset,
+        healthSort,
+        selectedDishIds,
+    }), [allDishes, slot, userDiet, regionKey, debouncedSearch, showGlobal, healthPreset, healthSort, selectedDishIds]);
 
     // Variants for selected dish
     const dishVariants = useMemo(() => {
         if (!selectedDish) return [];
-        const category = slot.toLowerCase();
-        const isVegan = userDiet?.toLowerCase() === 'vegan';
-        return selectedDish.variants.filter(v => {
-            if (!v.mealContext) return true;
-            if (isVegan) return false;
-            return v.mealContext.includes(category) || !v.mealContext;
-        }).slice(0, 6);
+        return getDishVariants(selectedDish, slot, userDiet);
     }, [selectedDish, slot, userDiet]);
 
     const handleSelectDish = (dish: Dish) => {

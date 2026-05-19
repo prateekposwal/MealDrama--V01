@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { TrayItem, SaveStatus, MealType } from '../../store/useTrayStore';
 import {
-    X, Lock, Sparkles,
+    X, Sparkles,
 } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import type { Dish } from '../../constants/dishLibrary';
@@ -9,8 +9,7 @@ import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import { scoreDish } from '../../utils/nutritionScore';
 import { STYLE_GROUP_ICONS } from '../../constants/dishStyles';
 import type { DishStyleGroup } from '../../constants/dishStyles';
-import { SLOT_TIME_DEFAULTS, getSlotDefaultTimes } from '../../types/tray';
-import { useStore } from '../../store/useStore';
+import { getSlotDefaultTimes, isSlotActive } from '../../types/tray';
 
 /** @deprecated `time` is hardcoded — use per-slot `start_time`/`end_time` from config instead */
 export const SLOT_META: Record<string, { icon: string; time: string; color: string; bg: string }> = {
@@ -22,28 +21,32 @@ export const SLOT_META: Record<string, { icon: string; time: string; color: stri
 
 interface MealCardProps {
     item: TrayItem;
-    date: string;
-    mealType: MealType;
     slot: string;
     dishes: Dish[];
-    userRegion: string;
-    userDiet: string;
     isLocked: boolean;
     isMissed: boolean;
     onRemove: () => void;
     saveStatus?: SaveStatus;
     editable?: boolean;
     variant?: 'full' | 'compact';
-    guestExtra?: number;
     swapCustomizeOpen?: boolean;
     onSwapCustomizeOpen?: () => void;
     onSwapCustomizeClose?: () => void;
+
+    /** @deprecated unused — kept for call-site compatibility */
+    date?: string;
+    mealType?: MealType;
+    userRegion?: string;
+    userDiet?: string;
+    guestExtra?: number;
     onUpdateInline?: (updates: Partial<TrayItem>) => void;
+    swapOpen?: boolean;
+    onSwapOpen?: () => void;
+    onSwapClose?: () => void;
+    onSwapSelect?: (newMealId: string, chipOverrides?: Record<string, unknown>) => void;
     hideTime?: boolean;
     hideChips?: boolean;
 }
-
-
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
     `${String(i).padStart(2, '0')}:00`
@@ -112,8 +115,10 @@ const TimeEditor: React.FC<{
     );
 };
 
+
+
 export const MealCard: React.FC<MealCardProps> = React.memo(({
-    item, mealType, slot, dishes, userRegion, userDiet,
+    item, slot, dishes, mealType,
     isLocked, isMissed, onRemove, editable = true,
     swapCustomizeOpen, onSwapCustomizeOpen, onSwapCustomizeClose,
     onUpdateInline, hideTime = false,
@@ -127,10 +132,16 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
     const healthScore = useMemo(() => dish ? scoreDish(dish) : 0, [dish]);
     const meta = SLOT_META[slot];
 
-    const userPrefs = useStore.getState().user?.slotTimePreferences;
-    const slotTimeDef = getSlotDefaultTimes(mealType, userPrefs as any);
+    const slotTimeDef = getSlotDefaultTimes(mealType || 'lunch');
     const displayStart = item.start_time || slotTimeDef.start;
     const displayEnd = item.end_time || slotTimeDef.end;
+
+    const [nowTime, setNowTime] = useState<Date>(() => new Date());
+    useEffect(() => {
+      const id = setInterval(() => setNowTime(new Date()), 60000);
+      return () => clearInterval(id);
+    }, []);
+    const isNowActive = isSlotActive(displayStart, displayEnd, nowTime);
 
     const handleTimeSave = useCallback((start: string, end: string) => {
         setEditingTime(false);
@@ -155,45 +166,49 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
             )}
 
             <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <span className="text-lg" aria-hidden="true">{meta?.icon}</span>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{slot}</span>
-                    {!hideTime && (editingTime ? (
-                        <TimeEditor
-                            start={displayStart}
-                            end={displayEnd}
-                            onSave={handleTimeSave}
-                            onCancel={() => setEditingTime(false)}
-                        />
-                    ) : (
-                        <TimeBadge
-                            start={displayStart}
-                            end={displayEnd}
-                            onEdit={() => setEditingTime(true)}
-                        />
-                    ))}
+                <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">{slot}</span>
+                    {isNowActive && (
+                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-[#FF385C]/10 text-[#FF385C]">Now</span>
+                    )}
+                    {!hideTime && (
+                        <span className="ml-auto">
+                            {editingTime ? (
+                                <TimeEditor
+                                    start={displayStart}
+                                    end={displayEnd}
+                                    onSave={handleTimeSave}
+                                    onCancel={() => setEditingTime(false)}
+                                />
+                            ) : (
+                                <TimeBadge
+                                    start={displayStart}
+                                    end={displayEnd}
+                                    onEdit={() => setEditingTime(true)}
+                                />
+                            )}
+                        </span>
+                    )}
 
                 </div>
                 <div className="flex items-center gap-2">
+                    <button
+                        onClick={onSwapCustomizeOpen}
+                        className="group h-8 rounded-xl border border-dashed border-emerald-400 text-emerald-600 active:scale-90 transition-all flex items-center gap-1 px-2.5"
+                        aria-label={`Build Your Plate ${item.name}`}
+                        title="Build Your Plate"
+                    >
+                        <Sparkles size={13} className="transition-transform duration-200 group-hover:scale-110" />
+                        <span className="text-[10px] font-bold">Build Your Plate</span>
+                    </button>
                     {!isLocked && !isMissed && editable && (
-                        <>
-                            <button
-                                onClick={onSwapCustomizeOpen}
-                                className="h-8 rounded-xl border flex items-center gap-1 px-2.5 active:scale-90 transition-all bg-white border-gray-200 text-[#FF385C]"
-                                aria-label={`Customize ${item.name}`}
-                                title="Swap & Customize"
-                            >
-                                <Sparkles size={13} />
-                                <span className="text-[10px] font-bold hidden sm:inline">Customize</span>
-                            </button>
-                            <button
-                                onClick={onRemove}
-                                className="w-8 h-8 rounded-xl border flex items-center justify-center active:scale-90 transition-all bg-red-50 border-red-100 text-red-400"
-                                aria-label={`Remove ${item.name}`}
-                            >
-                                <X size={14} />
-                            </button>
-                        </>
+                        <button
+                            onClick={onRemove}
+                            className="w-8 h-8 rounded-xl border flex items-center justify-center active:scale-90 transition-all bg-gray-50 border-gray-200 text-gray-500"
+                            aria-label={`Remove ${item.name}`}
+                        >
+                            <X size={14} />
+                        </button>
                     )}
                 </div>
             </div>

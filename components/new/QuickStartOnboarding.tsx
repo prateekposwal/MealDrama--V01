@@ -58,11 +58,6 @@ const QuickStartOnboarding: React.FC<{
     const [plannedSlots, setPlannedSlots] = useState<('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[]>(prefill?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner']);
 
     const canContinue = plannedSlots.length > 0;
-    const helperCopy = useMemo(() => {
-        if (plannedSlots.length === 0) return 'Pick at least one.';
-        if (plannedSlots.length === 1 && plannedSlots[0] === 'Dinner') return 'Dinner only? Bold.';
-        return 'Pick all you want. Change anytime.';
-    }, [plannedSlots]);
 
     const toggleSlot = (slot: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snacks') => {
         setPlannedSlots(prev => prev.includes(slot)
@@ -93,17 +88,17 @@ const QuickStartOnboarding: React.FC<{
         <div className="min-h-screen bg-white max-w-lg mx-auto flex flex-col">
             <div className="px-6 pt-14 pb-6 bg-gradient-to-br from-[#FF385C] via-[#E31C5F] to-[#c00c4a] text-white">
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-3">Quick Setup</p>
-                <h1 className="text-4xl font-black tracking-tight leading-tight">Every meal tells a story…</h1>
+                <h1 className="text-4xl font-black tracking-tight leading-tight">Your meals, your style.</h1>
                 <p className="text-sm text-white/80 mt-3 max-w-sm">
-                    Authentic Indian recipes that taste like home, even if your home once burnt dal.
+                    Build a meal plan that feels familiar, flexible, and easy to follow — from regional comfort food to everyday favorites.
                 </p>
             </div>
 
             <div className="flex-1 px-6 py-6 space-y-7 overflow-y-auto">
                 <section>
-                    <div className="flex items-center gap-2 mb-3">
-                        <MapPin size={16} className="text-[#FF385C]" />
-                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Region</h2>
+                    <div className="mb-3">
+                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Pick Your Food Region</h2>
+                        <p className="text-[11px] text-gray-400 mt-1">Choose the flavors you enjoy most. You can change or mix regions anytime</p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         {REGIONS.map(option => {
@@ -123,9 +118,9 @@ const QuickStartOnboarding: React.FC<{
                 </section>
 
                 <section>
-                    <div className="flex items-center gap-2 mb-3">
-                        <ChefHat size={16} className="text-[#FF385C]" />
-                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Diet</h2>
+                    <div className="mb-3">
+                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Your Food Preference</h2>
+                        <p className="text-[11px] text-gray-400 mt-1">Pick what fits your lifestyle.</p>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         {DIETS.map(option => (
@@ -142,11 +137,10 @@ const QuickStartOnboarding: React.FC<{
                 </section>
 
                 <section>
-                    <div className="flex items-center gap-2 mb-3">
-                        <UtensilsCrossed size={16} className="text-[#FF385C]" />
-                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Slots</h2>
+                    <div className="mb-3">
+                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Your Meal Slots</h2>
+                        <p className="text-[11px] text-gray-400 mt-1">Choose the meals you usually plan for. You can edit anytime later.</p>
                     </div>
-                    <p className={`text-[12px] mb-3 ${plannedSlots.length === 0 ? 'text-amber-600 font-bold' : 'text-gray-500'}`}>{helperCopy}</p>
                     <div className="grid grid-cols-2 gap-3">
                         {SLOT_OPTIONS.map(option => {
                             const active = plannedSlots.includes(option.label);
@@ -165,9 +159,9 @@ const QuickStartOnboarding: React.FC<{
                 </section>
 
                 <section>
-                    <div className="flex items-center gap-2 mb-3">
-                        <Flame size={16} className="text-[#FF385C]" />
-                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Spice level</h2>
+                    <div className="mb-3">
+                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Spice Preference</h2>
+                        <p className="text-[11px] text-gray-400 mt-1">Set your comfort level.</p>
                     </div>
                     <div className="grid grid-cols-3 gap-3">
                         {SPICE_LEVELS.map(option => (
@@ -183,9 +177,9 @@ const QuickStartOnboarding: React.FC<{
                 </section>
 
                 <section>
-                    <div className="flex items-center gap-2 mb-3">
-                        <Phone size={16} className="text-[#FF385C]" />
-                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Cook contact</h2>
+                    <div className="mb-3">
+                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-500">Cook Contact <span className="font-medium normal-case text-gray-400">(optional)</span></h2>
+                        <p className="text-[11px] text-gray-400 mt-1">MealDrama can help share meal plans before the daily:</p>
                     </div>
                     <input
                         type="tel"
@@ -194,9 +188,7 @@ const QuickStartOnboarding: React.FC<{
                         placeholder="+91 98765 43210"
                         className="w-full bg-gray-50 border border-gray-200 rounded-[20px] px-5 py-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#FF385C]"
                     />
-                    <p className="text-[11px] text-gray-500 mt-2">
-                        Add cook's WhatsApp. We'll ping before "aaj kya banau?" drops.
-                    </p>
+                    <p className="text-[11px] text-gray-500 mt-2 italic">"Aaj kya banana hai?" conversation starts.</p>
                 </section>
             </div>
 

@@ -250,22 +250,102 @@ export function getSlotDefaultTimes(
 export type LiveStatus = 'upcoming' | 'cooking' | 'history';
 
 /**
+ * Check if the current time falls within a slot's active window.
+ * Handles midnight-spanning slots (e.g., 22:00-02:00) where end ≤ start.
+ * Hydration-safe: accepts optional `now` Date (defaults to `new Date()`).
+ */
+export function isSlotActive(
+  start: string | undefined | null,
+  end: string | undefined | null,
+  now?: Date,
+): boolean {
+  const currentTime = now || new Date();
+  const startHour = timeToHours(start);
+  const endHour = timeToHours(end);
+  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+
+  // Midnight-spanning slot (e.g., 22:00-02:00)
+  if (endHour <= startHour) {
+    return currentHour >= startHour || currentHour < endHour;
+  }
+  // Normal slot
+  return currentHour >= startHour && currentHour < endHour;
+}
+
+/**
+ * Check if the current time is past a slot's end time.
+ * For midnight-spanning slots (end ≤ start), returns true only during the gap period.
+ * Hydration-safe: accepts optional `now` Date (defaults to `new Date()`).
+ */
+export function isAfterEnd(
+  start: string | undefined | null,
+  end: string | undefined | null,
+  now?: Date,
+): boolean {
+  const currentTime = now || new Date();
+  const startHour = timeToHours(start);
+  const endHour = timeToHours(end);
+  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+
+  if (endHour <= startHour) {
+    // Midnight span: past end means during the day gap (e.g., 02:00–22:00)
+    return currentHour >= endHour && currentHour < startHour;
+  }
+  return currentHour >= endHour;
+}
+
+/**
  * Resolve live status for a meal slot.
  * Compares current time against the slot's time window.
  * Returns 'upcoming' before start, 'cooking' during the window, 'history' after end.
+ * Handles midnight-spanning slots correctly.
  */
 export function getMealStatus(
   start: string | undefined | null,
   end: string | undefined | null,
   now?: Date,
 ): LiveStatus {
+  if (isSlotActive(start, end, now)) return 'cooking';
   const currentTime = now || new Date();
   const startHour = timeToHours(start);
-  const endHour = timeToHours(end);
   const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+  // For midnight-spanning slots, remaining time before start is the gap
   if (currentHour < startHour) return 'upcoming';
-  if (currentHour >= startHour && currentHour < endHour) return 'cooking';
   return 'history';
+}
+
+/**
+ * Returns the next meal slot after the given one.
+ */
+export function nextMealSlot(slot: MealType): MealType {
+  const order: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
+  const idx = order.indexOf(slot);
+  const nextIdx = (idx + 1) % order.length;
+  return order[nextIdx]!;
+}
+
+/**
+ * Returns the expiry timestamp (ms) for the skip undo window.
+ * Undo is available until the NEXT meal slot's start time.
+ * For dinner, the window extends to the next day's breakfast.
+ */
+export function getSkipUndoWindowExpiry(
+  mealType: MealType,
+  preferences?: SlotTimePreferences | null,
+): number {
+  const next = nextMealSlot(mealType);
+  const defaults = SLOT_TIME_DEFAULTS[next];
+  const pref = preferences?.[next];
+  const nextStart = pref?.start ?? defaults.start;
+  const [h, m] = nextStart.split(':').map(Number);
+  const now = new Date();
+  const expiry = new Date(now);
+  expiry.setHours(h ?? 0, m ?? 0, 0, 0);
+  // If next slot is breakfast (wrap to next day), add 1 day
+  if (next === 'breakfast') {
+    expiry.setDate(expiry.getDate() + 1);
+  }
+  return expiry.getTime();
 }
 
 /** Convert "HH:MM" to fractional hours for comparison (e.g. "09:30" → 9.5) */

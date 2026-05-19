@@ -16,6 +16,7 @@ import {
 } from '../../utils/ingredientUtils';
 import type { Ingredient } from '../../constants/dishLibrary';
 import WhatsAppShareModal from './WhatsAppShareModal';
+import { isAfterEnd, SLOT_TIME_DEFAULTS } from '../../types/tray';
 
 interface PantryItem {
     id: string;
@@ -46,10 +47,8 @@ const PantryPulse: React.FC = () => {
     
     // Check if all today's slots are passed
     const allTodaySlotsPassed = () => {
-        const now = new Date();
-        const hour = now.getHours();
-        // Dinner ends at 9PM (8pm + 1hr grace)
-        return hour >= 21;
+        const dinner = SLOT_TIME_DEFAULTS.dinner;
+        return isAfterEnd(dinner.start, dinner.end);
     };
     
     // Smart default: show tomorrow if all today's slots passed

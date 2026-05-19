@@ -81,6 +81,8 @@ export interface User {
   slotTiming?: Record<string, string>;
   cookingRole?: string;
   systemId?: string;
+  /** Immutable primary identity generated at signup (e.g. PRATEEK-MD-20260518-183522-0042) */
+  primaryId?: string;
   healthGoals?: string[];
   allergyMode?: boolean;
   calorieTarget?: number;
@@ -275,39 +277,6 @@ function _computeMealResolution(
 export const isEarlyMorning = (): boolean => {
   const hour = new Date().getHours();
   return hour < 8;
-};
-
-export const isSlotMissed = (date: string, slot: string): boolean => {
-  const slotTimes: Record<string, number> = { Breakfast: 8, Lunch: 13, Snacks: 16, Dinner: 20 };
-  const slotHour = slotTimes[slot] || 12;
-
-  const today = getISODate(new Date());
-  if (date < today) return true;
-  if (date > today) return false;
-
-  const now = new Date();
-  const currentHour = now.getHours();
-  if (currentHour >= slotHour) return true;
-
-  return false;
-};
-
-export const isSlotLocked = (date: string, slot: string, mealStatus?: string): boolean => {
-  if (mealStatus === 'cooked' || mealStatus === 'served') return true;
-  
-  const today = getISODate(new Date());
-  
-  if (date < today) return true;
-  if (date > today) return false;
-  
-  const slotTimes: Record<string, number> = { Breakfast: 8, Lunch: 13, Snacks: 16, Dinner: 20 };
-  const slotHour = (slotTimes[slot] || 12) + 1;
-  
-  const now = new Date();
-  const currentHour = now.getHours();
-  if (currentHour >= slotHour) return true;
-  
-  return false;
 };
 
 const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[]) => {

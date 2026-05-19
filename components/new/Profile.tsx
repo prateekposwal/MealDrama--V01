@@ -3,6 +3,7 @@ import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import type { MealType } from '../../types/tray';
 import type { SourcePool } from '../../utils/mealLoopEngine';
+import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X } from 'lucide-react';
 
@@ -19,11 +20,12 @@ const ALLERGIES_LIST = ['Dairy', 'Nuts', 'Gluten', 'Soy', 'Seafood', 'Eggs'];
 const SPICE_LABELS: Record<string, string> = { 'mild': 'Mild 🌿', 'medium': 'Medium 🌶️', 'hot': 'Hot 🔥' };
 
 const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType) => void }> = ({ onLogout, onManageTray }) => {
-    const { user, trayLibrary, updateProfile, startTrayEdit, openQuickSetup } = useStore();
-    const [nameDraft, setNameDraft] = useState<string>(user?.name ?? '');
+    const { user, updateProfile, startTrayEdit, openQuickSetup } = useStore();
+    const defaultName = user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : '');
+    const [nameDraft, setNameDraft] = useState<string>(defaultName);
     useEffect(() => {
-        setNameDraft(user?.name ?? '');
-    }, [user?.name]);
+        setNameDraft(user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : ''));
+    }, [user?.name, user?.primaryId]);
 const [editingRegion, setEditingRegion] = useState(false);
 const [editingAllergy, setEditingAllergy] = useState(false);
 const [editingCook, setEditingCook] = useState(false);
@@ -45,33 +47,71 @@ const [ingredientName, setIngredientName] = useState('');
 const [ingredientQty, setIngredientQty] = useState('');
 const [ingredientUnit, setIngredientUnit] = useState('g');
 
-const dishes = useStore(s => s.dishes);
-const plan = useTrayStore(s => s.plan);
-const { applyLoopConfig } = useTrayStore();
+    const trayLibrary = useStore(s => s.trayLibrary);
+    const dishes = useStore(s => s.dishes);
+    const plan = useTrayStore(s => s.plan);
+    const getMeals = useTrayStore(s => s.getMeals);
+    const { applyLoopConfig } = useTrayStore();
 
-const traySourcePool = useMemo((): SourcePool => {
-    const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
-    const seen = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
-    for (const date of Object.keys(plan.days)) {
-        for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
-            const meals = plan.days[date]?.[mt] || [];
-            for (const item of meals) {
-                const dish = dishes.find(d => d.id === item.meal_id);
-                if (dish && !seen[mt].has(dish.id)) {
-                    seen[mt].add(dish.id);
-                    pool[mt].push(dish);
+    const trayCounts = useMemo(() => {
+        const types: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
+        const libraryTotal = trayLibrary.breakfast.length + trayLibrary.lunch.length + trayLibrary.snacks.length + trayLibrary.dinner.length;
+        if (libraryTotal > 0) {
+            return {
+                breakfast: trayLibrary.breakfast.length,
+                lunch: trayLibrary.lunch.length,
+                snacks: trayLibrary.snacks.length,
+                dinner: trayLibrary.dinner.length,
+            };
+        }
+        const counts: Record<MealType, Set<string>> = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
+        const allDates = Object.keys(plan.days);
+        for (const date of allDates) {
+            for (const mt of types) {
+                const meals = getMeals(date, mt);
+                for (const item of meals) {
+                    counts[mt].add(item.meal_id);
                 }
             }
         }
-    }
-    return pool;
-}, [plan.days, dishes]);
+        return {
+            breakfast: counts.breakfast.size,
+            lunch: counts.lunch.size,
+            snacks: counts.snacks.size,
+            dinner: counts.dinner.size,
+        };
+    }, [plan.days, getMeals, trayLibrary]);
 
-const handleLoopApply = useCallback((config: any) => {
-    applyLoopConfig(config, traySourcePool, dishes);
-    window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
-    setMealLoopModalOpen(false);
-}, [traySourcePool, applyLoopConfig, dishes]);
+    const traySummary = [
+        { slot: 'Breakfast' as const, count: trayCounts.breakfast },
+        { slot: 'Lunch' as const, count: trayCounts.lunch },
+        { slot: 'Dinner' as const, count: trayCounts.dinner },
+        { slot: 'Snacks' as const, count: trayCounts.snacks },
+    ];
+
+    const traySourcePool = useMemo((): SourcePool => {
+        const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+        const seen = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
+        for (const date of Object.keys(plan.days)) {
+            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+                const meals = plan.days[date]?.[mt] || [];
+                for (const item of meals) {
+                    const dish = dishes.find(d => d.id === item.meal_id);
+                    if (dish && !seen[mt].has(dish.id)) {
+                        seen[mt].add(dish.id);
+                        pool[mt].push(dish);
+                    }
+                }
+            }
+        }
+        return pool;
+    }, [plan.days, dishes]);
+
+    const handleLoopApply = useCallback((config: any) => {
+        applyLoopConfig(config, traySourcePool, dishes);
+        window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
+        setMealLoopModalOpen(false);
+    }, [traySourcePool, applyLoopConfig, dishes]);
 
     const resetCustomForm = () => {
         setShowCustomForm(false);
@@ -190,17 +230,10 @@ const handleLoopApply = useCallback((config: any) => {
         updateProfile({ allergies: next });
     };
 
-    const traySummary = [
-        { slot: 'Breakfast', count: trayLibrary.breakfast.length },
-        { slot: 'Lunch', count: trayLibrary.lunch.length },
-        { slot: 'Dinner', count: trayLibrary.dinner.length },
-        { slot: 'Snacks', count: trayLibrary.snacks.length },
-    ];
-
     return (
         <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-500">
             <header className="px-6 pt-14 pb-6 bg-gradient-to-b from-gray-50 to-white">
-                <div className="mb-6">
+                <div className="mb-4">
                 <input
                     value={nameDraft}
                     onChange={(e) => setNameDraft(e.target.value)}
@@ -208,12 +241,13 @@ const handleLoopApply = useCallback((config: any) => {
                         updateProfile({ name: nameDraft });
                     }}
                     className="w-full bg-transparent font-bold text-3xl text-gray-900 tracking-tight outline-none border-b-2 border-transparent focus:border-[#FF385C] transition-colors placeholder:text-gray-300"
-                    placeholder="Your name"
+                    placeholder="Enter your name"
                 />
+                <p className="text-[11px] text-gray-400 mt-1.5">You can change this anytime.</p>
             </div>
                 <div className="flex items-center gap-5">
-                    <div className="w-20 h-20 bg-gradient-to-br from-[#FF385C] to-[#E31C5F] rounded-[28px] flex items-center justify-center text-4xl shadow-xl shadow-[#FF385C]/20">
-                        {REGION_EMOJI[user.region ?? 'India'] || '🍱'}
+                    <div className="w-20 h-20 bg-gradient-to-br from-[#FF385C] to-[#E31C5F] rounded-[28px] flex items-center justify-center shadow-xl shadow-[#FF385C]/20 overflow-hidden">
+                        <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
                     </div>
                     <div>
                         <h3 className="text-2xl font-bold">{user.diet || 'Food Lover'}</h3>
@@ -277,11 +311,11 @@ const handleLoopApply = useCallback((config: any) => {
                                 {traySummary.map(item => (
                                     <button
                                         key={item.slot}
-                                        onClick={() => { startTrayEdit({ returnTab: 'profile', slot: item.slot as any }); onManageTray?.(); }}
+                                        onClick={() => { startTrayEdit({ returnTab: 'profile', slot: item.slot }); onManageTray?.(item.slot as MealType); }}
                                         className="bg-white rounded-2xl border border-white/80 p-4 text-left shadow-sm"
                                     >
                                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{item.slot}</p>
-                                        <p className="text-lg font-bold text-gray-900 mt-1">{item.count} saved</p>
+                                        <p className="text-lg font-bold text-gray-900 mt-1">{item.count} dishes</p>
                                     </button>
                                 ))}
                             </div>
@@ -429,7 +463,7 @@ const handleLoopApply = useCallback((config: any) => {
                                 </div>
                             </div>
                             <button
-                                onClick={() => { startTrayEdit({ returnTab: 'profile', slot: 'Breakfast' }); onManageTray?.(); }}
+                                onClick={() => { startTrayEdit({ returnTab: 'profile', slot: 'Breakfast' }); onManageTray?.('breakfast'); }}
                                 className="px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-[#FF385C]"
                             >
                                 Review

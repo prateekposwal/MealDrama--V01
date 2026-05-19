@@ -337,8 +337,8 @@ export function applySmartDefaults(
     if (variantSides.length > 0) {
       sides = [...new Set([...variantSides, ...sides])].slice(0, 3);
     }
-    beverages = smart.beverages.items;
-    dessert = smart.dessert.items;
+    beverages = smart.beverages.items.slice(0, 1);
+    dessert = slotType === 'dinner' ? smart.dessert.items : [];
 
     if (smart.sides.source === 'smart_default') {
       console.warn('[SmartSuggestions] Sides fell back to master list for', meal.name);
@@ -371,7 +371,7 @@ export function applySmartDefaults(
   if (!beverages.length) {
     const suggestedBevs = meal.suggestedPairings?.beverages ?? [];
     beverages = suggestedBevs.length > 0
-      ? suggestedBevs.slice(0, 2)
+      ? suggestedBevs.slice(0, 1)
       : beverageOptions.slice(0, 1);
     if (beverages.length > 0 && useSmartSuggestions) {
       console.warn('[SmartSuggestions] Beverages fell back to suggestedPairings for', meal.name);

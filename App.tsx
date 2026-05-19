@@ -89,6 +89,7 @@ const App: React.FC = () => {
     return pool;
   }, [planDays, today, _trayLibrary, fetchedDishes]);
   const { applyLoopConfig } = useTrayStore();
+  const trayEditSession = useStore(s => s.trayEditSession);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [manageTray, setManageTray] = useState(false);
   const [manageTraySlot, setManageTraySlot] = useState<string | undefined>(undefined);
@@ -137,9 +138,9 @@ const App: React.FC = () => {
   }
 
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={(userId) => {
+    return <LoginScreen onLogin={(userId, primaryId) => {
       setLoggedIn(true);
-      updateProfile({ id: userId, systemId: userId.slice(0, 8) });
+      updateProfile({ id: userId, primaryId, systemId: userId.slice(0, 8) });
     }} />;
   }
 
@@ -238,6 +239,11 @@ const App: React.FC = () => {
             setTrayBuilt(true);
             setManageTray(false);
             setManageTraySlot(undefined);
+            const returnTab = trayEditSession?.returnTab;
+            if (returnTab) {
+              setActiveTab(returnTab);
+              useStore.getState().endTrayEdit();
+            }
             setShowLoopConfig(true);
           }}
         />

@@ -212,7 +212,7 @@ describe('applySmartDefaults — Beverages', () => {
       beverageOptions: ['soda'],
     });
     const defaults = applySmartDefaults(meal, 'lunch');
-    expect(defaults.beverages).toEqual(['lassi', 'chaas']);
+    expect(defaults.beverages).toEqual(['lassi']);
   });
 
   it('falls back to beverageOptions.slice(0,1) when suggestedPairings.beverages empty', () => {
@@ -224,11 +224,11 @@ describe('applySmartDefaults — Beverages', () => {
     expect(defaults.beverages).toEqual(['lassi']);
   });
 
-  it('infers region-appropriate beverages when no explicit options', () => {
+  it('infers slot-appropriate beverages when no explicit options', () => {
     const meal = makeMeal({ suggestedPairings: { sides: [] } });
     const defaults = applySmartDefaults(meal, 'lunch');
     expect(defaults.beverages.length).toBeGreaterThanOrEqual(1);
-    expect(defaults.beverages).toContain('Water');
+    expect(defaults.beverages[0]).toBe('Chaas');
   });
 });
 

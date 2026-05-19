@@ -14,7 +14,7 @@ import type { SuggestionMeal } from '../lib/trayApi';
 import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
-import { ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock } from 'lucide-react';
+import { ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
 import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOT_TIME_DEFAULTS, aggregateSlotItems } from '../types/tray';
@@ -380,7 +380,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         const cur = currentSlot.mealType;
         const curTime = slotTimes[cur];
         if (!curTime) return null;
-        if (curTime.start >= curTime.end) return { valid: false, message: 'Start time must be before end time' };
+        if (curTime.start >= curTime.end) return null; // Allow midnight-spanning slots
         // Check overlap with previous slot
         const slotOrder: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
         const curIdx = slotOrder.indexOf(cur);
@@ -643,14 +643,17 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
 
             {/* Add Another toast */}
             {addAnotherToast && (
-                <div className="fixed bottom-40 left-4 right-4 z-50 mx-auto max-w-lg">
-                    <div className="bg-emerald-600 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-between">
-                        <span className="text-sm font-medium">{addAnotherToast}</span>
+                <div className="fixed top-4 left-4 right-4 z-[100] mx-auto max-w-lg animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-lg">✓</span>
+                            <span className="font-medium text-sm">{addAnotherToast}</span>
+                        </div>
                         <button
                             onClick={() => setAddAnotherToast(null)}
-                            className="text-white/70 font-bold text-sm active:opacity-60"
+                            className="ml-2 p-1 hover:bg-white/20 rounded-lg"
                         >
-                            Dismiss
+                            <X size={16} />
                         </button>
                     </div>
                 </div>

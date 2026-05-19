@@ -474,27 +474,28 @@ export function getSmartSuggestions(
   }
 
   // ─── BEVERAGES ──────────────────────────────────────────────────────────
+  // Max 1 beverage — user adds more if they want.
   let beverages: SuggestionCategoryResult;
   {
     const timeBevs = TIME_BEVERAGE_MAP[timeWindow] ?? [];
-    if (timeBevs.length >= 2) {
-      const deduped = dedupUsedToday(timeBevs.slice(0, 2), usedToday, 'beverage', 1);
-      beverages = { items: deduped.length > 0 ? deduped : timeBevs.slice(0, 2), source: 'timeWindow' };
+    if (timeBevs.length >= 1) {
+      const deduped = dedupUsedToday(timeBevs.slice(0, 1), usedToday, 'beverage', 1);
+      beverages = { items: deduped.length > 0 ? deduped : timeBevs.slice(0, 1), source: 'timeWindow' };
     } else {
       const tagBevs = tags.flatMap(t => TAG_BEVERAGE_PREFS[t] ?? []).filter(Boolean);
       if (tagBevs.length > 0) {
-        const deduped = dedupUsedToday([...new Set(tagBevs)].slice(0, 2), usedToday, 'beverage', 1);
-        beverages = { items: deduped.length > 0 ? deduped : [...new Set(tagBevs)].slice(0, 2), source: 'tag' };
+        const deduped = dedupUsedToday([...new Set(tagBevs)].slice(0, 1), usedToday, 'beverage', 1);
+        beverages = { items: deduped.length > 0 ? deduped : [...new Set(tagBevs)].slice(0, 1), source: 'tag' };
       } else {
         const styleBevs = style ? getStyleRouting(style).beverages ?? [] : [];
         if (styleBevs.length > 0) {
-          const deduped = dedupUsedToday(styleBevs.slice(0, 2), usedToday, 'beverage', 1);
-          beverages = { items: deduped.length > 0 ? deduped : styleBevs.slice(0, 2), source: 'style' };
+          const deduped = dedupUsedToday(styleBevs.slice(0, 1), usedToday, 'beverage', 1);
+          beverages = { items: deduped.length > 0 ? deduped : styleBevs.slice(0, 1), source: 'style' };
         } else {
           const regionBevs = REGION_BEVERAGES[region] ?? [];
           const regionItems = regionBevs.length > 0
-            ? regionBevs.slice(0, 2)
-            : fallbackSafe('beverage', 2);
+            ? regionBevs.slice(0, 1)
+            : fallbackSafe('beverage', 1);
           const deduped = dedupUsedToday(regionItems, usedToday, 'beverage', 1);
           beverages = { items: deduped.length > 0 ? deduped : regionItems, source: 'region' };
         }
@@ -503,9 +504,12 @@ export function getSmartSuggestions(
   }
 
   // ─── DESSERT ────────────────────────────────────────────────────────────
+  // Only auto-suggest dessert for dinner; other meal types get none by default.
   // Priority: tags → festival → season → region → fallback
   let dessert: SuggestionCategoryResult;
-  {
+  if (slotType !== 'dinner') {
+    dessert = { items: [], source: 'tag' };
+  } else {
     const tagDesserts = tags.flatMap(t => TAG_DESSERT_PREFS[t] ?? []).filter(Boolean);
     if (tagDesserts.length > 0) {
       const deduped = dedupUsedToday([...new Set(tagDesserts)].slice(0, 1), usedToday, 'dessert', 1);

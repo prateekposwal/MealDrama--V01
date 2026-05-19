@@ -86,7 +86,7 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
     beverageOptions,
     suggestedPairings: {
       sides: [...new Set([...(sideOptions ?? []), ...suggestions.sides.items])].slice(0, 3),
-      beverages: [...new Set([...beverageOptions, ...suggestions.beverages.items])].slice(0, 2),
+      beverages: [...new Set([...beverageOptions, ...suggestions.beverages.items])].slice(0, 1),
     },
     tags: dish.tags,
   };

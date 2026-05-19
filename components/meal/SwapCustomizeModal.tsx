@@ -834,8 +834,9 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                     )}
                   </div>
                 ) : (
-                  <div className="space-y-1.5">
-                    {swapSearchDishes.map(({ dish, healthScore }) => {
+                  <>
+                    <div className="space-y-1.5">
+                      {swapSearchDishes.slice(0, 30).map(({ dish, healthScore }) => {
                       const isRegional = dish.region.toLowerCase().includes(regionKey);
                       const hScore = healthScore ?? scoreDish(dish);
                       const meal = dishToMeal(dish);
@@ -891,7 +892,13 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                         </button>
                       );
                     })}
-                  </div>
+                    </div>
+                    {swapSearchDishes.length > 30 && (
+                      <p className="text-[10px] text-center text-gray-400 mt-3 font-medium">
+                        Showing 30 of {swapSearchDishes.length} dishes. Refine your search.
+                      </p>
+                    )}
+                  </>
                 )}
                 {addAnotherMode && swapSearchDishes.length > 0 && (
                   <div className="flex flex-col items-center mt-4">
@@ -939,19 +946,12 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                         </span>
                         <button
                           onClick={handleSwapOpen}
-                          className="text-[9px] font-bold text-[#FF385C] underline active:scale-95 ml-auto">
-                          Swap
+                          className="group h-8 rounded-xl border border-dashed border-emerald-400 text-emerald-600 active:scale-90 transition-all flex items-center gap-1 px-2.5 ml-auto"
+                          aria-label="Swap dish">
+                          <Sparkles size={13} className="transition-transform duration-200 group-hover:scale-110" />
+                          <span className="text-[10px] font-bold">Swap</span>
                         </button>
                       </div>
-                      {onAddAnother && (
-                        <div className="flex items-center gap-1 mt-1">
-                          <button
-                            onClick={() => { setAddAnotherMode(true); setShowSwapSearch(true); }}
-                            className="text-[9px] font-bold text-emerald-600 underline active:scale-95">
-                            + Add another dish
-                          </button>
-                        </div>
-                      )}
                     </div>
                   </div>
 

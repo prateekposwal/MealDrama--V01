@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { X, Check, RefreshCw, Calendar, SkipForward, Shuffle, Zap, ArrowRightToLine } from 'lucide-react';
 import type { MealType, MealLoopConfig, InsertStrategy } from '../../types/tray';
 import type { RepeatPattern } from '../../types/tray';
@@ -50,21 +50,38 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
   const [repeatPattern, setRepeatPattern] = useState<RepeatPattern>(savedConfig?.repeatPattern ?? 'random');
   const [insertStrategy, setInsertStrategy] = useState<InsertStrategy>(savedConfig?.insertStrategy ?? 'append');
 
+  const pool = sourcePool;
+
+  const validation = useMemo(() => validateSourcePool(pool), [pool]);
+
+  const isFirstTimeSetup = !savedConfig;
+
+  const initialConfig = useRef({
+    cycleLength: savedConfig?.cycleLength ?? 7,
+    startDate: savedConfig?.startDate ?? getISODate(new Date()),
+    skipDays: savedConfig?.skipDays ?? [0, 6],
+    repeatPattern: savedConfig?.repeatPattern ?? 'random',
+    insertStrategy: savedConfig?.insertStrategy ?? 'append',
+  });
+
+  const hasChanges = useMemo(() => {
+    if (isFirstTimeSetup) return true;
+    return (
+      cycleLength !== initialConfig.current.cycleLength ||
+      startDate !== initialConfig.current.startDate ||
+      JSON.stringify([...skipDays].sort()) !== JSON.stringify([...initialConfig.current.skipDays].sort()) ||
+      repeatPattern !== initialConfig.current.repeatPattern ||
+      insertStrategy !== initialConfig.current.insertStrategy
+    );
+  }, [cycleLength, startDate, skipDays, repeatPattern, insertStrategy, isFirstTimeSetup]);
+
+  const canSave = validation.valid && (isFirstTimeSetup || hasChanges);
+
   const toggleSkipDay = (day: number) => {
     setSkipDays(prev =>
       prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day],
     );
   };
-
-  const pool = sourcePool;
-
-  const validation = useMemo(() => validateSourcePool(pool), [pool]);
-
-  // ─── Integration strategy visibility ──────────────────────────────────
-  // Only show "When New Dishes Are Added" section when:
-  //   1. A loop already exists (not first-time setup)
-  //   2. New dishes have been added to the tray since the loop was configured
-  const isFirstTimeSetup = !savedConfig;
   const currentDishIds = useMemo(
     () => Object.values(pool).flat().map(d => d.id),
     [pool],
@@ -343,14 +360,21 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
             Cancel
           </button>
           <button
-            onClick={validation.valid ? handleApply : () => {
-              const missing = (['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]).find(s => pool[s].length === 0);
-              onFixSlots?.(missing ?? 'breakfast');
+            onClick={canSave ? handleApply : () => {
+              if (!validation.valid) {
+                const missing = (['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]).find(s => pool[s].length === 0);
+                onFixSlots?.(missing ?? 'breakfast');
+              }
             }}
-            className="flex-1 py-3 rounded-xl bg-[#FF385C] text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/30"
+            disabled={!canSave}
+            className={`flex-1 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+              canSave
+                ? 'bg-[#FF385C] text-white active:scale-[0.98] shadow-lg shadow-[#FF385C]/30'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            }`}
           >
             {validation.valid ? <Check size={14} /> : null}
-            {validation.valid ? `Create Loop` : 'Fix Slots'}
+            {validation.valid ? (isFirstTimeSetup ? 'Create Loop' : 'Save Changes') : 'Fix Slots'}
           </button>
         </div>
 

@@ -69,8 +69,6 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
   const [suggestions, setSuggestions] = useState<SuggestionMeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [source, setSource] = useState<'api' | 'cache' | 'error'>('api');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
   const [dietFilter, setDietFilter] = useState<DietFilter>('all');
   const [slotFilter, setSlotFilter] = useState<SlotFilter>('all');
 
@@ -196,11 +194,11 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
             )}
             {scoredSuggestions.map(({ suggestion: meal, scored }) => {
               const chipPreview = formatChipPreview(meal);
-              const isExpanded = expandedId === meal.id;
               const recommendation = formatRecommendation(meal.name, scored.reasons);
 
               return (
                 <div key={meal.id} className="shrink-0 w-44">
+
                   <button
                     onClick={() => handleAdd(meal)}
                     className="w-full p-3 rounded-xl border transition-all active:scale-95 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C] bg-white border-gray-200 hover:border-[#FF385C]/30"
@@ -241,31 +239,6 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
                       </span>
                     </div>
                   </button>
-                  {/* Expandable reason details */}
-                  {isExpanded && (
-                    <div className="mt-1 p-2 rounded-lg bg-gray-50 border border-gray-100 text-[9px] text-gray-500 leading-relaxed animate-in slide-in-from-top-1">
-                      {scored.reasons.map((r, i) => (
-                        <div key={i} className="flex items-start gap-1">
-                          <span className="text-green-500 mt-0.5">✓</span>
-                          <span>{r}</span>
-                        </div>
-                      ))}
-                      <div className="flex items-center gap-1 mt-1 text-gray-400">
-                        <Sparkles size={7} className="text-[#FF385C]" />
-                        <span>Score: {scored.score}/{scored.maxScore}</span>
-                      </div>
-                    </div>
-                  )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setExpandedId(isExpanded ? null : meal.id);
-                    }}
-                    className="w-full text-center text-[8px] font-medium text-gray-400 pt-0.5 hover:text-gray-600"
-                    aria-label={isExpanded ? 'Hide details' : 'Show details'}
-                  >
-                    {isExpanded ? '▲ less' : '▼ why?'}
-                  </button>
                 </div>
               );
             })}
@@ -274,10 +247,10 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
             {onOpenSearch && (
               <button
                 onClick={onOpenSearch}
-                className="shrink-0 w-24 flex flex-col items-center justify-center gap-1 p-3 rounded-xl border border-dashed transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C] border-gray-300 hover:border-[#FF385C]/30"
+                className="shrink-0 w-32 h-[123px] p-3 rounded-xl border transition-all active:scale-95 flex flex-col items-center justify-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C] bg-white border-gray-200 hover:border-[#FF385C]/30"
                 aria-label="Browse more meals"
               >
-                <Plus size={18} className="text-gray-400" />
+                <Plus size={16} className="text-gray-400" />
                 <span className="text-[10px] font-bold text-gray-400">More</span>
               </button>
             )}

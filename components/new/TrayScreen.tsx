@@ -12,6 +12,7 @@ import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import { SwapCustomizeModal } from '../meal/SwapCustomizeModal';
 import type { TrayItem } from '../../store/useTrayStore';
 import { type SourcePool } from '../../utils/mealLoopEngine';
+import { isAfterEnd, getSlotDefaultTimes } from '../../types/tray';
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
 const SLOTS: { key: Slot; mealType: MealType; label: Slot }[] = [
@@ -193,18 +194,18 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
     const isSlotLocked = useCallback((date: string, slot: string) => {
         if (date < today) return true;
         if (date === today) {
-            const hour = new Date().getHours();
-            const lockHours: Record<string, number> = { Breakfast: 8, Lunch: 13, Snacks: 16, Dinner: 20 };
-            return hour >= (lockHours[slot] || 24);
+            const mealType = slot.toLowerCase() as MealType;
+            const { start, end } = getSlotDefaultTimes(mealType);
+            return isAfterEnd(start, end);
         }
         return false;
     }, [today]);
 
     const isSlotMissed = useCallback((date: string, slot: string) => {
         if (date !== today) return false;
-        const hour = new Date().getHours();
-        const missHours: Record<string, number> = { Breakfast: 10, Lunch: 15, Snacks: 18, Dinner: 22 };
-        return hour >= (missHours[slot] || 24);
+        const mealType = slot.toLowerCase() as MealType;
+        const { start, end } = getSlotDefaultTimes(mealType);
+        return isAfterEnd(start, end);
     }, [today]);
 
     if (!isOpen) return null;

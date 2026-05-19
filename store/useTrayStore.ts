@@ -42,6 +42,8 @@ export interface TrayStore {
   saveStatus: Record<string, SaveStatus>;
   templates: SavedTemplate[];
   completions: Record<string, number>;
+  skipped: Record<string, number>;
+  lastFeaturedTimes: Record<string, number>;
   mealLoop: MealLoopState;
 
   // Actions
@@ -96,6 +98,12 @@ export interface TrayStore {
   /** Undo completion of a slot */
   undoCompleteSlot: (date: string, mealType: MealType) => void;
 
+  /** Mark a slot as skipped (user action) */
+  skipSlot: (date: string, mealType: MealType) => void;
+
+  /** Undo skipping of a slot */
+  undoSkipSlot: (date: string, mealType: MealType) => void;
+
   /** Configure meal loop with source pool + assignments */
   setMealLoop: (config: MealLoopConfig, sourceDishIds: string[], assignments: MealLoopAssignment[]) => void;
 
@@ -110,6 +118,9 @@ export interface TrayStore {
 
   /** Add a user override for a specific date+slot (cancels loop assignment) */
   addLoopOverride: (key: string, dishId: string) => void;
+
+  /** Mark dishes as currently featured (rotation anti-repetition) */
+  markFeatured: (dishIds: string[]) => void;
 
   /**
    * Post-hydration fill: scans all tray items and for any item missing
@@ -165,6 +176,8 @@ export const useTrayStore = create<TrayStore>()(
       saveStatus: {},
       templates: [],
       completions: {},
+      skipped: {},
+      lastFeaturedTimes: {},
       mealLoop: EMPTY_LOOP_STATE,
 
       setPeriod: (period) => set((s) => ({ plan: { ...s.plan, period } })),
@@ -593,7 +606,7 @@ export const useTrayStore = create<TrayStore>()(
             const meals = todayDay[mt];
             if (meals.length === 0) continue;
 
-            const itemsPerDay = Math.min(2, meals.length);
+            const itemsPerDay = meals.length;
 
             // Score candidates: prefer dishes not served in last 5 days (rotation gap),
             // then prioritize by longest-neglected (anti-repetition).
@@ -668,6 +681,35 @@ export const useTrayStore = create<TrayStore>()(
           const status = { ...s.saveStatus };
           delete status[`complete:${key}`];
           return { completions: next, saveStatus: status };
+        });
+      },
+
+      // ─── Skip / Undo Skip ──────────────────────────────────────────────
+      skipSlot: (date, mealType) => {
+        const key = `${date}::${mealType}`;
+        set((s) => ({
+          skipped: { ...s.skipped, [key]: Date.now() },
+          saveStatus: { ...s.saveStatus, [`skip:${key}`]: 'saving' },
+        }));
+        debounceSave(`skip_${key}`, async () => {
+          if (!navigator.onLine) return;
+          try {
+            await trayApi.skipSlot(date, mealType);
+            set((s) => ({ saveStatus: { ...s.saveStatus, [`skip:${key}`]: 'saved' } }));
+          } catch {
+            set((s) => ({ saveStatus: { ...s.saveStatus, [`skip:${key}`]: 'error' } }));
+          }
+        });
+      },
+
+      undoSkipSlot: (date, mealType) => {
+        const key = `${date}::${mealType}`;
+        set((s) => {
+          const next = { ...s.skipped };
+          delete next[key];
+          const status = { ...s.saveStatus };
+          delete status[`skip:${key}`];
+          return { skipped: next, saveStatus: status };
         });
       },
 
@@ -797,6 +839,17 @@ export const useTrayStore = create<TrayStore>()(
         }));
       },
 
+      markFeatured: (dishIds) => {
+        const now = Date.now();
+        set((s) => {
+          const updated = { ...s.lastFeaturedTimes };
+          for (const id of dishIds) {
+            updated[id] = now;
+          }
+          return { lastFeaturedTimes: updated };
+        });
+      },
+
       hydrateMissingDefaults: (dishes) => {
         if (!dishes || dishes.length === 0) return;
         const mealTypes: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
@@ -873,6 +926,8 @@ export const useTrayStore = create<TrayStore>()(
         swapHistory: state.swapHistory.slice(0, 10),
         templates: state.templates,
         completions: state.completions,
+        skipped: state.skipped,
+        lastFeaturedTimes: state.lastFeaturedTimes,
         mealLoop: state.mealLoop,
       }),
     }

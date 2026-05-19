@@ -143,10 +143,9 @@ describe('getSmartSuggestions — 7 dish/slot acceptance combos', () => {
 
     expect(result.beverages.items).not.toContain('Chaas');
     expect(result.beverages.items).not.toContain('Nimbu Pani');
-    // TimeWindow morning → ['Chai', 'Coffee', 'Milk']
+    // TimeWindow morning → ['Chai', 'Coffee', 'Milk'] → capped at 1
     expect(result.beverages.items).toContain('Chai');
-    // Coffee or Milk are both valid
-    expect(result.beverages.items.length).toBeGreaterThanOrEqual(2);
+    expect(result.beverages.items.length).toBe(1);
     expect(result.beverages.source).toBe('timeWindow');
 
     // Self-bread → no bread suggestion
@@ -305,9 +304,9 @@ describe('getSmartSuggestions — dessert season/festival inference', () => {
       tags: ['gravy', 'thick'],
     });
     // June 15 = summer (no festival)
-    const result = getSmartSuggestions(input, 'lunch', {
+    const result = getSmartSuggestions(input, 'dinner', {
       useSmartSuggestions: true,
-      timeWindow: 'lunch',
+      timeWindow: 'dinner',
       date: new Date('2026-06-15'),
     });
     // Summer desserts from SEASON_DESSERT_MAP.summer: ['Mango Kulfi', 'Aamras', 'Shrikhand']
@@ -359,9 +358,9 @@ describe('getSmartSuggestions — dessert season/festival inference', () => {
       tags: ['gravy', 'non-veg'],
     });
     // April = no festival
-    const result = getSmartSuggestions(input, 'lunch', {
+    const result = getSmartSuggestions(input, 'dinner', {
       useSmartSuggestions: true,
-      timeWindow: 'lunch',
+      timeWindow: 'dinner',
       date: new Date('2026-04-15'),
     });
     // No dessert tags → uses season (spring) → region → fallback
@@ -392,9 +391,9 @@ describe('getSmartSuggestions — dessert season/festival inference', () => {
       tags: ['paratha', 'bread'],
     });
     // July = monsoon, no festival in our map
-    const result = getSmartSuggestions(input, 'breakfast', {
+    const result = getSmartSuggestions(input, 'dinner', {
       useSmartSuggestions: true,
-      timeWindow: 'morning',
+      timeWindow: 'dinner',
       date: new Date('2026-07-15'),
     });
     expect(result.meta.season).toBe('monsoon');
@@ -408,22 +407,22 @@ describe('getSmartSuggestions — dessert season/festival inference', () => {
 // ─── usedToday / Slot→TimeWindow ─────────────────────────────────────────────
 
 describe('getSmartSuggestions — usedToday filter', () => {
-  it('filters out beverage already used in another slot today', () => {
+  it('falls back to beverage when only candidate is used in another slot today (no replacement)', () => {
     const input = makeInput({
       id: 'paneer-butter-masala',
       name: 'Paneer Butter Masala',
       region: 'north',
       tags: ['gravy', 'creamy'],
     });
-    // lunch → timeWindow 'lunch' → ['Chaas', 'Nimbu Pani', 'Salted Lassi']
-    // If Chaas already used today, it should be excluded
+    // lunch → timeWindow 'lunch' → capped at 1 → ['Chaas']
+    // If Chaas already used today, no replacement exists → keep it
     const result = getSmartSuggestions(input, 'lunch', {
       useSmartSuggestions: true,
       timeWindow: 'lunch',
       usedToday: ['Chaas'],
     });
-    expect(result.beverages.items).not.toContain('Chaas');
-    expect(result.beverages.items.length).toBeGreaterThanOrEqual(1);
+    expect(result.beverages.items).toContain('Chaas');
+    expect(result.beverages.items.length).toBe(1);
   });
 
   it('keeps item even if usedToday when no replacement available', () => {

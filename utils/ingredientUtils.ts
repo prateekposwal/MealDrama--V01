@@ -414,7 +414,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
     }
     // INF-05: Egg inference (from dishId)
-    if (idLower.includes('egg') && !idLower.includes('eggplant')) {
+    if (idLower.includes('egg') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
     }
     if (idLower.includes('chicken') || idLower.includes('meat')) {
@@ -478,7 +478,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Wheat Flour', quantity: 70, unit: 'g', category: 'grains', inStock: false });
     }
     // INF-09: French Toast / Egg Toast / Bread Dish inference
-    if (idLower.includes('french') || idLower.includes('egg') || idLower.includes('bread dish') || idLower.includes('bread toast')) {
+    if ((idLower.includes('french') || idLower.includes('egg') || idLower.includes('bread dish') || idLower.includes('bread toast')) && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'White Bread', quantity: 4, unit: 'pcs', category: 'breads', inStock: false });
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
         result.push({ name: 'Milk', quantity: 100, unit: 'ml', category: 'dairy', inStock: false });
@@ -1051,7 +1051,7 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
         result.push({ name: 'Rajma', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
     if (nameLower.includes('dal') && !existingNames.has('toor dal'))
         result.push({ name: 'Toor Dal', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
-    if ((nameLower.includes('egg') && !nameLower.includes('eggplant')) && !existingNames.has('eggs'))
+    if ((nameLower.includes('egg') && !nameLower.includes('eggplant') && !nameLower.includes('baingan') && !nameLower.includes('brinjal')) && !existingNames.has('eggs'))
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
     if (nameLower.includes('chicken') && !existingNames.has('chicken'))
         result.push({ name: 'Chicken', quantity: 200, unit: 'g', category: 'proteins', inStock: false });

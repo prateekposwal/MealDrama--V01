@@ -15,18 +15,22 @@ import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
+import TrayScreen from '../components/new/TrayScreen';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOTS } from '../utils/continuity';
+import { getSkipUndoWindowExpiry } from '../types/tray';
 import { computeStyleWarnings } from '../constants/dishStyles';
 
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
 interface PlanUpcomingSlotProps extends
-  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete'> {
+  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete' | 'onSkipSlot' | 'onUndoSkip'> {
   onOpenSearchAction: (date: string, slotLabel: string) => void;
   onCompleteAction: (date: string, mealType: MealType) => void;
   onUndoCompleteAction: (date: string, mealType: MealType) => void;
+  onSkipSlotAction: ((date: string, mealType: MealType) => void) | undefined;
+  onUndoSkipAction: ((date: string, mealType: MealType) => void) | undefined;
 }
 
 const PlanUpcomingSlot = React.memo<PlanUpcomingSlotProps>(({
@@ -34,6 +38,8 @@ const PlanUpcomingSlot = React.memo<PlanUpcomingSlotProps>(({
   onOpenSearchAction,
   onCompleteAction,
   onUndoCompleteAction,
+  onSkipSlotAction,
+  onUndoSkipAction,
   ...rest
 }) => {
   const onOpenSearch = useCallback(() => {
@@ -48,6 +54,14 @@ const PlanUpcomingSlot = React.memo<PlanUpcomingSlotProps>(({
     onUndoCompleteAction(date, mealType);
   }, [date, mealType, onUndoCompleteAction]);
 
+  const onSkipSlot = useCallback(() => {
+    onSkipSlotAction?.(date, mealType);
+  }, [date, mealType, onSkipSlotAction]);
+
+  const onUndoSkip = useCallback(() => {
+    onUndoSkipAction?.(date, mealType);
+  }, [date, mealType, onUndoSkipAction]);
+
   return (
     <SlotBody
       date={date}
@@ -56,6 +70,8 @@ const PlanUpcomingSlot = React.memo<PlanUpcomingSlotProps>(({
       onOpenSearch={onOpenSearch}
       onComplete={onComplete}
       onUndoComplete={onUndoComplete}
+      onSkipSlot={onSkipSlotAction ? onSkipSlot : undefined}
+      onUndoSkip={onUndoSkipAction ? onUndoSkip : undefined}
       {...rest}
     />
   );
@@ -195,6 +211,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const { openKey: swapCustomizeOpenKey, setOpenKey: setSwapCustomizeOpenKey } = useSwapCustomize();
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
+    const [showTrayScreen, setShowTrayScreen] = useState(false);
+    const [trayDate, setTrayDate] = useState('');
     const [quickAddDate, setQuickAddDate] = useState('');
     const [showSlotPicker, setShowSlotPicker] = useState(false);
     const [addDishOpen, setAddDishOpen] = useState(false);
@@ -210,12 +228,12 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const {
         getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
-        guestMode, setGuestMode, completions, completeSlot, undoCompleteSlot,
+        guestMode, setGuestMode, completions, skipped, completeSlot, undoCompleteSlot, skipSlot, undoSkipSlot,
     } = useTrayStore();
     const mealLoop = useTrayStore(s => s.mealLoop);
     const planDays = useTrayStore(s => s.plan.days);
 
-    const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType } | null>(null);
+    const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
     const committedCompletions = useMemo(() => {
         if (!undoSlot) return completions;
         const key = `${undoSlot.date}::${undoSlot.mealType}`;
@@ -246,7 +264,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const handleCompleteSlot = useCallback((date: string, mealType: MealType) => {
         completeSlot(date, mealType);
-        setUndoSlot({ date, mealType });
+        setUndoSlot({ date, mealType, type: 'complete' });
         setTimeout(() => setUndoSlot(null), 10000);
     }, [completeSlot]);
 
@@ -254,6 +272,17 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         undoCompleteSlot(date, mealType);
         setUndoSlot(null);
     }, [undoCompleteSlot]);
+
+    const handleSkipSlot = useCallback((date: string, mealType: MealType) => {
+        skipSlot(date, mealType);
+        setUndoSlot({ date, mealType, type: 'skip' });
+        setTimeout(() => setUndoSlot(null), 8000);
+    }, [skipSlot]);
+
+    const handleUndoSkip = useCallback((date: string, mealType: MealType) => {
+        undoSkipSlot(date, mealType);
+        setUndoSlot(null);
+    }, [undoSkipSlot]);
 
     const currentSlotMeals = useTrayStore(s => s.plan.days[quickAddDate]?.[quickAddSlot.toLowerCase() as MealType]);
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
@@ -414,9 +443,9 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const upcomingDates = useMemo(() => {
         if (mealLoop.config && Object.keys(planDays).length > 0) {
-            return Object.keys(planDays).filter(d => d > today).sort();
+            return Object.keys(planDays).filter(d => d >= today).sort();
         }
-        return weekDates.filter(d => d > today);
+        return weekDates.filter(d => d >= today);
     }, [weekDates, today, mealLoop.config, planDays]);
 
     // Week label
@@ -631,9 +660,12 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 tomorrowMeals={tomorrowMeals}
                                                 styleWarnings={styleWarnings}
                                                 preferences={stablePreferences}
-                                                onOpenSearchAction={openSearchAction}
-                                                onCompleteAction={handleCompleteSlot}
-                                                onUndoCompleteAction={handleUndoComplete}
+                                            onOpenSearchAction={openSearchAction}
+                                            onCompleteAction={handleCompleteSlot}
+                                            onUndoCompleteAction={handleUndoComplete}
+                                            onSkipSlotAction={handleSkipSlot}
+                                            onUndoSkipAction={handleUndoSkip}
+                                            onOpenTray={() => { setTrayDate(date); setShowTrayScreen(true); }}
                                             />
                                         </React.Fragment>
                                     })}
@@ -684,9 +716,17 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             {undoSlot && (
                 <div className="fixed bottom-40 left-4 right-4 z-50 mx-auto max-w-lg">
                     <div className="bg-gray-900 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-between">
-                        <span className="text-sm font-medium">Marked as complete</span>
+                        <span className="text-sm font-medium">
+                            {undoSlot.type === 'skip'
+                                ? `${undoSlot.mealType.charAt(0).toUpperCase() + undoSlot.mealType.slice(1)} skipped`
+                                : 'Marked as complete'
+                            }
+                        </span>
                         <button
-                            onClick={() => handleUndoComplete(undoSlot.date, undoSlot.mealType)}
+                            onClick={() => undoSlot.type === 'skip'
+                                ? handleUndoSkip(undoSlot.date, undoSlot.mealType)
+                                : handleUndoComplete(undoSlot.date, undoSlot.mealType)
+                            }
                             className="text-emerald-400 font-bold text-sm active:opacity-60"
                         >
                             Undo
@@ -788,6 +828,13 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 userDiet={userDiet}
                 onAddMeal={handleQuickAddMeal}
                 selectedDishIds={selectedDishIds}
+            />
+
+            {/* Tray Screen — full meal visibility */}
+            <TrayScreen
+                isOpen={showTrayScreen}
+                onClose={() => setShowTrayScreen(false)}
+                initialDate={trayDate}
             />
 
             {/* Add Dish Modal — SwapCustomizeModal in search/add mode (FAB flow) */}

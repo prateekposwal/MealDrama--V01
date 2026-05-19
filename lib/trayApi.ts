@@ -297,6 +297,20 @@ export const trayApi = {
     });
     return { success: true };
   },
+
+  /**
+   * POST /api/tray/skip — mark a slot as skipped
+   */
+  async skipSlot(date: string, mealType: string): Promise<{ success: boolean }> {
+    await simulateDelay(200);
+    if (simulateFailure()) throw new Error('Network error');
+    await fetch('/api/tray/skip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, mealType }),
+    });
+    return { success: true };
+  },
 };
 
 // ─── Cached Fallbacks ───────────────────────────────────────────────────────

@@ -87,19 +87,17 @@ export function scoreDishByCategories(healthCategories: string[], tags: string[]
 }
 
 export function getHealthLabel(score: number): { label: string; color: string; bg: string } {
-  if (score >= 10) return { label: 'Excellent', color: 'text-green-700', bg: 'bg-green-50 border-green-200' };
-  if (score >= 5) return { label: 'Good', color: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' };
-  if (score >= 0) return { label: 'Fair', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' };
-  if (score >= -5) return { label: 'Poor', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' };
-  return { label: 'Limit', color: 'text-red-700', bg: 'bg-red-50 border-red-200' };
+  if (score >= 15) return { label: 'Light & Balanced', color: 'text-emerald-600', bg: 'bg-emerald-50/70 border-emerald-200' };
+  if (score >= 8) return { label: 'Balanced', color: 'text-emerald-600', bg: 'bg-emerald-50/50 border-emerald-200' };
+  if (score >= -10) return { label: 'Filling', color: 'text-amber-600', bg: 'bg-amber-50/70 border-amber-200' };
+  return { label: 'Rich Meal', color: 'text-orange-600', bg: 'bg-orange-50/70 border-orange-200' };
 }
 
 export function getHealthIcon(score: number): string {
-  if (score >= 10) return '🌟';
-  if (score >= 5) return '✅';
-  if (score >= 0) return '⚠️';
-  if (score >= -5) return '⚠️';
-  return '❌';
+  if (score >= 15) return '☀️';
+  if (score >= 8) return '👍';
+  if (score >= -10) return '🍚';
+  return '🧈';
 }
 
 export interface MealsForScoring {

@@ -27,7 +27,7 @@ import { dishToMeal } from '../utils/dishToMeal';
 import { getShareStrings, ShareLanguage } from '../utils/share';
 import { resolveNextActiveDate } from '../utils/continuity';
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
-import { resolveSlotTimes, aggregateSlotItems } from '../types/tray';
+import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd } from '../types/tray';
 
 /** Fallback whole-grain keywords matched against dish/component names when health maps are missing */
 const WHOLE_GRAIN_NAMES = [
@@ -87,7 +87,7 @@ const SLOTS: { key: Slot; mealType: MealType; label: Slot; startHour: number; en
     { key: 'Dinner', mealType: 'dinner', label: 'Dinner', startHour: 19, endHour: 23 },
 ];
 
-type MealSection = 'active' | 'upcoming' | 'completed';
+type MealSection = 'active' | 'upcoming' | 'completed' | 'skipped';
 
 /** Categorize each slot based on current time — uses per-slot start_time/end_time */
 const categorizeSlots = (
@@ -95,17 +95,20 @@ const categorizeSlots = (
     today: string,
     completions?: Record<string, number>,
     preferences?: Record<string, { start: string; end: string }>,
+    skipped?: Record<string, number>,
 ): { section: MealSection; slot: typeof SLOTS[0] }[] => {
-    const now = new Date().getHours() + new Date().getMinutes() / 60;
     const result = SLOTS.map(slot => {
         const meals = getMeals(today, slot.mealType);
-        const { startHour, endHour } = resolveSlotTimes(meals, slot.mealType, preferences);
+        const { start, end } = resolveSlotTimes(meals, slot.mealType, preferences);
         const key = `${today}::${slot.mealType}`;
         const isUserCompleted = completions?.[key] != null;
-        const withinWindow = now >= startHour && now <= endHour;
+        const isSkipped = skipped?.[key] != null;
+        const withinWindow = isSlotActive(start, end);
+        const pastEnd = isAfterEnd(start, end);
         let section: MealSection;
-        if (isUserCompleted) section = 'completed';
-        else if (now > endHour) section = 'completed';
+        if (isSkipped) section = 'skipped';
+        else if (isUserCompleted) section = 'completed';
+        else if (pastEnd && !withinWindow) section = 'completed';
         else if (withinWindow) section = 'active';
         else section = 'upcoming';
         return { section, slot };
@@ -123,10 +126,12 @@ const categorizeSlots = (
 
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
 interface DashboardSlotRowProps extends
-  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete'> {
+  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete' | 'onSkipSlot' | 'onUndoSkip'> {
   onOpenSearchAction: (slotLabel: string) => void;
   onCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
   onUndoCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
+  onSkipSlotAction: ((date: string, mealType: MealType) => void) | undefined;
+  onUndoSkipAction: ((date: string, mealType: MealType) => void) | undefined;
 }
 
 const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
@@ -134,6 +139,8 @@ const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
   onOpenSearchAction,
   onCompleteAction,
   onUndoCompleteAction,
+  onSkipSlotAction,
+  onUndoSkipAction,
   ...rest
 }) => {
   const onOpenSearch = useCallback(() => {
@@ -148,6 +155,14 @@ const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
     onUndoCompleteAction?.(date, mealType);
   }, [date, mealType, onUndoCompleteAction]);
 
+  const onSkipSlot = useCallback(() => {
+    onSkipSlotAction?.(date, mealType);
+  }, [date, mealType, onSkipSlotAction]);
+
+  const onUndoSkip = useCallback(() => {
+    onUndoSkipAction?.(date, mealType);
+  }, [date, mealType, onUndoSkipAction]);
+
   return (
     <SlotBody
       date={date}
@@ -156,6 +171,8 @@ const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
       onOpenSearch={onOpenSearch}
       onComplete={onCompleteAction ? onComplete : undefined}
       onUndoComplete={onUndoCompleteAction ? onUndoComplete : undefined}
+      onSkipSlot={onSkipSlotAction ? onSkipSlot : undefined}
+      onUndoSkip={onUndoSkipAction ? onUndoSkip : undefined}
       {...rest}
     />
   );
@@ -172,11 +189,16 @@ const getTodayISO = (d?: Date) => (d || new Date()).toLocaleDateString('en-CA');
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManageTray }) => {
     const { dishes } = useBackendDishes();
-    const today = getTodayISO();
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+      const id = setInterval(() => setNow(Date.now()), 60000);
+      return () => clearInterval(id);
+    }, []);
+    const today = getTodayISO(new Date(now));
 
     const {
         plan, getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
-        guestMode, completions, completeSlot, undoCompleteSlot,
+        guestMode, completions, skipped, completeSlot, undoCompleteSlot, skipSlot, undoSkipSlot,
     } = useTrayStore();
 
     const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
@@ -204,7 +226,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [addAnotherToast, setAddAnotherToast] = useState<string | null>(null);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
     const [showTrayScreen, setShowTrayScreen] = useState(false);
-    const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType } | null>(null);
+    const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
     const [showSlotPicker, setShowSlotPicker] = useState(false);
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
@@ -226,7 +248,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         window.addEventListener('slot_times_updated', handler);
         return () => window.removeEventListener('slot_times_updated', handler);
     }, []);
-    // Exclude undoSlot from completions so categoriseSlots treats it as not yet completed during the undo window
+    // Auto-skip past untouched slots — reads state directly from store (no stale closures)
+    useEffect(() => {
+        const store = useTrayStore.getState();
+        for (const slot of SLOTS) {
+            const key = `${today}::${slot.mealType}`;
+            const meals = store.getMeals(today, slot.mealType);
+            if (meals.length === 0) continue;
+            if (store.completions[key] != null || store.skipped[key] != null) continue;
+            const { start, end } = resolveSlotTimes(meals, slot.mealType);
+            if (isAfterEnd(start, end)) {
+                store.skipSlot(today, slot.mealType);
+            }
+        }
+    }, [today]);
+
+    // Exclude undoSlot from completions/skipped so categorizeSlots treats it as not yet done during the undo window
     const committedCompletions = useMemo(() => {
         if (!undoSlot) return completions;
         const key = `${undoSlot.date}::${undoSlot.mealType}`;
@@ -237,7 +274,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
     const handleCompleteSlot = useCallback((date: string, mealType: MealType) => {
         completeSlot(date, mealType);
-        setUndoSlot({ date, mealType });
+        setUndoSlot({ date, mealType, type: 'complete' });
         setTimeout(() => setUndoSlot(null), 10000);
     }, [completeSlot]);
 
@@ -245,6 +282,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         undoCompleteSlot(date, mealType);
         setUndoSlot(null);
     }, [undoCompleteSlot]);
+
+    const handleSkipSlot = useCallback((date: string, mealType: MealType) => {
+        skipSlot(date, mealType);
+        setUndoSlot({ date, mealType, type: 'skip' });
+        setTimeout(() => setUndoSlot(null), 8000);
+    }, [skipSlot]);
+
+    const handleUndoSkip = useCallback((date: string, mealType: MealType) => {
+        undoSkipSlot(date, mealType);
+        setUndoSlot(null);
+    }, [undoSkipSlot]);
 
     const regionKey = (user?.region ?? 'India').toLowerCase();
     const userDiet = user?.diet ?? 'veg';
@@ -374,10 +422,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         guestMode.startDate, guestMode.endDate,
     ]);
     const mealDataDays = useTrayStore(s => s.plan.days);
-    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences), [getMeals, today, committedCompletions, preferences, slotTimesRefreshKey, mealDataDays, JSON.stringify(plan.days[today])]);
+    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences, skipped), [getMeals, today, committedCompletions, preferences, skipped, slotTimesRefreshKey, mealDataDays, JSON.stringify(plan.days[today])]);
     const activeSlots = categorizedSlots.filter(s => s.section === 'active');
     const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
     const completedSlots = categorizedSlots.filter(s => s.section === 'completed');
+    const skippedSlots = categorizedSlots.filter(s => s.section === 'skipped');
     // Continuity Engine: resolve the next active date (today if incomplete, tomorrow if all completed, etc.)
     const displayDate = useMemo(() => resolveNextActiveDate(getMeals, committedCompletions ?? {}, today), [getMeals, committedCompletions, today]);
     const isCurrentDay = displayDate === today;
@@ -389,8 +438,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             slot,
         }));
     }, [isCurrentDay, categorizedSlots]);
-    const displayActiveUpcomingSlots = useMemo(() => displaySlots.filter(s => s.section !== 'completed'), [displaySlots]);
-    const displayCompletedSlots = useMemo(() => displaySlots.filter(s => s.section === 'completed'), [displaySlots]);
+    const displayActiveUpcomingSlots = useMemo(() => displaySlots.filter(s => s.section !== 'completed' && s.section !== 'skipped'), [displaySlots]);
+    const displayCompletedSlots = useMemo(() => categorizedSlots.filter(s => s.section === 'completed' || s.section === 'skipped'), [categorizedSlots]);
 
     const [mealTab, setMealTab] = useState<'upcoming' | 'history'>('upcoming');
     const [healthExpanded, setHealthExpanded] = useState(false);
@@ -543,9 +592,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     </span>
                     <button
                         onClick={() => onNavigate?.('profile')}
-                        className="w-10 h-10 rounded-2xl shadow border flex items-center justify-center active:scale-95 transition-all bg-white border-gray-100 text-gray-400"
+                        className="w-10 h-10 rounded-2xl shadow border flex items-center justify-center active:scale-95 transition-all bg-white border-gray-100 overflow-hidden"
                     >
-                        <span className="text-lg">👤</span>
+                        <img src="/logo.png" alt="Profile" className="w-full h-full object-cover" />
                     </button>
                 </div>
             </header>
@@ -557,7 +606,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     <div className="flex-1">
                         <p className="text-xs font-bold mb-1 text-gray-800">2-Tap Swap™ 101</p>
                         <p className="text-[11px] leading-relaxed text-gray-500">
-                            Tap swap → pick a dish → done. Edits auto-save.
+                            Swap dishes, add dishes, or adjust your meal flavour flow anytime. Changes save automatically.
                         </p>
                     </div>
                     <button onClick={() => setShowGuide(false)}><X size={14} className="text-gray-400" /></button>
@@ -612,26 +661,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             </div>
 
             {/* Quick Actions */}
-            <div className="px-6 mt-6 grid grid-cols-2 gap-3">
+            <div className="px-6 mt-6 grid grid-cols-2 gap-2.5">
                 <button
                     onClick={() => onNavigate?.('plan')}
-                    className="p-5 rounded-[24px] bg-gray-900 text-white flex items-center justify-between active:scale-95 transition-all"
+                    className="p-4 rounded-[24px] bg-gray-900 text-white flex items-center gap-2 active:scale-95 transition-all"
                 >
-                    <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-1">Weekly</p>
-                        <p className="text-sm font-bold">Let's Cook →</p>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-0.5">Weekly</p>
+                        <p className="text-[13px] font-bold whitespace-nowrap">Let's Cook</p>
                     </div>
-                    <ChevronRight size={18} className="opacity-50" />
+                    <ChevronRight size={16} className="opacity-50 shrink-0" />
                 </button>
                 <button
                     onClick={() => onNavigate?.('pulse')}
-                    className="p-5 rounded-[24px] bg-[#FF385C] text-white flex items-center justify-between active:scale-95 transition-all"
+                    className="p-4 rounded-[24px] bg-[#FF385C] text-white flex items-center gap-2 active:scale-95 transition-all"
                 >
-                    <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1">Pantry</p>
-                        <p className="text-sm font-bold">What's Needed →</p>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-0.5">Pantry</p>
+                        <p className="text-[13px] font-bold whitespace-nowrap">What's Needed</p>
                     </div>
-                    <ChevronRight size={18} className="opacity-70" />
+                    <ChevronRight size={16} className="opacity-70 shrink-0" />
                 </button>
             </div>
 
@@ -642,7 +691,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     <p className="text-[11px] font-black uppercase tracking-widest text-gray-900">
                         {isCurrentDay ? "Today's Meals" : "Tomorrow's Preview"}
                     </p>
-                    <span className="text-[9px] font-bold text-gray-400 ml-auto">
+                    <span className="text-[11px] font-bold text-gray-600 ml-auto">
                         {new Date(displayDate).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                     </span>
                 </div>
@@ -668,8 +717,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         }`}
                     >
                         History
-                        {completedSlots.length > 0 && (
-                            <span className="ml-1.5 text-[8px] opacity-60">{completedSlots.length}</span>
+                        {(completedSlots.length + skippedSlots.length) > 0 && (
+                            <span className="ml-1.5 text-[8px] opacity-60">{completedSlots.length + skippedSlots.length}</span>
                         )}
                     </button>
                 </div>
@@ -678,23 +727,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 <div className="space-y-4">
                     {(mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).length > 0 ? (
                         (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).map(({ section, slot }) => {
-                        const slotMeals = getMeals(displayDate, slot.mealType);
+                        const slotDate = mealTab === 'history' ? today : displayDate;
+                        const slotMeals = getMeals(slotDate, slot.mealType);
                         const prefs = preferences;
                         const completionKey = `${today}::${slot.mealType}`;
                         const isUserCompleted = isCurrentDay && completions[completionKey] != null;
+                        const isSkipped = isCurrentDay && skipped[completionKey] != null;
                         const isUndoing = isCurrentDay && undoSlot?.date === today && undoSlot?.mealType === slot.mealType;
-                        const tomorrowDate = getTodayISO(new Date(new Date(displayDate).getTime() + 86400000));
+                        const isUndoSkipWindowActive = isSkipped && Date.now() < getSkipUndoWindowExpiry(slot.mealType, preferences);
+                        const tomorrowDate = getTodayISO(new Date(new Date(slotDate).getTime() + 86400000));
                         const tomorrowMeals = getMeals(tomorrowDate, slot.mealType);
                         const styleWarnings = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
                         const sectionColors: Record<string, string> = {
                             active: 'border-l-[#FF385C]',
                             upcoming: 'border-l-gray-300',
                             completed: 'border-l-gray-200',
+                            skipped: 'border-l-amber-300',
                         };
                         const sectionLabels: Record<string, string> = {
                             active: isCurrentDay ? 'Now' : 'Next',
                             upcoming: 'Upcoming',
                             completed: 'Done',
+                            skipped: 'Skipped',
                         };
                         return (
                             <div key={slot.key} className={`border-l-2 pl-3 ${sectionColors[section]}`}>
@@ -714,7 +768,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     </span>
                                 </div>
                                 <DashboardSlotRow
-                                    date={displayDate}
+                                    date={slotDate}
                                     mealType={slot.mealType}
                                     slotLabel={slot.label}
                                     meals={slotMeals}
@@ -745,6 +799,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     onOpenSearchAction={openSearchAction}
                                     onCompleteAction={isCurrentDay ? handleCompleteSlot : undefined}
                                     onUndoCompleteAction={isCurrentDay ? handleUndoComplete : undefined}
+                                    onSkipSlotAction={isCurrentDay && !isUserCompleted && !isSkipped ? handleSkipSlot : undefined}
+                                    onUndoSkipAction={isCurrentDay && isUndoSkipWindowActive ? handleUndoSkip : undefined}
+                                    onOpenTray={() => setShowTrayScreen(true)}
                                 />
                             </div>
                         );
@@ -800,9 +857,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             {undoSlot && (
                 <div className="fixed bottom-40 left-4 right-4 z-50 mx-auto max-w-lg">
                     <div className="bg-gray-900 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-between">
-                        <span className="text-sm font-medium">Marked as complete</span>
+                        <span className="text-sm font-medium">
+                            {undoSlot.type === 'skip'
+                                ? `${undoSlot.mealType.charAt(0).toUpperCase() + undoSlot.mealType.slice(1)} skipped`
+                                : 'Marked as complete'
+                            }
+                        </span>
                         <button
-                            onClick={() => handleUndoComplete(undoSlot.date, undoSlot.mealType)}
+                            onClick={() => undoSlot.type === 'skip'
+                                ? handleUndoSkip(undoSlot.date, undoSlot.mealType)
+                                : handleUndoComplete(undoSlot.date, undoSlot.mealType)
+                            }
                             className="text-emerald-400 font-bold text-sm active:opacity-60"
                         >
                             Undo
@@ -813,14 +878,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
             {/* Add Another toast */}
             {addAnotherToast && (
-                <div className="fixed bottom-40 left-4 right-4 z-50 mx-auto max-w-lg">
-                    <div className="bg-emerald-600 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-between">
-                        <span className="text-sm font-medium">{addAnotherToast}</span>
+                <div className="fixed top-4 left-4 right-4 z-[100] mx-auto max-w-lg animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-lg">✓</span>
+                            <span className="font-medium text-sm">{addAnotherToast}</span>
+                        </div>
                         <button
                             onClick={() => setAddAnotherToast(null)}
-                            className="text-white/70 font-bold text-sm active:opacity-60"
+                            className="ml-2 p-1 hover:bg-white/20 rounded-lg"
                         >
-                            Dismiss
+                            <X size={16} />
                         </button>
                     </div>
                 </div>

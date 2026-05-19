@@ -14,14 +14,15 @@ const sizeClasses = {
 
 export const HealthScoreBadge: React.FC<HealthScoreBadgeProps> = React.memo(({ score, size = 'sm' }) => {
   const { label, color, bg } = getHealthLabel(score);
-  const sign = score > 0 ? '+' : '';
+  const icon = getHealthIcon(score);
 
   return (
     <span
       className={`inline-flex items-center rounded-full font-bold border ${bg} ${color} ${sizeClasses[size]}`}
-      aria-label={`Health score: ${label}`}
+      aria-label={label}
     >
-      <span>{sign}{score}</span>
+      <span>{icon}</span>
+      <span>{label}</span>
     </span>
   );
 });

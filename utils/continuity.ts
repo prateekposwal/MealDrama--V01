@@ -1,4 +1,5 @@
 import type { MealType, TrayItem } from '../store/useTrayStore';
+import { isAfterEnd, isSlotActive, getSlotDefaultTimes } from '../types/tray';
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
 
@@ -16,13 +17,15 @@ function isSlotCompleted(
   completions: Record<string, number>,
   date: string,
   slot: typeof SLOTS[0],
-  hour: number,
 ): boolean {
   const key = `${date}::${slot.mealType}`;
   if (completions?.[key] != null) return true;
+  if (date !== getTodayISO()) return false;
+
+  const { start, end } = getSlotDefaultTimes(slot.mealType);
   const hasMeals = getMeals(date, slot.mealType).length > 0;
-  if (hour >= slot.startHour && hasMeals) return true;
-  if (hour >= slot.endHour) return true;
+  if (isSlotActive(start, end) && hasMeals) return true;
+  if (isAfterEnd(start, end)) return true;
   return false;
 }
 
@@ -30,9 +33,8 @@ function isDayCompleted(
   getMeals: (date: string, mealType: MealType) => TrayItem[],
   completions: Record<string, number>,
   date: string,
-  hour: number,
 ): boolean {
-  return SLOTS.every(slot => isSlotCompleted(getMeals, completions, date, slot, hour));
+  return SLOTS.every(slot => isSlotCompleted(getMeals, completions, date, slot));
 }
 
 /**
@@ -56,12 +58,11 @@ export function resolveNextActiveDate(
   fromDate: string = getTodayISO(),
   maxLookahead: number = 7,
 ): string {
-  const hour = new Date().getHours();
   let current = fromDate;
   for (let i = 0; i < maxLookahead; i++) {
     if (current === fromDate) {
       // Starting day: check both user completions AND time-based completion
-      if (!isDayCompleted(getMeals, completions, current, hour)) return current;
+      if (!isDayCompleted(getMeals, completions, current)) return current;
     } else {
       // Future days: only user completions advance
       const allUserCompleted = SLOTS.every(slot => {
