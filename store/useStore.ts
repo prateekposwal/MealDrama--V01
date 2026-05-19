@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { Dish } from '../constants/dishLibrary';
 import api from '../lib/api';
+import { RequestTracker, requestDedupCache } from '../utils/asyncGuard';
 
 // ─── Roommate Types ──────────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ const MAX_RETRIES = 3;
 
 let _drainTimer: ReturnType<typeof setTimeout> | null = null;
 let _isRetrying = false;
+let _drainTracker = new RequestTracker();
 
 function _scheduleDrain() {
   if (typeof window === 'undefined') return;
@@ -550,8 +552,9 @@ export const useStore = create<StoreState>()(
           variantId: meal.variantId,
           qty: meal.quantity || 1,
         };
+        const dedupKey = `plan_${date}_${slot}_${meal.dishId}`;
         try {
-          await api.post('/plan', payload);
+          await requestDedupCache.get(dedupKey, 3000, () => api.post('/plan', payload));
           return { ok: true };
         } catch (err: any) {
           if (err?.message?.includes('409') || err?.message?.includes('Conflict')) {
@@ -576,8 +579,9 @@ export const useStore = create<StoreState>()(
           return { ok: false, reason: 'Not logged in' };
         }
         const payload = { userId, date, slot: slot.toLowerCase(), status };
+        const dedupKey = `complete_${date}_${slot}_${status}`;
         try {
-          await api.post('/complete', payload);
+          await requestDedupCache.get(dedupKey, 3000, () => api.post('/complete', payload));
           return { ok: true };
         } catch (err: any) {
           console.error('[Store] Complete sync failed:', err);
@@ -592,12 +596,28 @@ export const useStore = create<StoreState>()(
       },
 
       addPendingMutation: (kind, payload) => {
-        set((state) => ({
-          pendingMutations: [
-            ...state.pendingMutations,
-            { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind, payload, addedAt: Date.now(), retryCount: 0 },
-          ],
-        }));
+        // Reconciliation: merge duplicate mutations for the same date+slot.
+        // If a 'plan' mutation already exists for this date+slot, replace it
+        // instead of stacking — prevents conflicting queued operations.
+        const dedupKey = `${payload.date ?? ''}::${payload.slot ?? ''}::${payload.mealId ?? ''}`;
+        set((state) => {
+          const existingIdx = kind === 'plan'
+            ? state.pendingMutations.findIndex(m => m.kind === 'plan' && `${(m.payload as any).date ?? ''}::${(m.payload as any).slot ?? ''}` === dedupKey)
+            : -1;
+
+          let next: PendingMutation[];
+          if (existingIdx >= 0) {
+            next = state.pendingMutations.map((m, i) =>
+              i === existingIdx ? { ...m, payload, addedAt: Date.now() } : m
+            );
+          } else {
+            next = [
+              ...state.pendingMutations,
+              { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, kind, payload, addedAt: Date.now(), retryCount: 0 },
+            ];
+          }
+          return { pendingMutations: next };
+        });
         if (typeof window !== 'undefined' && !_drainTimer) {
           _scheduleDrain();
         }
@@ -626,7 +646,9 @@ export const useStore = create<StoreState>()(
         if (pendingMutations.length === 0) return;
         if (_isRetrying) return;
         _isRetrying = true;
+        const requestId = _drainTracker.start();
         for (const mutation of pendingMutations) {
+          if (!_drainTracker.isCurrent(requestId)) break;
           try {
             const endpoint = mutation.kind === 'plan' ? '/plan' : '/complete';
             await api.post(endpoint, mutation.payload);

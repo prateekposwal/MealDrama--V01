@@ -6,6 +6,7 @@ import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
 import { QuickFilters, type DietFilter, type SlotFilter } from './QuickFilters';
+import { useAsyncGuard, requestDedupCache } from '../../utils/asyncGuard';
 
 interface SmartSuggestionChipsProps {
   date: string;
@@ -73,34 +74,34 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
   const [slotFilter, setSlotFilter] = useState<SlotFilter>('all');
 
   const header = SLOT_HEADER[mealType] ?? { emoji: '🍽️', hinglish: 'Add a meal?' };
+  const asyncGuard = useAsyncGuard();
 
   useEffect(() => {
-    let cancelled = false;
-    const fetchSuggestions = async () => {
-      setLoading(true);
-      try {
-        const result = await suggestionCache.getWithFallback({
-          mealType,
-          diet: userDiet,
-          region: userRegion,
-          pantry: pantryStaples.length > 0 ? pantryStaples : undefined,
-        });
-        if (!cancelled) {
-          setSuggestions(result.suggestions);
-          setSource(result.source);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) {
-          setSuggestions([]);
-          setSource('error');
-          setLoading(false);
-        }
-      }
-    };
-    fetchSuggestions();
-    return () => { cancelled = true; };
-  }, [mealType, userDiet, userRegion, pantryStaples]);
+    const requestId = asyncGuard.start();
+    const cacheKey = `suggestions_${mealType}_${userDiet}_${userRegion}`;
+
+    setLoading(true);
+    requestDedupCache.get(cacheKey, 5000, () =>
+      suggestionCache.getWithFallback({
+        mealType,
+        diet: userDiet,
+        region: userRegion,
+        pantry: pantryStaples.length > 0 ? pantryStaples : undefined,
+      })
+    ).then(result => {
+      if (!asyncGuard.isCurrent(requestId)) return;
+      setSuggestions(result.suggestions);
+      setSource(result.source);
+      setLoading(false);
+    }).catch(() => {
+      if (!asyncGuard.isCurrent(requestId)) return;
+      setSuggestions([]);
+      setSource('error');
+      setLoading(false);
+    });
+
+    return () => asyncGuard.abort();
+  }, [mealType, userDiet, userRegion, pantryStaples, asyncGuard]);
 
   const scoredSuggestions = useMemo(() => {
     return suggestions

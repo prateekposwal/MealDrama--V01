@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { useDebounce } from '../../hooks/useDebounce';
+import { useAsyncGuard, ModalLifecycleGuard, DeferredSync } from '../../utils/asyncGuard';
 import type { MealType, TrayItem } from '../../store/useTrayStore';
 import { applySmartDefaults } from '../../store/useTrayStore';
 import type { Meal } from '../../types/tray';
@@ -157,6 +158,13 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const selectedSwapDishRef = useRef<Dish | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<DishVariant | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [justAddedDish, setJustAddedDish] = useState<string | null>(null);
+  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Async safety: latest-request-wins + modal lifecycle protection ──
+  const asyncGuard = useAsyncGuard();
+  const modalGuardRef = useRef<ModalLifecycleGuard>(new ModalLifecycleGuard());
+  const syncBufferRef = useRef<DeferredSync<Partial<TrayItem>>>(new DeferredSync(150));
 
   useEffect(() => {
     setShowAllSwapResults(false);
@@ -213,8 +221,16 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const handleClose = useCallback(() => {
     explicitlyRemovedRef.current.clear();
     seededMealRef.current = null;
+    modalGuardRef.current.close();
+    asyncGuard.abort();
+    syncBufferRef.current.cancel();
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+    setJustAddedDish(null);
     onClose();
-  }, [onClose]);
+  }, [onClose, asyncGuard]);
 
   const handleStyleSelect = useCallback((group: DishStyleGroup) => {
     const suggestions = getPairingSuggestions(group);
@@ -226,6 +242,9 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
 
   useEffect(() => {
     if (isOpen) {
+      modalGuardRef.current.reset();
+      asyncGuard.reset();
+      syncBufferRef.current.cancel();
       if (initialAddMode) {
         setAddAnotherMode(true);
         setShowSwapSearch(true);
@@ -319,7 +338,15 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     }
     if (addAnotherMode) {
       onAddAnother?.(date, mealType, newDish, relevantVariants.length === 1 ? relevantVariants[0] : undefined);
+      setJustAddedDish(newDish.name);
       setSearchQuery('');
+      // Auto-close after brief confirmation
+      if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = setTimeout(() => {
+        if (modalGuardRef.current.isClosed) return;
+        setJustAddedDish(null);
+        handleClose();
+      }, 700);
       return;
     }
     const m = dishToMeal(newDish);
@@ -463,9 +490,21 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     if (!syncNeeded.current) return;
     syncNeeded.current = false;
     if (!onChange) return;
+    if (modalGuardRef.current.isClosed) return;
+
+    const requestId = asyncGuard.start();
     const updates = buildUpdatesObject();
-    if (updates) onChange(item.id, updates);
-  }, [selectedCategories, quantity, onChange, buildUpdatesObject, item.id]);
+    if (!updates) return;
+
+    // Latest-request-wins: ignore if a newer request started
+    if (!asyncGuard.isCurrent(requestId)) return;
+
+    // Deferred sync: buffer rapid changes, flush after stable period
+    syncBufferRef.current.queue(updates, (u) => {
+      if (modalGuardRef.current.isClosed) return;
+      onChange(item.id, u);
+    });
+  }, [selectedCategories, quantity, onChange, buildUpdatesObject, item.id, asyncGuard]);
 
   // ── Strict deduplication: normalize selections to Map ──
   // Key = `${name.toLowerCase().trim()}_${category}` ensures casing/spacing doesn't create duplicates.
@@ -624,6 +663,17 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} aria-hidden="true" />
+      {/* Added confirmation toast */}
+      {justAddedDish && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] animate-in slide-in-from-top-2 fade-in duration-200">
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/30">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-sm font-bold">{justAddedDish} added</span>
+          </div>
+        </div>
+      )}
       <div
         className="relative w-full sm:max-w-lg max-h-[90vh] bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden pb-16"
         role="dialog"

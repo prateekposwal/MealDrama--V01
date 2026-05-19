@@ -124,10 +124,23 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
     onUpdateInline, hideTime = false,
 }) => {
     const [editingTime, setEditingTime] = useState(false);
+    const [justSwapped, setJustSwapped] = useState(false);
+    const prevMealIdRef = useRef(item.meal_id);
     const dish = useMemo(
         () => dishes.find(d => d.id === item.meal_id),
         [dishes, item.meal_id]
     );
+
+    // Detect meal_id change → trigger swap flash animation
+    useEffect(() => {
+        if (prevMealIdRef.current !== item.meal_id && prevMealIdRef.current !== '') {
+            setJustSwapped(true);
+            const t = setTimeout(() => setJustSwapped(false), 800);
+            prevMealIdRef.current = item.meal_id;
+            return () => clearTimeout(t);
+        }
+        prevMealIdRef.current = item.meal_id;
+    }, [item.meal_id]);
 
     const healthScore = useMemo(() => dish ? scoreDish(dish) : 0, [dish]);
     const meta = SLOT_META[slot];
@@ -152,10 +165,13 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
 
     return (
         <div
-            className={`p-5 rounded-[28px] border-2 ${meta?.color || 'border-gray-200'} ${meta?.bg || 'bg-gray-50'} transition-all relative overflow-hidden ${isMissed && !isLocked && editable !== false ? 'grayscale opacity-60' : ''}`}
+            className={`p-5 rounded-[28px] border-2 ${meta?.color || 'border-gray-200'} ${meta?.bg || 'bg-gray-50'} transition-all relative overflow-hidden ${isMissed && !isLocked && editable !== false ? 'grayscale opacity-60' : ''} ${justSwapped ? 'swap-flash' : ''}`}
             role="article"
             aria-label={`${slot} meal: ${item.name}`}
         >
+            {justSwapped && (
+                <div className="absolute inset-0 z-10 pointer-events-none swap-flash-overlay" />
+            )}
             {isLocked && editable !== false && (
                 <div className="absolute inset-0 z-20 rounded-[28px] bg-gray-900/50 flex flex-col items-center justify-center pointer-events-none">
                     <div className="bg-gray-800 px-3 py-1.5 rounded-full flex items-center gap-1.5">
@@ -240,8 +256,22 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
             </div>
 
             <style>{`
+                @keyframes swapFlashIn {
+                    0% { opacity: 0; transform: scale(0.97); }
+                    30% { opacity: 1; transform: scale(1); }
+                    100% { opacity: 0; }
+                }
+                .swap-flash {
+                    animation: swapFlashIn 0.8s ease-out;
+                }
+                .swap-flash-overlay {
+                    background: radial-gradient(ellipse at center, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
+                    animation: swapFlashIn 0.8s ease-out;
+                }
                 @media (prefers-reduced-motion: reduce) {
                     .transition-all { transition: none !important; }
+                    .swap-flash { animation: none !important; }
+                    .swap-flash-overlay { animation: none !important; }
                 }
             `}</style>
         </div>

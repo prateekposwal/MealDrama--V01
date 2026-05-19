@@ -165,7 +165,13 @@ export const offlineQueue = {
 
 // ─── Simulated Network ──────────────────────────────────────────────────────
 
-const simulateDelay = (ms = 300) => new Promise(r => setTimeout(r, ms + Math.random() * 200));
+const simulateDelay = (ms = 300, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const timer = setTimeout(resolve, ms + Math.random() * 200);
+  signal?.addEventListener('abort', () => {
+    clearTimeout(timer);
+    reject(new DOMException('Aborted', 'AbortError'));
+  });
+});
 const simulateFailure = () => Math.random() < 0.03;
 
 // ─── API Implementation ─────────────────────────────────────────────────────
@@ -176,8 +182,8 @@ export const trayApi = {
    * Apply swap & customize changes to a slot.
    * Sets is_override flag so rotation engine skips this slot.
    */
-  async customizeSlot(slotId: string, payload: CustomizeSlotPayload): Promise<CustomizeSlotResponse> {
-    await simulateDelay(300);
+  async customizeSlot(slotId: string, payload: CustomizeSlotPayload, signal?: AbortSignal): Promise<CustomizeSlotResponse> {
+    await simulateDelay(300, signal);
     if (simulateFailure()) throw new Error('Network error');
 
     return { success: true, slot: { id: slotId, items: payload.items } };
@@ -191,8 +197,9 @@ export const trayApi = {
     diet: string;
     region: string;
     pantry?: string[];
+    signal?: AbortSignal;
   }): Promise<SuggestionResponse> {
-    await simulateDelay(400);
+    await simulateDelay(400, params.signal);
     if (simulateFailure()) throw new Error('Network error');
 
     // In production: return actual DB query results
@@ -239,8 +246,8 @@ export const trayApi = {
    * POST /tray/slots/:slotId/items
    * { meal_id, quantity, defaults }
    */
-  async addSlotItem(slotId: string, payload: AddSlotPayload): Promise<AddSlotResponse> {
-    await simulateDelay(300);
+  async addSlotItem(slotId: string, payload: AddSlotPayload, signal?: AbortSignal): Promise<AddSlotResponse> {
+    await simulateDelay(300, signal);
     if (simulateFailure()) throw new Error('Network error');
 
     return {
@@ -253,8 +260,8 @@ export const trayApi = {
    * PATCH /tray/items/:id
    * { meal_id?, quantity?, gravy?, roti?, rice?, sides[], beverages[] }
    */
-  async updateItem(itemId: string, payload: UpdateItemPayload): Promise<{ success: boolean }> {
-    await simulateDelay(200);
+  async updateItem(itemId: string, payload: UpdateItemPayload, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
 
     return { success: true };
@@ -263,8 +270,8 @@ export const trayApi = {
   /**
    * DELETE /tray/items/:id
    */
-  async removeItem(itemId: string): Promise<{ success: boolean }> {
-    await simulateDelay(200);
+  async removeItem(itemId: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
 
     return { success: true };
@@ -274,8 +281,8 @@ export const trayApi = {
    * POST /tray/guest-mode
    * { start, end, extra_servings }
    */
-  async setGuestMode(payload: GuestModePayload): Promise<GuestModeResponse> {
-    await simulateDelay(400);
+  async setGuestMode(payload: GuestModePayload, signal?: AbortSignal): Promise<GuestModeResponse> {
+    await simulateDelay(400, signal);
     if (simulateFailure()) throw new Error('Network error');
 
     const start = new Date(payload.start);
@@ -287,13 +294,14 @@ export const trayApi = {
   /**
    * POST /tray/complete — mark a slot as completed
    */
-  async completeSlot(date: string, mealType: string): Promise<{ success: boolean }> {
-    await simulateDelay(200);
+  async completeSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
     await fetch('/api/tray/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date, mealType }),
+      signal,
     });
     return { success: true };
   },
@@ -301,13 +309,14 @@ export const trayApi = {
   /**
    * POST /api/tray/skip — mark a slot as skipped
    */
-  async skipSlot(date: string, mealType: string): Promise<{ success: boolean }> {
-    await simulateDelay(200);
+  async skipSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
     await fetch('/api/tray/skip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ date, mealType }),
+      signal,
     });
     return { success: true };
   },
