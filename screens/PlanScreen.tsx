@@ -443,9 +443,9 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const upcomingDates = useMemo(() => {
         if (mealLoop.config && Object.keys(planDays).length > 0) {
-            return Object.keys(planDays).filter(d => d >= today).sort();
+            return Object.keys(planDays).filter(d => d > today).sort();
         }
-        return weekDates.filter(d => d >= today);
+        return weekDates.filter(d => d > today);
     }, [weekDates, today, mealLoop.config, planDays]);
 
     // Week label

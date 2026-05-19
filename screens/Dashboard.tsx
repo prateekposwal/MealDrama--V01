@@ -25,7 +25,7 @@ import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
 import { getShareStrings, ShareLanguage } from '../utils/share';
-import { resolveNextActiveDate } from '../utils/continuity';
+
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
 import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd } from '../types/tray';
 
@@ -427,17 +427,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
     const completedSlots = categorizedSlots.filter(s => s.section === 'completed');
     const skippedSlots = categorizedSlots.filter(s => s.section === 'skipped');
-    // Continuity Engine: resolve the next active date (today if incomplete, tomorrow if all completed, etc.)
-    const displayDate = useMemo(() => resolveNextActiveDate(getMeals, committedCompletions ?? {}, today), [getMeals, committedCompletions, today]);
-    const isCurrentDay = displayDate === today;
 
-    const displaySlots = useMemo(() => {
-        if (isCurrentDay) return categorizedSlots;
-        return SLOTS.map(slot => ({
-            section: 'upcoming' as MealSection,
-            slot,
-        }));
-    }, [isCurrentDay, categorizedSlots]);
+    const displaySlots = categorizedSlots;
     const displayActiveUpcomingSlots = useMemo(() => displaySlots.filter(s => s.section !== 'completed' && s.section !== 'skipped'), [displaySlots]);
     const displayCompletedSlots = useMemo(() => categorizedSlots.filter(s => s.section === 'completed' || s.section === 'skipped'), [categorizedSlots]);
 
@@ -648,7 +639,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 </button>
                 {healthExpanded && (
                     <div className="mt-3 space-y-3">
-                        {displaySlots.some(({ slot }) => getMeals(displayDate, slot.mealType).length > 0) ? (
+                        {displaySlots.some(({ slot }) => getMeals(today, slot.mealType).length > 0) ? (
                             <PlateBalanceVisualizer score={plateScore} diet={userDiet} />
                         ) : (
                             <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-center">
@@ -687,12 +678,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             {/* ─── TODAY'S MEALS — Day-wise view with all slots ─── */}
             <div className="px-6 mt-6">
                 <div className="flex items-center gap-2 mb-3">
-                    <div className="text-base" aria-hidden="true">{isCurrentDay ? '📅' : '🌤️'}</div>
+                    <div className="text-base" aria-hidden="true">📅</div>
                     <p className="text-[11px] font-black uppercase tracking-widest text-gray-900">
-                        {isCurrentDay ? "Today's Meals" : "Tomorrow's Preview"}
+                        Today's Meals
                     </p>
                     <span className="text-[11px] font-bold text-gray-600 ml-auto">
-                        {new Date(displayDate).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
+                        {new Date(today).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                     </span>
                 </div>
 
@@ -727,13 +718,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 <div className="space-y-4">
                     {(mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).length > 0 ? (
                         (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).map(({ section, slot }) => {
-                        const slotDate = mealTab === 'history' ? today : displayDate;
+                        const slotDate = today;
                         const slotMeals = getMeals(slotDate, slot.mealType);
                         const prefs = preferences;
                         const completionKey = `${today}::${slot.mealType}`;
-                        const isUserCompleted = isCurrentDay && completions[completionKey] != null;
-                        const isSkipped = isCurrentDay && skipped[completionKey] != null;
-                        const isUndoing = isCurrentDay && undoSlot?.date === today && undoSlot?.mealType === slot.mealType;
+                        const isUserCompleted = completions[completionKey] != null;
+                        const isSkipped = skipped[completionKey] != null;
+                        const isUndoing = undoSlot?.date === today && undoSlot?.mealType === slot.mealType;
                         const isUndoSkipWindowActive = isSkipped && Date.now() < getSkipUndoWindowExpiry(slot.mealType, preferences);
                         const tomorrowDate = getTodayISO(new Date(new Date(slotDate).getTime() + 86400000));
                         const tomorrowMeals = getMeals(tomorrowDate, slot.mealType);
@@ -745,14 +736,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             skipped: 'border-l-amber-300',
                         };
                         const sectionLabels: Record<string, string> = {
-                            active: isCurrentDay ? 'Now' : 'Next',
+                            active: 'Now',
                             upcoming: 'Upcoming',
                             completed: 'Done',
                             skipped: 'Skipped',
                         };
                         return (
                             <div key={slot.key} className={`border-l-2 pl-3 ${sectionColors[section]}`}>
-                                <LoopAutoFillSlot date={displayDate} mealType={slot.mealType} />
+                                <LoopAutoFillSlot date={today} mealType={slot.mealType} />
                                 <div className="flex items-center gap-2 mb-1.5">
                                     <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">
                                         {slot.label}
@@ -791,16 +782,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     onSwapCustomizeClose={stableSwapCustomizeClose}
                                     onSwapCustomizeApply={handleSwapCustomizeApply}
                                     onAddAnother={handleAddAnother}
-                                    isUserCompleted={isCurrentDay && isUserCompleted && !isUndoing}
+                                    isUserCompleted={isUserCompleted && !isUndoing}
                                     tomorrowDate={tomorrowDate}
                                     tomorrowMeals={tomorrowMeals}
                                     styleWarnings={styleWarnings}
                                     preferences={prefs}
                                     onOpenSearchAction={openSearchAction}
-                                    onCompleteAction={isCurrentDay ? handleCompleteSlot : undefined}
-                                    onUndoCompleteAction={isCurrentDay ? handleUndoComplete : undefined}
-                                    onSkipSlotAction={isCurrentDay && !isUserCompleted && !isSkipped ? handleSkipSlot : undefined}
-                                    onUndoSkipAction={isCurrentDay && isUndoSkipWindowActive ? handleUndoSkip : undefined}
+                                    onCompleteAction={handleCompleteSlot}
+                                    onUndoCompleteAction={handleUndoComplete}
+                                    onSkipSlotAction={!isUserCompleted && !isSkipped ? handleSkipSlot : undefined}
+                                    onUndoSkipAction={isUndoSkipWindowActive ? handleUndoSkip : undefined}
                                     onOpenTray={() => setShowTrayScreen(true)}
                                 />
                             </div>
@@ -811,8 +802,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 {/* All-day servings breakdown */}
                 <div className="mt-4">
                     <ServingsBreakdown
-                        items={displaySlots.flatMap(({ slot }) => getMeals(displayDate, slot.mealType))}
-                        title={isCurrentDay ? "Today's Serving Load" : "Tomorrow's Serving Load"}
+                        items={displaySlots.flatMap(({ slot }) => getMeals(today, slot.mealType))}
+                        title="Today's Serving Load"
                     />
                 </div>
             </div>

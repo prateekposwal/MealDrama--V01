@@ -149,12 +149,17 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [showGlobal, setShowGlobal] = useState(false);
+  const [showAllSwapResults, setShowAllSwapResults] = useState(false);
   const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(null);
   const [healthSort, setHealthSort] = useState<HealthSortKey | null>(null);
   const [selectedSwapDish, setSelectedSwapDish] = useState<Dish | null>(null);
   const selectedSwapDishRef = useRef<Dish | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<DishVariant | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setShowAllSwapResults(false);
+  }, [searchQuery]);
 
   // Variant-inclusive display name for the dish header
   const displayName = useMemo(() => {
@@ -836,7 +841,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                 ) : (
                   <>
                     <div className="space-y-1.5">
-                      {swapSearchDishes.slice(0, 30).map(({ dish, healthScore }) => {
+                      {swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 30).map(({ dish, healthScore }) => {
                       const isRegional = dish.region.toLowerCase().includes(regionKey);
                       const hScore = healthScore ?? scoreDish(dish);
                       const meal = dishToMeal(dish);
@@ -893,39 +898,22 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                       );
                     })}
                     </div>
-                    {swapSearchDishes.length > 30 && (
-                      <p className="text-[10px] text-center text-gray-400 mt-3 font-medium">
-                        Showing 30 of {swapSearchDishes.length} dishes. Refine your search.
-                      </p>
+                    {!showAllSwapResults && swapSearchDishes.length > 30 && (
+                      <div className="flex flex-col items-center gap-2 mt-3">
+                        <p className="text-[10px] text-center text-gray-400 font-medium">
+                          Showing 30 of {swapSearchDishes.length} dishes.
+                        </p>
+                        <button
+                          onClick={() => setShowAllSwapResults(true)}
+                          className="text-[11px] font-bold text-emerald-600 underline active:scale-95"
+                        >
+                          Show all {swapSearchDishes.length} dishes
+                        </button>
+                      </div>
                     )}
                   </>
                 )}
-                {addAnotherMode && swapSearchDishes.length > 0 && (
-                  <div className="flex flex-col items-center mt-4">
-                    <button
-                      onClick={() => {
-                        const first = swapSearchDishes[0]?.dish;
-                        if (first) {
-                          const relevantVariants = first.variants.filter(v => {
-                            if (!v.mealContext) return true;
-                            const isVegan = userDiet?.toLowerCase() === 'vegan';
-                            if (isVegan) return false;
-                            return v.mealContext.includes(mealType.toLowerCase()) || !v.mealContext;
-                          });
-                          onAddAnother?.(date, mealType, first, relevantVariants[0]);
-                          setSearchQuery('');
-                        }
-                      }}
-                      className="w-14 h-14 bg-[#FF385C] text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all"
-                      aria-label="Quick add meal"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                    </button>
-                    <span className="mt-1.5 text-[10px] font-bold text-gray-400">
-                      + to {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
-                    </span>
-                  </div>
-                )}
+
               </div>
             )
           ) : (
