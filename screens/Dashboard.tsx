@@ -197,7 +197,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const today = getTodayISO(new Date(now));
 
     const {
-        plan, getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
+        getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
         guestMode, completions, skipped, completeSlot, undoCompleteSlot, skipSlot, undoSkipSlot,
     } = useTrayStore();
 
@@ -239,6 +239,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     };
 
     const currentSlotMeals = useTrayStore(s => s.plan.days[today]?.[quickAddSlot.toLowerCase() as MealType]);
+    const todayMealData = useTrayStore(s => s.plan.days[today]);
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
     const [showGuide, setShowGuide] = useState(true);
     const [shareType, setShareType] = useState<'prep' | 'pantry' | null>(null);
@@ -421,8 +422,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         guestMode.active, guestMode.guestCount, guestMode.extraServings,
         guestMode.startDate, guestMode.endDate,
     ]);
-    const mealDataDays = useTrayStore(s => s.plan.days);
-    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences, skipped), [getMeals, today, committedCompletions, preferences, skipped, slotTimesRefreshKey, mealDataDays, JSON.stringify(plan.days[today])]);
+    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences, skipped), [getMeals, today, committedCompletions, preferences, skipped, slotTimesRefreshKey, todayMealData]);
     const activeSlots = categorizedSlots.filter(s => s.section === 'active');
     const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
     const completedSlots = categorizedSlots.filter(s => s.section === 'completed');
@@ -556,7 +556,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
       console.log('[METRIC-RENDER] HealthyFats:', healthyFatsCount, 'LowSugar:', lowSugarCount);
 
       return result;
-    }, [today, activeSlots, upcomingSlots, completedSlots, getMeals, mealDataDays, JSON.stringify(plan.days[today])]);
+    }, [today, activeSlots, upcomingSlots, completedSlots, getMeals, preferences]);
     const loopConfig = useTrayStore(s => s.mealLoop.config);
     const loopConfigured = loopConfig !== null;
 
@@ -792,7 +792,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     onUndoCompleteAction={handleUndoComplete}
                                     onSkipSlotAction={!isUserCompleted && !isSkipped ? handleSkipSlot : undefined}
                                     onUndoSkipAction={isUndoSkipWindowActive ? handleUndoSkip : undefined}
-                                    onOpenTray={() => setShowTrayScreen(true)}
                                 />
                             </div>
                         );

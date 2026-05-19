@@ -16,6 +16,7 @@ import {
 } from '../../constants/dishStyles';
 import type { IndianMealCategory, DishStyleGroup } from '../../constants/dishStyles';
 import { useStore } from '../../store/useStore';
+import { VirtualList } from '../new/VirtualList';
 import { HealthFilterBar } from '../health/HealthFilterBar';
 import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
 import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
@@ -145,7 +146,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   });
   const [selectedStyleGroup, setSelectedStyleGroup] = useState<DishStyleGroup | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [showSwapSearch, setShowSwapSearch] = useState(false);
+  const [showSwapSearch, setShowSwapSearch] = useState(initialAddMode);
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [showGlobal, setShowGlobal] = useState(false);
@@ -159,6 +160,11 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
 
   useEffect(() => {
     setShowAllSwapResults(false);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    document.body.classList.toggle('search-mode', searchQuery.length > 0);
+    return () => document.body.classList.remove('search-mode');
   }, [searchQuery]);
 
   // Variant-inclusive display name for the dish header
@@ -840,64 +846,69 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-1.5">
-                      {swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 30).map(({ dish, healthScore }) => {
-                      const isRegional = dish.region.toLowerCase().includes(regionKey);
-                      const hScore = healthScore ?? scoreDish(dish);
-                      const meal = dishToMeal(dish);
-                      const defaults = applySmartDefaults(meal, mealType);
-                      const previewChips: { key: string; label: string }[] = [];
-                      if (defaults.gravy) previewChips.push({ key: 'g', label: defaults.gravy });
-                      if (defaults.roti) previewChips.push({ key: 'r', label: defaults.roti });
-                      if (defaults.rice) previewChips.push({ key: 'ri', label: defaults.rice });
-                      for (const s of defaults.sides) previewChips.push({ key: `s-${s}`, label: s });
-                      for (const b of defaults.beverages) previewChips.push({ key: `b-${b}`, label: b });
+                    <VirtualList
+                      items={swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 30)}
+                      estimateSize={88}
+                      overscan={5}
+                      outerClassName="h-[55vh]"
+                      className="space-y-1.5"
+                      renderItem={({ dish, healthScore }) => {
+                        const isRegional = dish.region.toLowerCase().includes(regionKey);
+                        const hScore = healthScore ?? scoreDish(dish);
+                        const meal = dishToMeal(dish);
+                        const defaults = applySmartDefaults(meal, mealType);
+                        const previewChips: { key: string; label: string }[] = [];
+                        if (defaults.gravy) previewChips.push({ key: 'g', label: defaults.gravy });
+                        if (defaults.roti) previewChips.push({ key: 'r', label: defaults.roti });
+                        if (defaults.rice) previewChips.push({ key: 'ri', label: defaults.rice });
+                        for (const s of defaults.sides) previewChips.push({ key: `s-${s}`, label: s });
+                        for (const b of defaults.beverages) previewChips.push({ key: `b-${b}`, label: b });
 
-                      return (
-                        <button
-                          key={dish.id}
-                          onClick={() => handleSwapSelect(dish)}
-                          className="w-full flex items-start gap-3 p-3 rounded-xl transition-all active:scale-[0.98] text-left bg-gray-50 hover:bg-gray-100"
-                          aria-label={`Select ${dish.name}`}>
-                          <DishImage name={dish.name} slot={mealType} size="sm" />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold block leading-tight truncate text-gray-800">
-                                {dish.name}
-                              </span>
-                              <HealthScoreBadge score={hScore} size="sm" />
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-[9px] font-medium capitalize text-gray-400">
-                                {dish.region}
-                              </span>
-                            </div>
-                            {previewChips.length > 0 && (
-                              <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                                {previewChips.map(chip => {
-                                  const icon = ICON_MAP[chip.label.toLowerCase()] ?? '';
-                                  return (
-                                    <span
-                                      key={chip.key}
-                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white border border-gray-200 text-gray-500 text-[8px] font-medium">
-                                      {icon && <span className="text-[9px]" aria-hidden="true">{icon}</span>}
-                                      <span>{chip.label}</span>
-                                    </span>
-                                  );
-                                })}
+                        return (
+                          <button
+                            key={dish.id}
+                            onClick={() => handleSwapSelect(dish)}
+                            className="w-full flex items-start gap-3 p-3 rounded-xl transition-all active:scale-[0.98] text-left bg-gray-50 hover:bg-gray-100"
+                            aria-label={`Select ${dish.name}`}>
+                            <DishImage name={dish.name} slot={mealType} size="sm" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold block leading-tight truncate text-gray-800">
+                                  {dish.name}
+                                </span>
+                                <HealthScoreBadge score={hScore} size="sm" />
                               </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[9px] font-medium capitalize text-gray-400">
+                                  {dish.region}
+                                </span>
+                              </div>
+                              {previewChips.length > 0 && (
+                                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                                  {previewChips.map(chip => {
+                                    const icon = ICON_MAP[chip.label.toLowerCase()] ?? '';
+                                    return (
+                                      <span
+                                        key={chip.key}
+                                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white border border-gray-200 text-gray-500 text-[8px] font-medium">
+                                        {icon && <span className="text-[9px]" aria-hidden="true">{icon}</span>}
+                                        <span>{chip.label}</span>
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                            {isRegional && (
+                              <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">
+                                Local
+                              </span>
                             )}
-                          </div>
-                          {isRegional && (
-                            <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                              Local
-                            </span>
-                          )}
-                          <Sparkles size={12} className="text-[#FF385C] flex-shrink-0 mt-1" />
-                        </button>
-                      );
-                    })}
-                    </div>
+                            <Sparkles size={12} className="text-[#FF385C] flex-shrink-0 mt-1" />
+                          </button>
+                        );
+                      }}
+                      />
                     {!showAllSwapResults && swapSearchDishes.length > 30 && (
                       <div className="flex flex-col items-center gap-2 mt-3">
                         <p className="text-[10px] text-center text-gray-400 font-medium">

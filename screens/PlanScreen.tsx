@@ -226,10 +226,19 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         sides: [], beverages: [], dessert: [], itemQtys: {},
     };
 
-    const {
-        getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
-        guestMode, setGuestMode, completions, skipped, completeSlot, undoCompleteSlot, skipSlot, undoSkipSlot,
-    } = useTrayStore();
+    const getMeals = useTrayStore(s => s.getMeals);
+    const addMealToSlot = useTrayStore(s => s.addMealToSlot);
+    const swapMealInSlot = useTrayStore(s => s.swapMealInSlot);
+    const updateItemInline = useTrayStore(s => s.updateItemInline);
+    const removeMealFromSlot = useTrayStore(s => s.removeMealFromSlot);
+    const guestMode = useTrayStore(s => s.guestMode);
+    const setGuestMode = useTrayStore(s => s.setGuestMode);
+    const completions = useTrayStore(s => s.completions);
+    const skipped = useTrayStore(s => s.skipped);
+    const completeSlot = useTrayStore(s => s.completeSlot);
+    const undoCompleteSlot = useTrayStore(s => s.undoCompleteSlot);
+    const skipSlot = useTrayStore(s => s.skipSlot);
+    const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
     const mealLoop = useTrayStore(s => s.mealLoop);
     const planDays = useTrayStore(s => s.plan.days);
 
@@ -665,7 +674,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                             onUndoCompleteAction={handleUndoComplete}
                                             onSkipSlotAction={handleSkipSlot}
                                             onUndoSkipAction={handleUndoSkip}
-                                            onOpenTray={() => { setTrayDate(date); setShowTrayScreen(true); }}
                                             />
                                         </React.Fragment>
                                     })}

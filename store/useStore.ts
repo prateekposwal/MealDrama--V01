@@ -194,6 +194,7 @@ export interface CompletedSlot {
 export const getISODate = (date: Date): string => date.toLocaleDateString('en-CA');
 
 const _MEAL_RESOLUTION_CACHE = new Map<string, MealResolution>();
+const _MEAL_CACHE_MAX = 100;
 
 export function getMealResolution(
   trayLibrary: TrayLibrary,
@@ -204,11 +205,19 @@ export function getMealResolution(
 ): MealResolution {
   const cacheKey = `${isoDate}::${slot}::${Object.keys(swaps).length}`;
   if (_MEAL_RESOLUTION_CACHE.has(cacheKey)) {
-    return _MEAL_RESOLUTION_CACHE.get(cacheKey)!;
+    const val = _MEAL_RESOLUTION_CACHE.get(cacheKey)!;
+    // LRU: re-insert to move to end
+    _MEAL_RESOLUTION_CACHE.delete(cacheKey);
+    _MEAL_RESOLUTION_CACHE.set(cacheKey, val);
+    return val;
   }
 
   const result = _computeMealResolution(trayLibrary, swaps, isoDate, slot, dishes);
   _MEAL_RESOLUTION_CACHE.set(cacheKey, result);
+  if (_MEAL_RESOLUTION_CACHE.size > _MEAL_CACHE_MAX) {
+    const firstKey = _MEAL_RESOLUTION_CACHE.keys().next().value;
+    if (firstKey != null) _MEAL_RESOLUTION_CACHE.delete(firstKey);
+  }
   return result;
 }
 

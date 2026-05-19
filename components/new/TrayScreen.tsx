@@ -60,10 +60,14 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
 
     const user = useStore(s => s.user);
-    const {
-        plan, getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
-        guestMode, setGuestMode,
-    } = useTrayStore();
+    const getMeals = useTrayStore(s => s.getMeals);
+    const addMealToSlot = useTrayStore(s => s.addMealToSlot);
+    const swapMealInSlot = useTrayStore(s => s.swapMealInSlot);
+    const updateItemInline = useTrayStore(s => s.updateItemInline);
+    const removeMealFromSlot = useTrayStore(s => s.removeMealFromSlot);
+    const guestMode = useTrayStore(s => s.guestMode);
+    const setGuestMode = useTrayStore(s => s.setGuestMode);
+    const mealDataDays = useTrayStore(s => s.plan.days);
 
     const trayUserRegion = user?.region ?? 'India';
     const trayUserDiet = user?.diet ?? 'veg';

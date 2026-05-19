@@ -141,9 +141,6 @@ export interface SlotBodyProps {
 
   /** Per-slot time preferences from user profile — overrides SLOT_TIME_DEFAULTS */
   preferences?: Record<string, { start: string; end: string }>;
-
-  /** Opens the full Meal Tray to see all dishes in this slot */
-  onOpenTray?: () => void;
 }
 
 const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
@@ -210,6 +207,18 @@ function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals:
   return { isLocked, isMissed, editable, showSuggestions, cardClass };
 }
 
+const _ADD_DISH_DUMMY: TrayItem = {
+  id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
+  quantity: 1, servings: 1, smartVersion: 1,
+  gravy: null, roti: null, rice: null,
+  sides: [], beverages: [], dessert: [], itemQtys: {},
+};
+
+const _ANIM_STYLE_0 = { '--i': 0 } as React.CSSProperties;
+const _ANIM_STYLE_1 = { '--i': 1 } as React.CSSProperties;
+const _CHIP_STYLE = { transition: 'opacity 0.2s ease, transform 0.2s ease' };
+const _NOOP = () => {};
+
 export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   date, mealType, slotLabel, meals, mode,
   dishes, userRegion, userDiet, pantryStaples,
@@ -223,7 +232,6 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   styleWarnings,
   mergeExtraItems,
   preferences,
-  onOpenTray,
 }) => {
   const { isLocked, isMissed, editable, showSuggestions, cardClass } = useMemo(
     () => getModeBehavior(mode, date, slotLabel, meals, mealType, preferences),
@@ -234,15 +242,23 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   const skipped = useTrayStore(s => s.skipped);
   const lastFeaturedTimes = useTrayStore(s => s.lastFeaturedTimes);
   const markFeatured = useTrayStore(s => s.markFeatured);
+  const featuredRef = useRef<string[] | null>(null);
 
   const featured = useMemo(() => {
     if (!mergeExtraItems || meals.length <= 2) return null;
-    const result = pickFeaturedMeals(meals, dishes, date, mealType, {
+    return pickFeaturedMeals(meals, dishes, date, mealType, {
       userRegion, userDiet, completions, skipped, lastFeaturedTimes,
     });
-    markFeatured([result.primary.meal_id, ...(result.secondary ? [result.secondary.meal_id] : [])]);
-    return result;
-  }, [meals, dishes, date, mealType, userRegion, userDiet, completions, skipped, lastFeaturedTimes, markFeatured, mergeExtraItems]);
+  }, [meals, dishes, date, mealType, userRegion, userDiet, completions, skipped, lastFeaturedTimes, mergeExtraItems]);
+
+  useEffect(() => {
+    if (!featured) return;
+    const prevIds = featuredRef.current;
+    const newIds = [featured.primary.meal_id, ...(featured.secondary ? [featured.secondary.meal_id] : [])];
+    if (prevIds && prevIds.length === newIds.length && prevIds.every((id, i) => id === newIds[i])) return;
+    featuredRef.current = newIds;
+    markFeatured(newIds);
+  }, [featured, markFeatured]);
 
   const activeCustomizeItem = useMemo(
     () => meals.find(m => m.id === swapCustomizeOpenKey) ?? null,
@@ -279,13 +295,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   );
 
   const [addDishOpen, setAddDishOpen] = useState(false);
-
-  const ADD_DISH_DUMMY: TrayItem = {
-    id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
-    quantity: 1, servings: 1, smartVersion: 1,
-    gravy: null, roti: null, rice: null,
-    sides: [], beverages: [], dessert: [], itemQtys: {},
-  };
+  const [expanded, setExpanded] = useState(false);
 
   const aggregated = useNormalizedComposition(meals);
   const setToast = useStore(s => s.setToast);
@@ -342,14 +352,22 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
     if (removed) setToast({ message: `${name} removed`, type: 'info' });
   }, [meals, date, mealType, onUpdateInline, setToast]);
 
-  const categoryConfig = [
+  // Stable callbacks for memo'd children
+  const stableSwapCustomizeClose = useCallback(() => onSwapCustomizeClose?.(), [onSwapCustomizeClose]);
+  const stableAddDishClose = useCallback(() => setAddDishOpen(false), []);
+  const stableSuggestionAdd = useCallback(
+    () => onSuggestionAdd(date, mealType),
+    [onSuggestionAdd, date, mealType],
+  );
+
+  const categoryConfig = useMemo(() => [
     { items: aggregated.gravy, label: 'Gravy', color: 'bg-amber-50 text-amber-700 border-amber-100' },
     { items: aggregated.roti, label: 'Bread', color: 'bg-orange-50 text-orange-700 border-orange-100' },
     { items: aggregated.rice, label: 'Rice', color: 'bg-blue-50 text-blue-700 border-blue-100' },
     { items: aggregated.sides, label: 'Sides', color: 'bg-gray-50 text-gray-500 border-gray-100' },
     { items: aggregated.beverages, label: 'Beverages', color: 'bg-gray-50 text-gray-500 border-gray-100' },
     { items: aggregated.dessert, label: 'Dessert', color: 'bg-pink-50 text-pink-700 border-pink-100' },
-  ];
+  ], [aggregated]);
 
   // Show aggregated summary as the single source of truth for slot composition
   const showAggregated = !isUserCompleted && meals.length > 0;
@@ -424,7 +442,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 >
                   Add dish <ChevronRight size={10} />
                 </button>
-        </div>
+              </div>
             )}
           </div>
         </div>
@@ -442,9 +460,9 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {!isUserCompleted && meals.length > 0 && (
         <div className={`${cardClass} ${mergeExtraItems && meals.length > 1 ? 'space-y-0' : ''} card-section-enter`}>
 
-          {mergeExtraItems && meals.length > 1 ? (
+          {mergeExtraItems && meals.length > 1 && !expanded ? (
             <>
-              <div style={{ '--i': 0 } as React.CSSProperties} className="card-enter">
+              <div style={_ANIM_STYLE_0} className="card-enter">
                 <MealCard
                   item={featured?.primary ?? meals[0]!}
                   date={date}
@@ -465,7 +483,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   onRemove={onRemove(date, mealType, (featured?.primary ?? meals[0]!).id)}
                   swapCustomizeOpen={swapCustomizeOpenKey === (featured?.primary ?? meals[0]!).id}
                   onSwapCustomizeOpen={() => onSwapCustomizeOpen?.((featured?.primary ?? meals[0]!).id)}
-                  onSwapCustomizeClose={() => onSwapCustomizeClose?.()}
+                  onSwapCustomizeClose={stableSwapCustomizeClose}
                 />
               </div>
               {(featured?.secondary || (meals.length === 2 ? meals[1] : undefined)) && (
@@ -474,7 +492,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                     const extra = featured?.secondary ?? (meals.length === 2 ? meals[1]! : null);
                     if (!extra) return null;
                     return (
-                  <div key={extra.id} style={{ '--i': 1 } as React.CSSProperties} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100 extra-card-enter">
+                  <div key={extra.id} style={_ANIM_STYLE_1} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100 extra-card-enter">
                     <DishImage name={extra.name} slot={slotLabel} size="sm" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -516,9 +534,9 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   })()}
                 </div>
               )}
-              {meals.length > 2 && onOpenTray && (
+              {meals.length > 2 && (
                 <button
-                  onClick={onOpenTray}
+                  onClick={() => setExpanded(true)}
                   className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
                 >
                   See all {meals.length} dishes
@@ -526,7 +544,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
               )}
             </>
           ) : (
-            meals.map((item, idx) => (
+            <>
+              {meals.map((item, idx) => (
               <div key={item.id} style={{ '--i': idx } as React.CSSProperties} className="card-enter">
                 <MealCard
                   item={item}
@@ -548,10 +567,19 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   onRemove={onRemove(date, mealType, item.id)}
                   swapCustomizeOpen={swapCustomizeOpenKey === item.id}
                   onSwapCustomizeOpen={() => onSwapCustomizeOpen?.(item.id)}
-                  onSwapCustomizeClose={() => onSwapCustomizeClose?.()}
+                  onSwapCustomizeClose={stableSwapCustomizeClose}
                 />
               </div>
-            ))
+            ))}
+            {expanded && meals.length > 2 && (
+              <button
+                onClick={() => setExpanded(false)}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
+              >
+                Show less
+              </button>
+            )}
+            </>
           )}
         </div>
       )}
@@ -586,7 +614,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{cat.label}</p>
                   <div className="flex flex-wrap items-center gap-1">
                     {cat.items.map((agg: AggregatedCategory) => (
-                      <span key={agg.name} className="text-[10px] font-bold px-2 py-1 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={{ transition: 'opacity 0.2s ease, transform 0.2s ease' }}>
+                      <span key={agg.name} className="text-[10px] font-bold px-2 py-1 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={_CHIP_STYLE}>
                         <span className={`${cat.color} contents`}>
                           {cat.label === 'Dessert' && '🍨 '}{agg.name}
                         </span>
@@ -636,7 +664,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           userRegion={userRegion}
           userDiet={userDiet}
           pantryStaples={pantryStaples}
-          onAddMeal={onSuggestionAdd(date, mealType)}
+          onAddMeal={stableSuggestionAdd}
           onOpenSearch={onOpenSearch}
         />
       )}
@@ -720,15 +748,15 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         <SwapCustomizeModal
           key={`add_${slotLabel}_${date}`}
           isOpen={addDishOpen}
-          onClose={() => setAddDishOpen(false)}
+          onClose={stableAddDishClose}
           date={date}
           mealType={mealType}
           slotLabel={slotLabel}
-          item={ADD_DISH_DUMMY}
+          item={_ADD_DISH_DUMMY}
           dishes={dishes}
           userRegion={userRegion}
           userDiet={userDiet}
-          onApply={() => {}}
+          onApply={_NOOP}
           onAddAnother={onAddAnother}
           initialAddMode={true}
           onChange={handleModalChange}
