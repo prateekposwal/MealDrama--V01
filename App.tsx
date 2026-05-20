@@ -67,17 +67,7 @@ const App: React.FC = () => {
   } = useStore();
   const { quickSetupOpen, quickSetupPrefill, openQuickSetup, closeQuickSetup } = useStore();
   const { dishes: fetchedDishes } = useBackendDishes();
-  // Hydration guard — prevent routing until Zustand persist has rehydrated
-  const [hydrated, setHydrated] = useState(() => useStore.persist.hasHydrated?.() ?? true);
-
-  useEffect(() => {
-    if (hydrated) return;
-    // Zustand v4/v5: onHydrate fires when hydration completes
-    const unsub = useStore.persist.onHydrate?.(() => setHydrated(true));
-    // Safety: if already hydrated, unblock immediately
-    if (useStore.persist.hasHydrated?.()) setHydrated(true);
-    return unsub;
-  }, [hydrated]);
+  // Zustand v5 persist hydrates synchronously — no guard needed
 
   // ─── Hooks used downstream — placed here (before any conditional return) to satisfy React's Rules of Hooks ───
   const _trayLibrary = useStore(s => s.trayLibrary);
@@ -177,11 +167,6 @@ const App: React.FC = () => {
         }}
       />
     );
-  }
-
-  // Hydration guard — don't route until stores are ready
-  if (!hydrated) {
-    return <PageLoader />;
   }
 
   // ─── Strict Routing: Login → Onboarding → Tray → Loop Config → Dashboard ───
