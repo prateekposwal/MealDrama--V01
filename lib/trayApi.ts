@@ -360,6 +360,12 @@ export const trayApi = {
 // ─── Cached Fallbacks ───────────────────────────────────────────────────────
 
 const CACHE_KEY = 'mealdrama_suggestions_cache';
+const SUGGESTION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // M4: 24h TTL — stale dishes auto-expire
+
+interface CachedSuggestions {
+  suggestions: SuggestionMeal[];
+  cachedAt: number;
+}
 
 export const suggestionCache = {
   get(mealType: string): SuggestionMeal[] | null {
@@ -367,8 +373,16 @@ export const suggestionCache = {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
-      const cache: Record<string, SuggestionMeal[]> = JSON.parse(raw);
-      return cache[mealType] || null;
+      const cache: Record<string, CachedSuggestions> = JSON.parse(raw);
+      const entry = cache[mealType];
+      if (!entry) return null;
+      // M4: Expire entries older than TTL
+      if (Date.now() - entry.cachedAt > SUGGESTION_CACHE_TTL_MS) {
+        delete cache[mealType];
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+        return null;
+      }
+      return entry.suggestions;
     } catch {
       return null;
     }
@@ -378,8 +392,8 @@ export const suggestionCache = {
     if (typeof window === 'undefined') return;
     try {
       const raw = localStorage.getItem(CACHE_KEY);
-      const cache: Record<string, SuggestionMeal[]> = raw ? JSON.parse(raw) : {};
-      cache[mealType] = suggestions;
+      const cache: Record<string, CachedSuggestions> = raw ? JSON.parse(raw) : {};
+      cache[mealType] = { suggestions, cachedAt: Date.now() };
       localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
     } catch {
       // Ignore

@@ -433,6 +433,8 @@ export const useStore = create<StoreState>()(
         _isRetrying = false;
         _drainTracker = new RequestTracker();
         requestDedupCache.clear();
+        // M1: Clear meal resolution cache on logout — prevents User A's data leaking to User B
+        invalidateMealResolutionCache();
         // Notify TrayStore to clear its debounce timers (avoids circular import)
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('store:logout'));
         set({
@@ -505,7 +507,8 @@ export const useStore = create<StoreState>()(
           }
 
           const notification: SwapNotification = {
-            id: `${date}-${slot}-${Date.now()}`,
+            // M8: Add random suffix to prevent ID collision on rapid swaps within same ms
+            id: `${date}-${slot}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             date,
             slot,
             oldMeal: state.swaps[date]?.[slot]?.name || 'default',

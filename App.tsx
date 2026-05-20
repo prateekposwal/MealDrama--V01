@@ -12,7 +12,7 @@ import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
 import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
-import { processQueue, getPendingCount, enqueue } from './utils/offlineQueue';
+import { enqueue } from './utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
 import type { Dish } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
@@ -103,20 +103,9 @@ const App: React.FC = () => {
     mainRef.current?.focus({ preventScroll: true });
   }, [activeTab]);
 
-  // ─── Offline queue auto-sync on reconnect ───
-  useEffect(() => {
-    const handleOnline = async () => {
-      const pending = getPendingCount();
-      if (pending === 0) return;
-      const result = await processQueue();
-      if (result.synced > 0) {
-        setToast({ message: `Synced ${result.synced} pending change${result.synced > 1 ? 's' : ''}`, type: 'success' });
-      }
-    };
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
-  }, [setToast]);
-  // ────────────────────────────────────────────────────────────────────────────
+  // M6: Removed duplicate online listener — useStore and useTrayStore already
+  // handle offline queue sync on reconnect. Adding a third listener caused
+  // triple drain attempts on every reconnect.
 
   // Inline onboarding flow from Profile (Edit Mode)
   if (quickSetupOpen) {

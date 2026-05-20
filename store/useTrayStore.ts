@@ -176,8 +176,8 @@ const emptyDayMeals = (): DayMeals => ({
   dinner: [],
 });
 
-// Use nanoid for collision-resistant IDs — no counter overflow issues on HMR
-const uid = () => `item_${nanoid(10)}`;
+// M2: nanoid(16) — collision risk drops to ~1% at 1.8B items (vs 85M for 10 chars)
+const uid = () => `item_${nanoid(16)}`;
 
 export const useTrayStore = create<TrayStore>()(
   persist(

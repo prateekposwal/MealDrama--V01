@@ -22,11 +22,15 @@ self.addEventListener('install', (event) => {
   // This prevents JS bundle / SW cache mismatch
 });
 
-// Activate — clear old caches
+// Activate — clear old caches (scoped to mealdrama-* prefix)
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.map((k) => caches.delete(k)))
+      Promise.all(keys
+        .filter((k) => k.startsWith('mealdrama-'))
+        .filter((k) => k !== CACHE_NAME)
+        .map((k) => caches.delete(k))
+      )
     )
   );
   // Claim clients only after old caches are cleared

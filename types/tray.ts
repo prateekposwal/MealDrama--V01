@@ -348,19 +348,27 @@ export function getSkipUndoWindowExpiry(
   const pref = preferences?.[next];
   const nextStart = pref?.start ?? defaults.start;
   const [h, m] = nextStart.split(':').map(Number);
-  // IST-based expiry: compute the next slot's start time in IST
+
+  // M9: Compute expiry in IST without double-conversion.
+  // IST = UTC+5:30. We construct the expiry as a UTC timestamp directly.
   const now = new Date();
+  // Get current IST components
   const istString = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-  const istNow = new Date(istString);
-  const expiry = new Date(istNow);
-  expiry.setHours(h ?? 0, m ?? 0, 0, 0);
+  const istDate = new Date(istString);
+  const istYear = istDate.getFullYear();
+  const istMonth = istDate.getMonth();
+  const istDay = istDate.getDate();
+
+  // Construct expiry at HH:MM IST today
+  const expiryIST = new Date(Date.UTC(istYear, istMonth, istDay, h ?? 0, m ?? 0, 0, 0));
+  // Subtract IST offset to get the UTC timestamp that corresponds to HH:MM IST
+  const expiryUTC = expiryIST.getTime() - (5 * 60 + 30) * 60 * 1000;
+
   // If next slot is breakfast (wrap to next day), add 1 day
   if (next === 'breakfast') {
-    expiry.setDate(expiry.getDate() + 1);
+    return expiryUTC + 86400000;
   }
-  // Convert back to UTC timestamp for comparison with Date.now()
-  // IST expiry moment = expiry.getTime() + IST offset (5h30m)
-  return expiry.getTime() + (5 * 60 + 30) * 60 * 1000;
+  return expiryUTC;
 }
 
 /** Convert "HH:MM" to fractional hours for comparison (e.g. "09:30" → 9.5) */
