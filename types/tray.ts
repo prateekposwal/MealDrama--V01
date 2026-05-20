@@ -348,16 +348,25 @@ export function getSkipUndoWindowExpiry(
   const nextStart = pref?.start ?? defaults.start;
   const [h, m] = nextStart.split(':').map(Number);
 
-  // Use provided timezone offset (from user profile) or fall back to system local time
   const now = new Date();
-  const offset = timezoneOffsetMinutes ?? now.getTimezoneOffset();
 
-  // Build expiry in UTC, then apply offset to get correct local time
-  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
-  const targetLocalMs = utcMs + offset * 60_000;
-  const expiry = new Date(targetLocalMs);
+  // If user has a custom timezone offset, calculate expiry in that timezone
+  if (timezoneOffsetMinutes !== undefined) {
+    // Get current time in user's timezone
+    const userTimezoneMs = now.getTime() + (now.getTimezoneOffset() - timezoneOffsetMinutes) * 60_000;
+    const expiry = new Date(userTimezoneMs);
+    expiry.setHours(h ?? 0, m ?? 0, 0, 0);
+    // If next slot is breakfast (wrap to next day), add 1 day
+    if (next === 'breakfast') {
+      expiry.setDate(expiry.getDate() + 1);
+    }
+    // Convert back to UTC timestamp for comparison
+    return expiry.getTime() - (now.getTimezoneOffset() - timezoneOffsetMinutes) * 60_000;
+  }
+
+  // Default: use device local time
+  const expiry = new Date(now);
   expiry.setHours(h ?? 0, m ?? 0, 0, 0);
-
   // If next slot is breakfast (wrap to next day), add 1 day
   if (next === 'breakfast') {
     expiry.setDate(expiry.getDate() + 1);

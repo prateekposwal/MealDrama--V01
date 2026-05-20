@@ -2,6 +2,8 @@
 // MealDrama Tray API Layer — Mock implementation matching real Cloud Run contracts
 // ─────────────────────────────────────────────────────────────────────────────
 
+import api from './api';
+
 // ─── Types matching API Contracts ───────────────────────────────────────────
 
 export interface SuggestionMeal {
@@ -343,15 +345,10 @@ export const trayApi = {
     await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
     try {
-      await fetch('/api/tray/complete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, mealType }),
-        signal,
-      });
+      await api.post('/tray/complete', { date, mealType }, { signal });
     } catch {
       // In mock/dev mode, endpoint may not exist — swallow gracefully.
-      // In production, this should route through offlineQueue.
+      // In production, this routes through api.ts with auth headers.
     }
     return { success: true };
   },
@@ -363,12 +360,7 @@ export const trayApi = {
     await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
     try {
-      await fetch('/api/tray/skip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, mealType }),
-        signal,
-      });
+      await api.post('/tray/skip', { date, mealType }, { signal });
     } catch {
       // In mock/dev mode, endpoint may not exist — swallow gracefully.
     }

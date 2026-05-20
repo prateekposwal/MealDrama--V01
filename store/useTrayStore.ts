@@ -183,7 +183,7 @@ function schedulePantryInvalidate() {
   if (_pantryInvalidationTimer) clearTimeout(_pantryInvalidationTimer);
   _pantryInvalidationTimer = setTimeout(() => {
     _pantryInvalidationTimer = null;
-    schedulePantryInvalidate();
+    window.dispatchEvent(new Event('pantry:invalidate'));
   }, 300);
 }
 
@@ -1004,12 +1004,15 @@ export const useTrayStore = create<TrayStore>()(
   )
 );
 
-// ─── Online Event Listener ───────────────────────────────────────────────────
+// ─── Cleanup on page unload ──────────────────────────────────────────────────
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    setTimeout(() => {
-      useTrayStore.getState().syncOfflineQueue();
-    }, 500);
+  window.addEventListener('beforeunload', () => {
+    // Clear all pending debounce timers
+    debounceTimers.forEach(timer => clearTimeout(timer));
+    debounceTimers.clear();
+    // Clear pantry invalidation timer
+    if (_pantryInvalidationTimer) clearTimeout(_pantryInvalidationTimer);
+    _pantryInvalidationTimer = null;
   });
 }

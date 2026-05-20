@@ -235,6 +235,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
     const [showTrayScreen, setShowTrayScreen] = useState(false);
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
+    const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Cleanup undo timer on unmount
+    useEffect(() => {
+        return () => {
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        };
+    }, []);
     const [showSlotPicker, setShowSlotPicker] = useState(false);
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
@@ -264,7 +272,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             const key = `${today}::${slot.mealType}`;
             const meals = store.getMeals(today, slot.mealType);
             if (meals.length === 0) continue;
-            if (store.completions[key] != null || store.skipped[key] != null) continue;
+            // Re-read completions/skipped from current state to prevent double-skip
+            const current = useTrayStore.getState();
+            if (current.completions[key] != null || current.skipped[key] != null) continue;
             const { start, end } = resolveSlotTimes(meals, slot.mealType);
             if (isAfterEnd(start, end)) {
                 store.skipSlot(today, slot.mealType);
@@ -284,7 +294,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const handleCompleteSlot = useCallback((date: string, mealType: MealType) => {
         completeSlot(date, mealType);
         setUndoSlot({ date, mealType, type: 'complete' });
-        setTimeout(() => setUndoSlot(null), 10000);
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = setTimeout(() => setUndoSlot(null), 10000);
     }, [completeSlot]);
 
     const handleUndoComplete = useCallback((date: string, mealType: MealType) => {
@@ -295,7 +306,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const handleSkipSlot = useCallback((date: string, mealType: MealType) => {
         skipSlot(date, mealType);
         setUndoSlot({ date, mealType, type: 'skip' });
-        setTimeout(() => setUndoSlot(null), 8000);
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = setTimeout(() => setUndoSlot(null), 8000);
     }, [skipSlot]);
 
     const handleUndoSkip = useCallback((date: string, mealType: MealType) => {

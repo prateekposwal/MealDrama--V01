@@ -14,7 +14,7 @@ const SELF_BREAD = ['paratha', 'naan', 'roti', 'puri', 'bread', 'toast', 'pav', 
 const SELF_RICE = ['rice', 'biryani', 'pulao', 'khichdi', 'chawal'];
 const MAIN_DISH = ['gravy', 'curry', 'sabzi', 'dal', 'lentils', 'kofta', 'stew'];
 
-export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
+export function dishToMeal(dish: Dish, variant?: DishVariant, mealType?: string): Meal {
   const isSelfBread = SELF_BREAD.some(t => dish.tags.includes(t));
   const isSelfRice = SELF_RICE.some(t => dish.tags.includes(t));
   const isMainDish = MAIN_DISH.some(t => dish.tags.includes(t));
@@ -116,10 +116,12 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
   const sideOptions = allSideItems.length > 0 ? allSideItems : undefined;
   const beverageOptions = ['Chaas', 'Nimbu Pani', 'Coffee', 'Tea', 'Lassi'];
 
-  // Use smart suggestions for pairings
+  // Use smart suggestions for pairings — use provided mealType or infer from dish category
+  const inferredMealType = mealType
+    ?? (dish.category.includes('breakfast') ? 'breakfast' : 'lunch');
   const suggestions = getSmartSuggestions(
     { id: dish.id, name: dish.name, region: dish.region, tags: dish.tags, category: dish.category, states: dish.states, season: dish.season },
-    'lunch',
+    inferredMealType as any,
     { useSmartSuggestions: true },
   );
 

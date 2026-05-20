@@ -13,6 +13,7 @@ import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalConte
 import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
 import { processQueue, getPendingCount, enqueue } from './utils/offlineQueue';
+import { onConnectivityChange, isOnline } from './utils/connectivity';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
 import type { Dish } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
@@ -96,18 +97,18 @@ const App: React.FC = () => {
   const [showLoopConfig, setShowLoopConfig] = useState(false);
   const [loopSkipped, setLoopSkipped] = useState(false);
 
-  // ─── Offline queue auto-sync on reconnect ───
+  // ─── Offline queue auto-sync on reconnect (single source via connectivity manager) ───
   useEffect(() => {
-    const handleOnline = async () => {
+    const unsubscribe = onConnectivityChange(async (state) => {
+      if (state !== 'online') return;
       const pending = getPendingCount();
       if (pending === 0) return;
       const result = await processQueue();
       if (result.synced > 0) {
         setToast({ message: `Synced ${result.synced} pending change${result.synced > 1 ? 's' : ''}`, type: 'success' });
       }
-    };
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+    });
+    return unsubscribe;
   }, [setToast]);
   // ────────────────────────────────────────────────────────────────────────────
 

@@ -23,11 +23,12 @@ function VirtualListInner<T>({
   getKey,
 }: VirtualListProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
-  // Stable key function — only depends on getKey reference, not items array
+  // Stable key function — reads from ref to avoid stale closure
   const getItemKey = useMemo(() => {
-    if (!getKey) return (index: number) => index;
-    return (index: number) => getKey(items[index]!, index);
+    return (index: number) => getKey ? getKey(itemsRef.current[index]!, index) : index;
   }, [getKey]);
 
   const virtualizerOptions = useMemo(() => ({

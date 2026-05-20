@@ -243,6 +243,13 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const planDays = useTrayStore(s => s.plan.days);
 
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
+    const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        };
+    }, []);
     const committedCompletions = useMemo(() => {
         if (!undoSlot) return completions;
         const key = `${undoSlot.date}::${undoSlot.mealType}`;
@@ -274,7 +281,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const handleCompleteSlot = useCallback((date: string, mealType: MealType) => {
         completeSlot(date, mealType);
         setUndoSlot({ date, mealType, type: 'complete' });
-        setTimeout(() => setUndoSlot(null), 10000);
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = setTimeout(() => setUndoSlot(null), 10000);
     }, [completeSlot]);
 
     const handleUndoComplete = useCallback((date: string, mealType: MealType) => {
@@ -285,7 +293,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const handleSkipSlot = useCallback((date: string, mealType: MealType) => {
         skipSlot(date, mealType);
         setUndoSlot({ date, mealType, type: 'skip' });
-        setTimeout(() => setUndoSlot(null), 8000);
+        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = setTimeout(() => setUndoSlot(null), 8000);
     }, [skipSlot]);
 
     const handleUndoSkip = useCallback((date: string, mealType: MealType) => {

@@ -27,12 +27,7 @@ import {
   X, Search, Sparkles, Check, ChevronLeft, ChevronDown, Plus, Minus, AlertTriangle, Info,
 } from 'lucide-react';
 
-const DIET_FILTER: Record<string, string[]> = {
-  veg: ['veg'],
-  'non-veg': ['veg', 'non-veg', 'eggitarian'],
-  eggitarian: ['veg', 'eggitarian', 'non-veg'],
-  vegan: ['veg', 'vegan'],
-};
+import { getAllowedDishTypes } from '../../utils/dietFilter';
 
 const ICON_MAP: Record<string, string> = {
   curry: '🍛', dry: '🥘', tadka: '🫕', gravy: '🍛',
@@ -160,6 +155,13 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [justAddedDish, setJustAddedDish] = useState<string | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
+    };
+  }, []);
 
   // ── Async safety: latest-request-wins + modal lifecycle protection ──
   const asyncGuard = useAsyncGuard();
@@ -592,7 +594,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     const q = debouncedSearchQuery.toLowerCase();
     const category = mealType;
     const isVegan = userDiet?.toLowerCase() === 'vegan';
-    const allowedTypes = DIET_FILTER[userDiet?.toLowerCase() || 'veg'] || ['veg'];
+    const allowedTypes = getAllowedDishTypes(userDiet?.toLowerCase() as any || 'veg');
 
     const dishPool = [...dishes, ...customDishes];
     let filtered = dishPool.filter(d => {

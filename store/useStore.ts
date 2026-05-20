@@ -55,15 +55,8 @@ function _scheduleDrain() {
   if (_drainTimer) clearTimeout(_drainTimer);
   _drainTimer = setTimeout(() => {
     _drainTimer = null;
-    // online listener will call drainPendingMutations
+    // connectivity manager will call drainPendingMutations
   }, 2000);
-}
-
-// Wire online event once — calls drainPendingMutations when connectivity is restored
-if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    setTimeout(() => useStore.getState().drainPendingMutations(), 500);
-  });
 }
 
 export interface User {

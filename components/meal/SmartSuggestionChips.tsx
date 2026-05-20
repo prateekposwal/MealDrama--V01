@@ -6,6 +6,7 @@ import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
 import { QuickFilters, type DietFilter, type SlotFilter } from './QuickFilters';
+import { isDishAllowedForDiet } from '../../utils/dietFilter';
 
 interface SmartSuggestionChipsProps {
   date: string;
@@ -50,11 +51,7 @@ function suggestionToMeal(s: SuggestionMeal): Meal {
 }
 
 function computeDietScoreSimple(mealType: string, userDiet: string): number {
-  if (userDiet === 'all' || userDiet === 'non-veg') return 1;
-  if (userDiet === 'veg' && (mealType === 'veg' || mealType === 'vegan' || mealType === 'eggitarian')) return 1;
-  if (userDiet === 'vegan' && mealType === 'vegan') return 1;
-  if (userDiet === 'eggitarian' && (mealType === 'veg' || mealType === 'eggitarian' || mealType === 'vegan')) return 1;
-  return 0;
+  return isDishAllowedForDiet(mealType as any, userDiet as any) ? 1 : 0;
 }
 
 export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.memo(({
