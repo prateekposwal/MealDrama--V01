@@ -252,7 +252,8 @@ export type LiveStatus = 'upcoming' | 'cooking' | 'history';
 /**
  * Check if the current time falls within a slot's active window.
  * Handles midnight-spanning slots (e.g., 22:00-02:00) where end ≤ start.
- * Hydration-safe: accepts optional `now` Date (defaults to `new Date()`).
+ * Uses IST (Asia/Kolkata) for consistent behavior across all device timezones.
+ * Hydration-safe: accepts optional `now` Date (defaults to current time).
  */
 export function isSlotActive(
   start: string | undefined | null,
@@ -262,7 +263,10 @@ export function isSlotActive(
   const currentTime = now || new Date();
   const startHour = timeToHours(start);
   const endHour = timeToHours(end);
-  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+  // IST current hour — consistent for all users regardless of device timezone
+  const istString = currentTime.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  const istDate = new Date(istString);
+  const currentHour = istDate.getHours() + istDate.getMinutes() / 60;
 
   // Midnight-spanning slot (e.g., 22:00-02:00)
   if (endHour <= startHour) {
@@ -275,7 +279,8 @@ export function isSlotActive(
 /**
  * Check if the current time is past a slot's end time.
  * For midnight-spanning slots (end ≤ start), returns true only during the gap period.
- * Hydration-safe: accepts optional `now` Date (defaults to `new Date()`).
+ * Uses IST (Asia/Kolkata) for consistent behavior.
+ * Hydration-safe: accepts optional `now` Date (defaults to current time).
  */
 export function isAfterEnd(
   start: string | undefined | null,
@@ -285,7 +290,9 @@ export function isAfterEnd(
   const currentTime = now || new Date();
   const startHour = timeToHours(start);
   const endHour = timeToHours(end);
-  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+  const istString = currentTime.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  const istDate = new Date(istString);
+  const currentHour = istDate.getHours() + istDate.getMinutes() / 60;
 
   if (endHour <= startHour) {
     // Midnight span: past end means during the day gap (e.g., 02:00–22:00)
@@ -298,6 +305,7 @@ export function isAfterEnd(
  * Resolve live status for a meal slot.
  * Compares current time against the slot's time window.
  * Returns 'upcoming' before start, 'cooking' during the window, 'history' after end.
+ * Uses IST (Asia/Kolkata) for consistent behavior.
  * Handles midnight-spanning slots correctly.
  */
 export function getMealStatus(
@@ -308,7 +316,9 @@ export function getMealStatus(
   if (isSlotActive(start, end, now)) return 'cooking';
   const currentTime = now || new Date();
   const startHour = timeToHours(start);
-  const currentHour = currentTime.getHours() + currentTime.getMinutes() / 60;
+  const istString = currentTime.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  const istDate = new Date(istString);
+  const currentHour = istDate.getHours() + istDate.getMinutes() / 60;
   // For midnight-spanning slots, remaining time before start is the gap
   if (currentHour < startHour) return 'upcoming';
   return 'history';
@@ -338,14 +348,19 @@ export function getSkipUndoWindowExpiry(
   const pref = preferences?.[next];
   const nextStart = pref?.start ?? defaults.start;
   const [h, m] = nextStart.split(':').map(Number);
+  // IST-based expiry: compute the next slot's start time in IST
   const now = new Date();
-  const expiry = new Date(now);
+  const istString = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
+  const istNow = new Date(istString);
+  const expiry = new Date(istNow);
   expiry.setHours(h ?? 0, m ?? 0, 0, 0);
   // If next slot is breakfast (wrap to next day), add 1 day
   if (next === 'breakfast') {
     expiry.setDate(expiry.getDate() + 1);
   }
-  return expiry.getTime();
+  // Convert back to UTC timestamp for comparison with Date.now()
+  // IST expiry moment = expiry.getTime() + IST offset (5h30m)
+  return expiry.getTime() + (5 * 60 + 30) * 60 * 1000;
 }
 
 /** Convert "HH:MM" to fractional hours for comparison (e.g. "09:30" → 9.5) */

@@ -17,6 +17,7 @@ import { getDishStyle } from '../constants/dishStyles';
 import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../constants/dishLibrary';
 import { useStore } from './useStore';
+import { getISODate, addDaysISO, daysBetweenISO } from '../utils/dateUTC';
 
 export type { MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, Meal, MealLoopState, MealLoopConfig, MealLoopAssignment };
 
@@ -684,9 +685,8 @@ export const useTrayStore = create<TrayStore>()(
 
       /** Fill all days in the period with rotation (5-day gap) + anti-repetition (30-day preference) */
       fillPlan: (period: 'week' | 'biweek' | 'month') => {
-        // H8: Use UTC-based date computation to avoid timezone-dependent off-by-one errors
-        const now = new Date();
-        const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+        // H8: Use IST (Asia/Kolkata) for all date computation — consistent for Indian users
+        const today = getISODate();
         const todayDay = get().plan.days[today];
         if (!todayDay) return;
 
@@ -708,19 +708,8 @@ export const useTrayStore = create<TrayStore>()(
           }
         }
 
-        function daysBetween(a: string, b: string): number {
-          // UTC-based day difference — no timezone ambiguity
-          const [ay, am, ad] = a.split('-').map(Number);
-          const [by, bm, bd] = b.split('-').map(Number);
-          const da = Date.UTC(ay!, am! - 1, ad!);
-          const db = Date.UTC(by!, bm! - 1, bd!);
-          return Math.floor((db - da) / 86400000);
-        }
-
-        for (let i = 0; i < dayCount; i++) {
-          const d = new Date();
-          d.setUTCDate(d.getUTCDate() + i);
-          const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        for (let i = 1; i <= dayCount; i++) {
+          const iso = addDaysISO(today, i);
           if (iso === today) continue;
 
           const day: DayMeals = emptyDayMeals();
@@ -734,7 +723,7 @@ export const useTrayStore = create<TrayStore>()(
             // then prioritize by longest-neglected (anti-repetition).
             const scored = meals.map(meal => {
               const lastDate = lastServed.get(meal.meal_id);
-              const gap = lastDate ? daysBetween(lastDate, iso) : 999;
+              const gap = lastDate ? daysBetweenISO(lastDate, iso) : 999;
               return { meal, gap };
             });
 
