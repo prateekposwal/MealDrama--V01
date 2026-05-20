@@ -11,28 +11,33 @@ const _listeners = new Set<(state: ConnectivityState) => void>();
 /**
  * Check actual connectivity by fetching a lightweight endpoint.
  * navigator.onLine can give false positives (captive portals, DNS failures).
+ * M5: All endpoints fetched in parallel with Promise.any() — max timeoutMs total.
  */
 export async function checkConnectivity(timeoutMs = 3000): Promise<boolean> {
   // M13: If navigator says offline, trust it — no need to fetch
   if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
 
-  // Try multiple endpoints in case /api/health doesn't exist
   const endpoints = ['/api/health', '/api/v1/health', '/'];
-  for (const endpoint of endpoints) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const res = await fetch(endpoint, {
-        method: 'HEAD',
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (res.ok || res.status === 304 || res.status === 405) return true;
-    } catch {
-      // Try next endpoint
-    }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    await Promise.any(
+      endpoints.map(async (endpoint) => {
+        const res = await fetch(endpoint, {
+          method: 'HEAD',
+          signal: controller.signal,
+        });
+        if (res.ok || res.status === 304 || res.status === 405) return true;
+        throw new Error(`Endpoint ${endpoint} returned ${res.status}`);
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
-  return false;
 }
 
 /** Subscribe to connectivity changes. Returns unsubscribe function. */

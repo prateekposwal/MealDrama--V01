@@ -25,10 +25,11 @@ export type { MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction
 // ─── Re-export helper for screens to use directly when needed ────────────────
 export { applySmartDefaults };
 
-/** Resolve effective slot defaults — checks user slotTimePreferences, then SLOT_TIME_DEFAULTS */
-function getTimeDef(mealType: MealType): { start: string; end: string } {
-  const prefs = useStore.getState().user?.slotTimePreferences;
-  if (prefs?.[mealType]) return { start: prefs[mealType]!.start, end: prefs[mealType]!.end };
+/** Resolve effective slot defaults — prefers caller-provided prefs, then user prefs, then SLOT_TIME_DEFAULTS */
+function getTimeDef(mealType: MealType, prefs?: Record<string, { start: string; end: string }>): { start: string; end: string } {
+  if (prefs?.[mealType]) return prefs[mealType]!;
+  const userPrefs = useStore.getState().user?.slotTimePreferences;
+  if (userPrefs?.[mealType]) return userPrefs[mealType]!;
   return SLOT_TIME_DEFAULTS[mealType];
 }
 
@@ -923,9 +924,9 @@ export const useTrayStore = create<TrayStore>()(
               newDays[date][mealType].push({
                 id: uid(),
                 meal_id: meal.id,
-          name: meal.name,
-          title: loopTitle,
-          icon: meal.icon,
+                name: meal.name,
+                title: loopTitle,
+                icon: meal.icon,
                 quantity: 1,
                 servings: 1,
                 smartVersion: 1,

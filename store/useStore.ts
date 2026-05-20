@@ -227,7 +227,7 @@ export interface CompletedSlot {
   status: 'cooked' | 'missed' | 'skipped';
 }
 
-import { getISODate, daysBetweenISO } from '../utils/dateUTC';
+import { getISODate, daysBetweenISO, getISTTime } from '../utils/dateUTC';
 export { getISODate };
 
 const _MEAL_RESOLUTION_CACHE = new Map<string, MealResolution>();
@@ -324,8 +324,8 @@ function _computeMealResolution(
 
 
 export const isEarlyMorning = (): boolean => {
-  const hour = new Date().getHours();
-  return hour < 8;
+  const { hours } = getISTTime();
+  return hours < 8;
 };
 
 const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[]) => {
@@ -499,6 +499,7 @@ export const useStore = create<StoreState>()(
       removeFromTray: (slot: string, mealId: string) =>
         set((state) => {
           const key = slot.toLowerCase() as keyof TrayLibrary;
+          invalidateMealResolutionCache();
           if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
           return {
             trayLibrary: {
@@ -921,7 +922,7 @@ export const useStore = create<StoreState>()(
           state.customDishes = [];
         }
         if (fromVersion < 7) {
-          state.customDishes = [];
+          // v6 already set customDishes — v7 was a duplicate, kept for version continuity
         }
         if (fromVersion < 8) {
           // v7 → v8: reset auth state only — preserves user's meal planning data

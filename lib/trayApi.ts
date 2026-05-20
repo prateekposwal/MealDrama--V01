@@ -216,23 +216,21 @@ export const offlineQueue = {
   },
 };
 
-// ─── Simulated Network — DEV ONLY ───────────────────────────────────────────
-// These are mock testing utilities. Disabled in production to prevent
-// real user data loss (3% random failure) and artificial latency (300-500ms).
+// ─── Simulated Network — DEV ONLY (tree-shaken in production) ───────────────
 
-const DEV_MODE = import.meta.env.DEV;
+const simulateDelay = import.meta.env.DEV
+  ? async (ms = 300, signal?: AbortSignal) => {
+      return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, ms + Math.random() * 200);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+    }
+  : async () => {};
 
-const simulateDelay = (ms = 300, signal?: AbortSignal) => {
-  if (!DEV_MODE) return Promise.resolve();
-  return new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, ms + Math.random() * 200);
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timer);
-      reject(new DOMException('Aborted', 'AbortError'));
-    });
-  });
-};
-const simulateFailure = () => DEV_MODE && Math.random() < 0.03;
+const simulateFailure = import.meta.env.DEV ? () => Math.random() < 0.03 : () => false;
 
 // ─── API Implementation ─────────────────────────────────────────────────────
 
