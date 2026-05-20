@@ -240,11 +240,33 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     syncNeeded.current = true;
   }, []);
 
+  const wasOpenRef = useRef(false);
+  const userSelectedRef = useRef(false);
+
   useEffect(() => {
+    const justOpened = isOpen && !wasOpenRef.current;
+    wasOpenRef.current = isOpen;
+
     if (isOpen) {
-      modalGuardRef.current.reset();
-      asyncGuard.reset();
-      syncBufferRef.current.cancel();
+      if (justOpened) {
+        modalGuardRef.current.reset();
+        asyncGuard.reset();
+        syncBufferRef.current.cancel();
+        initRef.current = null;
+        seededMealRef.current = null;
+        explicitlyRemovedRef.current.clear();
+        userSelectedRef.current = false;
+        setDish(null);
+        setMeal(null);
+        setSelectedVariant(null);
+        setOverrideLimit(false);
+        setShowStylePicker(false);
+        setShowCustomDishForm(false);
+        setCustomDishStyle('Gravy');
+        setCustomDishDiet('veg');
+        setCustomDishName('');
+      }
+
       if (initialAddMode) {
         setAddAnotherMode(true);
         setShowSwapSearch(true);
@@ -253,36 +275,17 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         setHealthPreset(null);
         setHealthSort(null);
         setSelectedSwapDish(null);
-        setSelectedVariant(null);
-        setOverrideLimit(false);
-        setShowStylePicker(false);
-        setShowCustomDishForm(false);
-        setCustomDishStyle('Gravy');
-        setCustomDishDiet('veg');
-        setCustomDishName('');
         initRef.current = '__add_mode__';
         return;
       }
+
+      if (userSelectedRef.current) return;
       if (initRef.current === item.meal_id) return;
-      setShowSwapSearch(false);
-      setSearchQuery('');
-      setShowGlobal(false);
-      setHealthPreset(null);
-      setHealthSort(null);
-      setSelectedSwapDish(null);
-      setSelectedVariant(null);
-      setOverrideLimit(false);
-      setShowStylePicker(false);
-      setAddAnotherMode(false);
-      setShowCustomDishForm(false);
-      setCustomDishStyle('Gravy');
-      setCustomDishDiet('veg');
-      setCustomDishName('');
+
       const sourceDish = dishes.find(d => d.id === item.meal_id) || dishes.find(d => d.name === item.name);
       if (sourceDish) {
         const m = dishToMeal(sourceDish);
         const style = getDishStyle(sourceDish.id);
-        // Restore variant if item has one
         const restoredVariant = item.variant && item.variantId
           ? sourceDish.variants.find(v => v.id === item.variantId || v.name === item.variant) ?? null
           : null;
@@ -309,7 +312,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       setAddAnotherMode(false);
       setSelectedVariant(null);
     }
-  }, [isOpen, item.meal_id, item.roti, item.rice, item.sides, item.beverages, item.dessert, dishes, mealType]);
+  }, [isOpen, item.meal_id, item.roti, item.rice, item.sides, item.beverages, item.dessert, dishes, mealType, initialAddMode]);
 
   useEffect(() => {
     if (showSwapSearch && searchInputRef.current) {
@@ -340,7 +343,6 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       onAddAnother?.(date, mealType, newDish, relevantVariants.length === 1 ? relevantVariants[0] : undefined);
       setJustAddedDish(newDish.name);
       setSearchQuery('');
-      // Auto-close after brief confirmation
       if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
       autoCloseTimerRef.current = setTimeout(() => {
         if (modalGuardRef.current.isClosed) return;
@@ -349,6 +351,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       }, 700);
       return;
     }
+    userSelectedRef.current = true;
     const m = dishToMeal(newDish);
     const defaults = applySmartDefaults(m, mealType);
     const style = getDishStyle(newDish.id);
@@ -384,6 +387,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       setSearchQuery('');
       return;
     }
+    userSelectedRef.current = true;
     const m = dishToMeal(d);
     const defaults = applySmartDefaults(m, mealType);
     const style = getDishStyle(d.id);
@@ -529,9 +533,11 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   // ── Apply: data already synced in real-time, just close ──
   const handleApply = useCallback(() => {
     if (onChange) {
-      // Data synced via effect on every interaction; just close
+      // Flush any pending deferred sync before closing
+      syncBufferRef.current.flush();
       explicitlyRemovedRef.current.clear();
       seededMealRef.current = null;
+      modalGuardRef.current.close();
       onClose();
       return;
     }
@@ -576,6 +582,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     });
     explicitlyRemovedRef.current.clear();
     seededMealRef.current = null;
+    modalGuardRef.current.close();
     onClose();
   }, [onChange, buildUpdatesObject, onApply, onClose, dish, item.id, item.meal_id, dishes, selectedVariant, quantity, selectedCategories, selectedStyleGroup]);
 

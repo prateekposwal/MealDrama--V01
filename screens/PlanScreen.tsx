@@ -693,6 +693,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                             estimateSize={280}
                             overscan={3}
                             renderItem={renderHistoryDay}
+                            getKey={(date) => date}
                             outerClassName="overflow-auto h-[calc(100vh-240px)]"
                             className="space-y-6"
                         />

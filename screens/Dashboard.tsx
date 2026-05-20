@@ -196,10 +196,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     }, []);
     const today = getTodayISO(new Date(now));
 
-    const {
-        getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
-        guestMode, completions, skipped, completeSlot, undoCompleteSlot, skipSlot, undoSkipSlot,
-    } = useTrayStore();
+    const getMeals = useTrayStore(s => s.getMeals);
+    const addMealToSlot = useTrayStore(s => s.addMealToSlot);
+    const swapMealInSlot = useTrayStore(s => s.swapMealInSlot);
+    const updateItemInline = useTrayStore(s => s.updateItemInline);
+    const removeMealFromSlot = useTrayStore(s => s.removeMealFromSlot);
+    const guestMode = useTrayStore(s => s.guestMode);
+    const completions = useTrayStore(s => s.completions);
+    const skipped = useTrayStore(s => s.skipped);
+    const completeSlot = useTrayStore(s => s.completeSlot);
+    const undoCompleteSlot = useTrayStore(s => s.undoCompleteSlot);
+    const skipSlot = useTrayStore(s => s.skipSlot);
+    const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
 
     const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const { openKey: swapCustomizeOpenKey, setOpenKey: setSwapCustomizeOpenKey } = useSwapCustomize();

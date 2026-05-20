@@ -243,6 +243,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   const lastFeaturedTimes = useTrayStore(s => s.lastFeaturedTimes);
   const markFeatured = useTrayStore(s => s.markFeatured);
   const featuredRef = useRef<string[] | null>(null);
+  const mealsRef = useRef(meals);
+  mealsRef.current = meals;
 
   const featured = useMemo(() => {
     if (!mergeExtraItems || meals.length <= 2) return null;
@@ -274,7 +276,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
   const handleModalChange = useCallback(
     (itemId: string, updates: Partial<TrayItem>) => {
-      const currentItem = meals.find(m => m.id === itemId);
+      const currentItem = mealsRef.current.find(m => m.id === itemId);
       if (!currentItem) {
         onUpdateInline(date, mealType, itemId)(updates);
         return;
@@ -291,7 +293,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       }
       onUpdateInline(date, mealType, itemId)(merged);
     },
-    [date, mealType, onUpdateInline, meals],
+    [date, mealType, onUpdateInline],
   );
 
   const [addDishOpen, setAddDishOpen] = useState(false);

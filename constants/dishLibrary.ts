@@ -86,13 +86,20 @@ export interface Dish {
 }
 
 // ─── Helper: auto-generate variants ──────────────────────────────────────────
-const addOnVariants = (base: string, id: string): DishVariant[] => [
-    { id: `${id}-rice`, name: `${base} + Rice`, addOn: 'with rice', mealContext: 'lunch' },
-    { id: `${id}-roti`, name: `${base} + Roti`, addOn: 'with roti', mealContext: 'dinner' },
+// Self-carb dishes (puri, paratha, naan, rice, biryani) already contain carbs
+// so they should NOT get "+ Rice" or "+ Roti" variants.
+const SELF_CARB_TAGS = new Set(['puri', 'paratha', 'naan', 'rice', 'biryani', 'bread', 'pulao']);
+
+const addOnVariants = (base: string, id: string, tags?: string[]): DishVariant[] => {
+  const isSelfCarb = tags?.some(t => SELF_CARB_TAGS.has(t)) ?? false;
+  return [
+    ...(isSelfCarb ? [] : [{ id: `${id}-rice`, name: `${base} + Rice`, addOn: 'with rice', mealContext: 'lunch' } as const]),
+    ...(isSelfCarb ? [] : [{ id: `${id}-roti`, name: `${base} + Roti`, addOn: 'with roti', mealContext: 'dinner' } as const]),
     { id: `${id}-bowl`, name: `${base} Bowl`, addOn: 'standalone', mealContext: 'lunch' },
     { id: `${id}-lite`, name: `${base} Lite (Dinner)`, addOn: 'light portion', mealContext: 'dinner' },
     { id: `${id}-thali`, name: `${base} Thali`, addOn: 'thali set', mealContext: 'lunch' },
-];
+  ];
+};
 
 const cookingVariants = (base: string, id: string, styles: string[]): DishVariant[] =>
     styles.map(style => ({ id: `${id}-${style.toLowerCase()}`, name: `${base} ${style}`, cookingStyle: style }));
@@ -131,7 +138,7 @@ const northDishes: Dish[] = [
         nutrition: ['carb', 'fat'],
         tags: ['bread', 'puri', 'fried', 'street food', 'staples'],
         description: 'Deep-fried puffed bread served with spiced potato curry. Festive North Indian breakfast.',
-        variants: addOnVariants('Bedmi Puri', 'bedmi-puri'),
+        variants: addOnVariants('Bedmi Puri', 'bedmi-puri', ['bread', 'puri', 'fried', 'street food', 'staples']),
     },
     {
         id: 'dal-makhani',
@@ -146,7 +153,7 @@ const northDishes: Dish[] = [
         tags: ['dal', 'slow-cooked', 'restaurant style', 'lentils'],
         variants: [
             ...cookingVariants('Dal Makhani', 'dal-makhani', ['Tadka', 'Dhaba Style', 'Lite']),
-            ...addOnVariants('Dal Makhani', 'dam-ao'),
+            ...addOnVariants('Dal Makhani', 'dam-ao', ['dal', 'slow-cooked', 'restaurant style', 'lentils']),
         ],
     },
     {
@@ -160,7 +167,7 @@ const northDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['fat', 'carb'],
         tags: ['fermented', 'comfort food'],
-        variants: addOnVariants('Kadhi Pakora', 'kadhi-pakora'),
+        variants: addOnVariants('Kadhi Pakora', 'kadhi-pakora', ['fermented', 'comfort food']),
     },
     {
         id: 'rogan-josh',
@@ -175,7 +182,7 @@ const northDishes: Dish[] = [
         tags: ['mutton', 'slow-cooked', 'aromatic'],
         variants: [
             ...cookingVariants('Rogan Josh', 'rogan-josh', ['Traditional', 'Lite', 'Dhaba']),
-            ...addOnVariants('Rogan Josh', 'rogan-ao'),
+            ...addOnVariants('Rogan Josh', 'rogan-ao', ['mutton', 'slow-cooked', 'aromatic']),
         ],
     },
     {
@@ -1388,7 +1395,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb', 'protein'],
         tags: ['rice', 'balanced', 'lentils'],
-        variants: addOnVariants('Sambar', 'sambhar'),
+        variants: addOnVariants('Sambar', 'sambhar', ['rice', 'balanced', 'lentils']),
     },
     {
         id: 'hyderabadi-biryani',
@@ -1420,7 +1427,7 @@ const southDishes: Dish[] = [
         variants: [
             { id: 'fish-curry-kl', name: 'Kerala Fish Curry', regionOverride: 'Kerala' },
             { id: 'fish-curry-ap', name: 'Andhra Fish Curry', regionOverride: 'Andhra Pradesh' },
-            ...addOnVariants('Fish Curry', 'fish-curry-ao'),
+            ...addOnVariants('Fish Curry', 'fish-curry-ao', ['coconut', 'spicy']),
         ],
     },
     {
@@ -2668,7 +2675,7 @@ const eastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb', 'fat'],
         tags: ['bread', 'puri', 'fried', 'deep fried'],
-        variants: addOnVariants('Luchi', 'luchi-aloo'),
+        variants: addOnVariants('Luchi', 'luchi-aloo', ['bread', 'puri', 'fried', 'deep fried']),
     },
     {
         id: 'machher-jhol',
@@ -2682,7 +2689,7 @@ const eastDishes: Dish[] = [
         nutrition: ['protein'],
         tags: ['fish', 'light curry', 'mustard'],
         variants: [
-            ...addOnVariants('Machher Jhol', 'mj-ao'),
+            ...addOnVariants('Machher Jhol', 'mj-ao', ['fish', 'light curry', 'mustard']),
             ...cookingVariants('Machher Jhol', 'mj-style', ['Mustard', 'Turmeric', 'Green Chilli']),
         ],
     },
@@ -2697,7 +2704,7 @@ const eastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb', 'protein'],
         tags: ['baked', 'smoky'],
-        variants: addOnVariants('Litti Chokha', 'litti-chokha'),
+        variants: addOnVariants('Litti Chokha', 'litti-chokha', ['baked', 'smoky']),
     },
     {
         id: 'pakhala-bhata',
@@ -3235,7 +3242,7 @@ const centralDishes: Dish[] = [
         weight: 'heavy',
         nutrition: ['carb', 'protein', 'fat'],
         tags: ['dal', 'baked', 'ghee', 'traditional', 'lentils'],
-        variants: addOnVariants('Dal Bafla', 'dal-bafla'),
+        variants: addOnVariants('Dal Bafla', 'dal-bafla', ['dal', 'baked', 'ghee', 'traditional', 'lentils']),
     },
     {
         id: 'sabudana-khichdi',
@@ -3528,7 +3535,7 @@ const northeastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb', 'protein'],
         tags: ['rice', 'pork', 'Khasi'],
-        variants: addOnVariants('Jadoh', 'jadoh'),
+        variants: addOnVariants('Jadoh', 'jadoh', ['rice', 'pork', 'Khasi']),
     },
     // Protein-rich Northeast Indian dishes
     {
