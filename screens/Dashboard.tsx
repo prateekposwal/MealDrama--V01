@@ -439,13 +439,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [mealTab, setMealTab] = useState<'upcoming' | 'history'>('upcoming');
     const [healthExpanded, setHealthExpanded] = useState(false);
 
-    // Auto-switch to 'history' when all today's slots are completed
-    useEffect(() => {
-      if (mealTab === 'upcoming' && displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length > 0) {
-        setMealTab('history');
-      }
-    }, [mealTab, displayActiveUpcomingSlots.length, displayCompletedSlots.length]);
-
     // H11: plateScore only depends on meal content, not slot timing.
     // We derive slot lists directly from getMeals to avoid recomputing
     // when slotTimesRefreshKey changes (which only affects time display).
@@ -734,7 +727,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
                 {/* Slot list */}
                 <div className="space-y-4">
-                    {(mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).length > 0 ? (
+                    {mealTab === 'upcoming' && displayActiveUpcomingSlots.length === 0 ? (
+                        <div className="py-8 text-center">
+                            <div className="text-4xl mb-2">🎉</div>
+                            <p className="text-sm font-bold text-gray-800">All done for today!</p>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {displayCompletedSlots.length > 0
+                                    ? 'Check History to see what you cooked'
+                                    : 'Add meals to get started'}
+                            </p>
+                            {displayCompletedSlots.length > 0 && (
+                                <button
+                                    onClick={() => setMealTab('history')}
+                                    className="mt-3 px-4 py-2 rounded-full bg-gray-900 text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                                >
+                                    View History
+                                </button>
+                            )}
+                        </div>
+                    ) : (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).length > 0 ? (
                         (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).map(({ section, slot }) => {
                         const slotDate = today;
                         const slotMeals = getMeals(slotDate, slot.mealType);
