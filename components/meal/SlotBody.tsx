@@ -3,7 +3,7 @@
 // Eliminates duplicated MealCard prop-passing + empty-state + lock/missed logic
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
 import type { MealType, TrayItem, GuestMode } from '../../store/useTrayStore';
 import { computeEffectiveServings, resolveSlotTimes, isAfterEnd } from '../../types/tray';
 import type { AggregatedCategory } from '../../types/tray';
@@ -14,7 +14,8 @@ import type { SuggestionMeal } from '../../lib/trayApi';
 import { MealCard } from './MealCard';
 import { SLOT_META } from './MealCard';
 import { SmartSuggestionChips } from './SmartSuggestionChips';
-import { SwapCustomizeModal } from './SwapCustomizeModal';
+import { TimeBadge, TimeEditor } from './TimeComponents';
+const SwapCustomizeModal = lazy(() => import('./SwapCustomizeModal'));
 import DishImage from '../new/DishImage';
 import { CheckCheck, ChevronRight, Forward, Shuffle, Sparkles, X, Plus } from 'lucide-react';
 import type { StyleWarning } from '../../constants/dishStyles';
@@ -22,39 +23,6 @@ import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import { generateMealTitle } from '../../utils/generateMealTitle';
 import { pickFeaturedMeals } from '../../utils/mealRotation';
-
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) =>
-    `${String(i).padStart(2, '0')}:00`
-);
-
-const TimeBadge: React.FC<{
-    start: string;
-    end: string;
-    onEdit: () => void;
-}> = ({ start, end, onEdit }) => (
-    <button
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-800 text-[11px] font-bold tracking-tight hover:bg-gray-200 active:scale-95 transition-all min-w-[110px] justify-center"
-        title="Edit time window"
-    >
-        🕒 {start} – {end}
-    </button>
-);
-
-const TimeEditor: React.FC<{
-    start: string;
-    end: string;
-    onSave: (start: string, end: string) => void;
-    onCancel: () => void;
-}> = ({ start, end, onSave, onCancel }) => {
-    const [s, setS] = useState(start);
-    const [e, setE] = useState(end);
-    const ref = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const handler = (ev: MouseEvent) => {
-            if (ref.current && !ref.current.contains(ev.target as Node)) onCancel();
-        };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [onCancel]);

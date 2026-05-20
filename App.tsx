@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, Suspense, useMemo, useRef } from 'react';
 import { useStore } from './store/useStore';
 import { useTrayStore } from './store/useTrayStore';
 import api, { getToken, setAuthReady } from './lib/api';

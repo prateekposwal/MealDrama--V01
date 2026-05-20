@@ -3,12 +3,12 @@
 // Empty slots show QuickAddRow
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../lib/trayApi';
-import QuickAddModal from '../components/new/QuickAddModal';
-import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
+const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
+const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
 import TrayScreen from '../components/new/TrayScreen';
 import WhatsAppShareModal from '../components/new/WhatsAppShareModal';
 

@@ -3,12 +3,12 @@
 // Empty slots auto-fill. Guest mode at plan level.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { useTrayStore, MealType, TrayItem, GuestMode } from '../store/useTrayStore';
 import { useStore } from '../store/useStore';
 import type { SuggestionMeal } from '../lib/trayApi';
-import QuickAddModal from '../components/new/QuickAddModal';
-import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
+const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
+const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { ChevronLeft, ChevronRight, Calendar, Users, Plus, Minus } from 'lucide-react';
 import type { Dish, DishVariant } from '../constants/dishLibrary';
