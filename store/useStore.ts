@@ -895,8 +895,3 @@ export const useStore = create<StoreState>()(
 eventBus.on('tray:mealAdded', (mealType, meal) => {
   useStore.getState().addToTray(mealType as string, meal as MealOption);
 });
-
-eventBus.on('user:profileUpdated', () => {
-  const user = useStore.getState().user;
-  eventBus.emit('user:profileUpdated', user?.slotTimePreferences);
-});
