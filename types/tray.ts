@@ -131,6 +131,8 @@ export interface SwapRecord {
   oldMealId: string;
   newMealId: string;
   timestamp: number;
+  // C1: Full snapshot of old item state for complete undo
+  oldItemState?: Partial<TrayItem>;
 }
 
 /** Guest mode state */
@@ -236,7 +238,7 @@ export const SLOT_TIME_DEFAULTS: Record<MealType, { start: string; end: string }
 };
 
 /** Per-user overrides for slot time windows — stored in profile */
-export type SlotTimePreferences = Record<MealType, { start: string; end: string }>;
+export type SlotTimePreferences = Record<string, { start: string; end: string }>;
 
 /** Resolve defaults for a slot: check user preferences first, then SLOT_TIME_DEFAULTS */
 export function getSlotDefaultTimes(

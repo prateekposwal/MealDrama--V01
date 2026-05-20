@@ -221,8 +221,10 @@ export function getMealResolution(
   dishes: Dish[],
   userId?: string,
 ): MealResolution {
-  // M3: Scope cache to userId to prevent cross-user cache pollution
-  const cacheKey = `${userId ?? 'anon'}::${isoDate}::${slot}::${Object.keys(swaps).length}`;
+  // M5: Cache key scoped to specific date/slot swaps, not global swap count
+  const daySwaps = swaps[isoDate]?.[slot];
+  const swapFingerprint = daySwaps ? `${daySwaps.id ?? daySwaps.meal_id ?? 'none'}` : 'none';
+  const cacheKey = `${userId ?? 'anon'}::${isoDate}::${slot}::${swapFingerprint}`;
   if (_MEAL_RESOLUTION_CACHE.has(cacheKey)) {
     const val = _MEAL_RESOLUTION_CACHE.get(cacheKey)!;
     // LRU: re-insert to move to end
@@ -676,15 +678,15 @@ export const useStore = create<StoreState>()(
 
       clearDeadLetters: () => set({ deadLetterMutations: [] }),
 
-      // H4: Retry dead letter mutations — moves them back to pending queue
+      // M4: Retry dead letter mutations — preserves retryCount to prevent infinite retry loops
       retryDeadLetters: async () => {
         const state = get();
         const { deadLetterMutations, addPendingMutation } = state;
         if (deadLetterMutations.length === 0) return;
 
-        // Reset retry counts and move back to pending
+        // Move back to pending WITHOUT resetting retryCount — server will verify
         for (const mutation of deadLetterMutations) {
-          addPendingMutation(mutation.kind, { ...mutation.payload, retryCount: 0 });
+          addPendingMutation(mutation.kind, { ...mutation.payload });
         }
         set({ deadLetterMutations: [] });
         get().setToast({ message: `Retrying ${deadLetterMutations.length} failed operation(s)…`, type: 'info' });

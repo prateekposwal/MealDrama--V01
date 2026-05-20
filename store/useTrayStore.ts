@@ -447,7 +447,36 @@ export const useTrayStore = create<TrayStore>()(
             plan: { ...s.plan, days: { ...s.plan.days, [date]: { ...day, [mealType]: updatedItems } } },
             saveStatus: { ...s.saveStatus, [itemId]: 'saving' },
             swapHistory: [
-              { id: `swap_${Date.now()}`, date, mealType, itemId, oldMealId, newMealId: newMeal.id, timestamp: Date.now() },
+              {
+                id: `swap_${Date.now()}`,
+                date,
+                mealType,
+                itemId,
+                oldMealId,
+                newMealId: newMeal.id,
+                timestamp: Date.now(),
+                // C1: Store full old item state for complete undo
+                oldItemState: {
+                  meal_id: oldMealId,
+                  name: oldName,
+                  icon: oldIcon,
+                  quantity: oldQuantity,
+                  servings: oldServings,
+                  gravy: oldGravy,
+                  roti: oldRoti,
+                  rice: oldRice,
+                  sides: oldSides,
+                  beverages: oldBeverages,
+                  dessert: oldDessert,
+                  variant: oldVariant,
+                  variantId: oldVariantId,
+                  addon: oldAddon,
+                  style: oldStyle,
+                  itemQtys: oldItemQtys,
+                  start_time: oldStartTime,
+                  end_time: oldEndTime,
+                },
+              },
               ...s.swapHistory.slice(0, 9),
             ],
           };
@@ -680,8 +709,14 @@ export const useTrayStore = create<TrayStore>()(
           const target = items.find(i => i.id === lastSwap.itemId);
           if (!target) return s;
 
+          // C1: Restore full old item state if available, fallback to just meal_id
+          const oldState = lastSwap.oldItemState;
           const updatedItems = items.map(item =>
-            item.id === lastSwap.itemId ? { ...item, meal_id: lastSwap.oldMealId } : item
+            item.id === lastSwap.itemId
+              ? oldState
+                ? { ...item, ...oldState }
+                : { ...item, meal_id: lastSwap.oldMealId }
+              : item
           );
 
           return {
@@ -755,7 +790,8 @@ export const useTrayStore = create<TrayStore>()(
             for (let j = 0; j < selected.length; j++) {
               day[mt].push({
                 ...selected[j]!.meal,
-                id: `${selected[j]!.meal.id}-${iso}-${j}`,
+                // H5: Include mealType and timestamp to prevent ID collisions
+                id: `${selected[j]!.meal.id}-${iso}-${mt}-${j}-${Date.now()}`,
               });
               lastServed.set(selected[j]!.meal.meal_id, iso);
             }

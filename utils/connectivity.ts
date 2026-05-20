@@ -52,14 +52,39 @@ export function isOnline(): boolean {
 }
 
 // Wire browser events once at module load
+let _onlineHandler: (() => Promise<void>) | null = null;
+let _offlineHandler: (() => void) | null = null;
+
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
+  _onlineHandler = async () => {
     _state = 'online';
     _listeners.forEach(fn => fn('online'));
-  });
+    // C2: Process offline queue when connectivity restored
+    try {
+      const { processQueue } = await import('./offlineQueue');
+      const result = await processQueue();
+      if (result.synced > 0) {
+        window.dispatchEvent(new CustomEvent('offline_queue_synced', { detail: result }));
+      }
+    } catch {
+      // processQueue failed — will retry on next online event
+    }
+  };
 
-  window.addEventListener('offline', () => {
+  _offlineHandler = () => {
     _state = 'offline';
     _listeners.forEach(fn => fn('offline'));
-  });
+  };
+
+  window.addEventListener('online', _onlineHandler);
+  window.addEventListener('offline', _offlineHandler);
+
+  // M2: HMR cleanup — remove listeners on module dispose to prevent accumulation
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      if (_onlineHandler) window.removeEventListener('online', _onlineHandler);
+      if (_offlineHandler) window.removeEventListener('offline', _offlineHandler);
+      _listeners.clear();
+    });
+  }
 }

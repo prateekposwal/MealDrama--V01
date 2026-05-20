@@ -1,9 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Offline Queue — localStorage-backed FIFO for write actions when offline
 // Framework-agnostic. No store coupling. Pure utility.
+// H4: Consolidated with lib/trayApi.ts offline queue — this module now handles
+//     loop_save and pantry_toggle; trayApi handles add/swap/update/remove.
+//     Both share the same storage key and drain via connectivity.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'app_offline_queue';
+const STORAGE_KEY = 'mealdrama_offline_v2';
+const QUEUE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export type OfflineActionType = 'loop_save' | 'pantry_toggle' | 'dish_add' | 'custom_dish';
 
@@ -12,17 +16,27 @@ export interface QueuedAction {
   type: OfflineActionType;
   payload: unknown;
   timestamp: number;
+  retryCount: number;
+  expiresAt: number;
 }
 
-/** Generate unique id based on type + timestamp + serialized payload */
-function actionId(type: string, payload: unknown): string {
-  return `${type}_${Date.now()}_${JSON.stringify(payload).slice(0, 40)}`;
+/** Generate unique id using crypto.randomUUID for zero collision risk */
+function actionId(type: string, _payload: unknown): string {
+  return `${type}_${crypto.randomUUID?.() ?? `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
 }
 
 function readQueue(): QueuedAction[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const queue: QueuedAction[] = JSON.parse(raw);
+    // Filter out expired actions
+    const now = Date.now();
+    const valid = queue.filter(a => a.expiresAt > now);
+    if (valid.length !== queue.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(valid));
+    }
+    return valid;
   } catch {
     return [];
   }
@@ -41,7 +55,12 @@ export function enqueue(type: OfflineActionType, payload: unknown): void {
   const queue = readQueue();
   const id = actionId(type, payload);
   if (queue.some(a => a.id === id)) return;
-  queue.push({ id, type, payload, timestamp: Date.now() });
+  queue.push({
+    id, type, payload,
+    timestamp: Date.now(),
+    retryCount: 0,
+    expiresAt: Date.now() + QUEUE_EXPIRY_MS,
+  } as QueuedAction);
   writeQueue(queue);
   window.dispatchEvent(new CustomEvent('offline_queue_updated', { detail: { count: queue.length } }));
 }

@@ -79,7 +79,8 @@ const App: React.FC = () => {
     const seen = { breakfast: new Set<string>(), lunch: new Set<string>(), snacks: new Set<string>(), dinner: new Set<string>() };
     for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
       for (const item of planDays[today]?.[mt] ?? _trayLibrary[mt] ?? []) {
-        const dish = fetchedDishes.find((d: Dish) => d.id === item.meal_id)
+        const itemId = 'meal_id' in item ? item.meal_id : item.dishId;
+        const dish = fetchedDishes.find((d: Dish) => d.id === itemId)
           ?? fetchedDishes.find((d: Dish) => d.name === item.name);
         if (dish && !seen[mt].has(dish.id)) {
           seen[mt].add(dish.id);

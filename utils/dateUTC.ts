@@ -56,12 +56,20 @@ export function addDaysISO(iso: string, days: number): string {
 
 /**
  * Get the current time in IST as hours:minutes (24h format).
- * Useful for slot active/completed checks.
+ * C3: Fixed — uses Intl.DateTimeFormat parts to extract IST hours/minutes
+ * without locale string parsing ambiguity.
  */
 export function getISTTime(): { hours: number; minutes: number } {
-  const ist = new Date().toLocaleString('en-US', { timeZone: IST_TIMEZONE });
-  const d = new Date(ist);
-  return { hours: d.getHours(), minutes: d.getMinutes() };
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: IST_TIMEZONE,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(new Date());
+  const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+  const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+  return { hours: hour, minutes: minute };
 }
 
 /**

@@ -27,7 +27,7 @@ function VirtualListInner<T>({
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimateSize,
     overscan,
-  }), [items.length, estimateSize, overscan]);
+  }), [items, estimateSize, overscan]);
 
   const virtualizer = useVirtualizer(virtualizerOptions);
 

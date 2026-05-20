@@ -36,33 +36,30 @@ const DIET_FILTER: Record<string, string[]> = {
 
 const ICON_MAP: Record<string, string> = {
   curry: '🍛', dry: '🥘', tadka: '🫕', gravy: '🍛',
-  roti: '🫓', naan: '🫓', paratha: '🫓', 'tandoori roti': '🫓', puri: '🫓',
+  roti: '🫓', naan: '🫓', paratha: '🫓', 'tandoori roti': '🫓',
   'butter naan': '🫓', 'garlic naan': '🫓', bhakri: '🫓', thepla: '🫓',
   luchi: '🫓', bafla: '🫓', 'plain dosa': '🫓', appam: '🫓',
-  'steamed rice': '🍚', 'jeera rice': '🍚', pulao: '🍚', biryani: '🍚',
+  puri: '🫓', 'steamed rice': '🍚', 'jeera rice': '🍚', pulao: '🍚', biryani: '🍚',
   'lemon rice': '🍚', 'sticky rice': '🍚', 'fried rice': '🍚',
   curd: '🥛', butter: '🧈', salad: '🥗', pickle: '🥒',
   chutney: '🫘', raita: '🥣', papad: '🫓', onion: '🧅', lemon: '🍋',
    kadhi: '🫕',
   'green salad': '🥗', kachumber: '🥒',
   'mixed fruit': '🍎', 'seasonal fruit': '🍇', fruit: '🍎',
-  water: '💧', chaas: '🥛', 'nimbu pani': '🍋', coffee: '☕',
-  tea: '🍵', lassi: '🥤', 'filter coffee': '☕', chai: '🍵',
+  water: '💧', lassi: '🥤', chai: '🍵',
   jam: '🍓', egg: '🥚', cheese: '🧀', ketchup: '🧃', peanuts: '🥜',
-  'roti / phulka': '🫓', 'butter naan': '🫓', 'garlic naan': '🫓', 'aloo paratha': '🫓',
-  'paneer paratha': '🫓', 'gobi paratha': '🫓', 'missi roti': '🫓', 'bhakri': '🫓',
-  'rumali roti': '🫓', 'puri': '🫓', 'kulcha': '🫓', 'luchi': '🫓', 'appam': '🫓',
+  'aloo paratha': '🫓', 'paneer paratha': '🫓', 'gobi paratha': '🫓',
+  'missi roti': '🫓', 'kulcha': '🫓',
   'khamiri roti': '🫓', 'bhature': '🫓',
-  'steamed basmati': '🍚', 'jeera rice': '🍚', 'lemon rice': '🍚', 'curd rice': '🍚',
-  'veg pulao': '🍚', 'khichdi': '🍚', 'sona masoori': '🍚', 'biryani base': '🍚',
-  'pongal': '🍚', 'upma': '🍚', 'curd pulao': '🍚', 'matar pulao': '🍚',
-  'jeera sona masoori': '🍚', 'coconut rice': '🍚',
-  'masala chai': '🍵', 'filter coffee': '☕', 'salted lassi': '🥤', 'sweet lassi': '🥤',
-  'chaas': '🥛', 'nimbu pani': '🍋', 'jaljeera': '🧃', 'aam panna': '🧃',
+  'steamed basmati': '🍚', 'veg pulao': '🍚', 'khichdi': '🍚', 'sona masoori': '🍚',
+  'biryani base': '🍚', 'pongal': '🍚', 'upma': '🍚', 'curd pulao': '🍚',
+  'matar pulao': '🍚', 'jeera sona masoori': '🍚', 'coconut rice': '🍚',
+  'masala chai': '🍵', 'salted lassi': '🥤', 'sweet lassi': '🥤',
+  'jaljeera': '🧃', 'aam panna': '🧃',
   'sol kadhi': '🧃', 'coconut water': '🥥', 'thandai': '🥤', 'badam milk': '🥛',
   'sattu sharbat': '🧃', 'kokum sherbet': '🧃', 'ginger lemon': '🍋',
   'cucumber raita': '🥣', 'boondi raita': '🥣', 'masala raita': '🥣',
-  'papad': '🫓', 'kachumber salad': '🥗', 'mango pickle': '🥒', 'lime pickle': '🥒',
+  'kachumber salad': '🥗', 'mango pickle': '🥒', 'lime pickle': '🥒',
   'mixed chutney': '🫘', 'coconut chutney': '🫘', 'mint chutney': '🫘',
   'tamarind chutney': '🫘', 'fryums': '🍟', 'onion rings': '🧅', 'lemon wedge': '🍋',
   'green chili': '🌶️',
@@ -91,6 +88,8 @@ interface SwapCustomizeModalProps {
       quantity: number;
       title?: string;
       style?: string;
+      variant?: string;
+      variantId?: string;
       gravy: string | null;
       roti: string | null;
       rice: string | null;
@@ -395,8 +394,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     setMeal(m);
     setSelectedStyleGroup(style ? internalToStyleGroup(style) : null);
     setSelectedCategories({
-      bread: !variantPrefersRice && (defaults.roti ? [defaults.roti] : []),
-      rice: !variantPrefersRoti && (defaults.rice ? [defaults.rice] : []),
+      bread: !variantPrefersRice ? (defaults.roti ? [defaults.roti] : []) : [],
+      rice: !variantPrefersRoti ? (defaults.rice ? [defaults.rice] : []) : [],
       side: defaults.sides,
       beverage: defaults.beverages,
       dessert: defaults.dessert,

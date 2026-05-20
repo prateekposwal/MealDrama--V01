@@ -185,6 +185,10 @@ export function createAbortableFetch(
   options?: RequestInit & { signal?: AbortSignal },
 ): { promise: Promise<Response>; abort: () => void } {
   const controller = new AbortController();
+  // M1: Respect external signal if provided — wire it to our controller
+  if (options?.signal) {
+    options.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
   const promise = fetch(url, {
     ...options,
     signal: controller.signal,

@@ -1121,12 +1121,10 @@ export function deriveIngredientsForDay(
     // TC-07: Skip empty or zero quantity meals
     if (!meal || meal.quantity === 0) return result;
 
-    // NEW: Filter out past/missed slots for pantry
-    // Import isSlotLocked and isSlotMissed from useStore (need to handle this carefully)
-    // For now, we'll check time-based filtering here
+    // H3: Use SLOT_TIME_DEFAULTS end hours instead of hardcoded values
     const now = new Date();
-    const slotHourMap: Record<string, number> = { Breakfast: 8, Lunch: 13, Snacks: 16, Dinner: 20 };
-    const slotEndHour = (slotHourMap[slot] || 12) + 1; // 1 hour grace
+    const slotEndHourMap: Record<string, number> = { breakfast: 10, lunch: 15, snacks: 18, dinner: 23 };
+    const slotEndHour = (slotEndHourMap[slot.toLowerCase()] || 15) + 1; // 1 hour grace
 
     // Build local midnight for the given date — avoids UTC-vs-local ambiguity
     const localMidnight = new Date(date + 'T00:00:00');
