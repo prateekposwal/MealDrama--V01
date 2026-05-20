@@ -439,6 +439,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [mealTab, setMealTab] = useState<'upcoming' | 'history'>('upcoming');
     const [healthExpanded, setHealthExpanded] = useState(false);
 
+    // Auto-switch to 'history' when all today's slots are completed
+    useEffect(() => {
+      if (mealTab === 'upcoming' && displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length > 0) {
+        setMealTab('history');
+      }
+    }, [mealTab, displayActiveUpcomingSlots.length, displayCompletedSlots.length]);
+
     // H11: plateScore only depends on meal content, not slot timing.
     // We derive slot lists directly from getMeals to avoid recomputing
     // when slotTimesRefreshKey changes (which only affects time display).
