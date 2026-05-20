@@ -23,40 +23,6 @@ import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import { generateMealTitle } from '../../utils/generateMealTitle';
 import { pickFeaturedMeals } from '../../utils/mealRotation';
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [onCancel]);
-
-    return (
-        <div
-            ref={ref}
-            className="inline-flex items-center gap-1 px-1.5 py-1 rounded-full bg-gray-100 border border-gray-200"
-            onClick={(e) => e.stopPropagation()}
-        >
-            <select
-                value={s}
-                onChange={e => setS(e.target.value)}
-                className="text-[9px] font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
-            >
-                {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
-            </select>
-            <span className="text-[9px] text-gray-400">–</span>
-            <select
-                value={e}
-                onChange={e => setE(e.target.value)}
-                className="text-[9px] font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
-            >
-                {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
-            </select>
-            <button
-                onClick={() => onSave(s, e)}
-                className="text-[9px] font-bold text-white bg-[#FF385C] px-1.5 py-0.5 rounded-full ml-1 active:scale-90"
-            >
-                OK
-            </button>
-        </div>
-    );
-};
 
 export type SlotMode = 'active' | 'upcoming' | 'completed' | 'history' | 'builder' | 'skipped';
 
