@@ -13,18 +13,26 @@ const _listeners = new Set<(state: ConnectivityState) => void>();
  * navigator.onLine can give false positives (captive portals, DNS failures).
  */
 export async function checkConnectivity(timeoutMs = 3000): Promise<boolean> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch('/api/health', {
-      method: 'HEAD',
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    return res.ok;
-  } catch {
-    return false;
+  // M13: If navigator says offline, trust it — no need to fetch
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+
+  // Try multiple endpoints in case /api/health doesn't exist
+  const endpoints = ['/api/health', '/api/v1/health', '/'];
+  for (const endpoint of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch(endpoint, {
+        method: 'HEAD',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok || res.status === 304 || res.status === 405) return true;
+    } catch {
+      // Try next endpoint
+    }
   }
+  return false;
 }
 
 /** Subscribe to connectivity changes. Returns unsubscribe function. */

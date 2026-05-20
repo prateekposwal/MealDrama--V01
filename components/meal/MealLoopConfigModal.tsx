@@ -4,6 +4,7 @@ import type { MealType, MealLoopConfig, InsertStrategy } from '../../types/tray'
 import type { RepeatPattern } from '../../types/tray';
 import { validateSourcePool, buildLoopAssignments, buildLoopSummary, type SourcePool } from '../../utils/mealLoopEngine';
 import { useTrayStore } from '../../store/useTrayStore';
+import { getISODate } from '../../utils/dateUTC';
 
 const SLOT_LABELS: Record<MealType, string> = {
   breakfast: 'Breakfast',
@@ -21,10 +22,6 @@ const STRATEGY_OPTIONS: { value: InsertStrategy; label: string; desc: string; ic
   { value: 'immediate', label: 'Immediate Priority', desc: 'New dishes jump to next slot', icon: <Zap size={12} /> },
   { value: 'next-cycle', label: 'Next Cycle Only', desc: 'Wait until current cycle ends', icon: <Calendar size={12} /> },
 ];
-
-function getISODate(d: Date): string {
-  return d.toLocaleDateString('en-CA');
-}
 
 interface MealLoopConfigModalProps {
   isOpen: boolean;

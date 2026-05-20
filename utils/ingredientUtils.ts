@@ -2,6 +2,7 @@ import type { Dish, Ingredient, IngredientCategory, DishVariant } from '../const
 import { getMealResolution, type MealResolution, type CategorySelection } from '../store/useStore';
 import { cachedIngredients } from './cache';
 import { resolveDisplayName } from './resolveDisplayName';
+import { getISODate, addDaysISO } from './dateUTC';
 
 const ing = (name: string, qty: number, unit: string, category: IngredientCategory): Ingredient =>
   ({ name, quantity: qty, unit, category, inStock: false });
@@ -1134,7 +1135,7 @@ export function deriveIngredientsForDay(
     slotDate.setHours(slotEndHour);
 
     // Compare using local date strings — consistent timezone across all operations
-    const today = now.toLocaleDateString('en-CA'); // YYYY-MM-DD in local time
+    const today = getISODate(now); // YYYY-MM-DD in UTC
     if (date < today) return result; // Past day - skip
     if (date === today && now >= slotDate) return result; // Slot time passed today
 
@@ -1165,7 +1166,7 @@ export function deriveIngredientsForDateRange(
     const end = new Date(endDate + 'T00:00:00');
 
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const isoDate = d.toLocaleDateString('en-CA');
+        const isoDate = getISODate(d);
         for (const slot of slots) {
             const dayIngredients = deriveIngredientsForDay(isoDate, slot, trayLibrary, swaps, dishes);
             result.push(...dayIngredients);
@@ -1242,15 +1243,11 @@ function consolidateGrains(allIngredients: { ing: Ingredient; source: string }[]
 }
 
 export function getTomorrowISO(): string {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toLocaleDateString('en-CA');
+    return addDaysISO(getISODate(), 1);
 }
 
 export function getWeekEndISO(): string {
-    const d = new Date();
-    d.setDate(d.getDate() + 6);
-    return d.toLocaleDateString('en-CA');
+    return addDaysISO(getISODate(), 6);
 }
 
 export function getMealNamesForDay(

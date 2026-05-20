@@ -28,6 +28,7 @@ import { getShareStrings, ShareLanguage } from '../utils/share';
 
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
 import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd } from '../types/tray';
+import { getISODate } from '../utils/dateUTC';
 
 /** Fallback whole-grain keywords matched against dish/component names when health maps are missing */
 const WHOLE_GRAIN_NAMES = [
@@ -184,7 +185,9 @@ interface DashboardProps {
     onManageTray?: () => void;
 }
 
-const getTodayISO = (d?: Date) => (d || new Date()).toLocaleDateString('en-CA');
+import { getISODate } from '../utils/dateUTC';
+
+const getTodayISO = getISODate;
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManageTray }) => {
     const { dishes } = useBackendDishes();
@@ -234,12 +237,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
 
-    const ADD_DISH_DUMMY: TrayItem = {
+    const ADD_DISH_DUMMY = useMemo<TrayItem>(() => ({
         id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
         quantity: 1, servings: 1, smartVersion: 1,
         gravy: null, roti: null, rice: null,
         sides: [], beverages: [], dessert: [], itemQtys: {},
-    };
+    }), []);
 
     const currentSlotMeals = useTrayStore(s => s.plan.days[today]?.[quickAddSlot.toLowerCase() as MealType]);
     const todayMealData = useTrayStore(s => s.plan.days[today]);
@@ -425,7 +428,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         guestMode.active, guestMode.guestCount, guestMode.extraServings,
         guestMode.startDate, guestMode.endDate,
     ]);
-    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences, skipped), [getMeals, today, committedCompletions, preferences, skipped, slotTimesRefreshKey, todayMealData]);
+    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences, skipped), [getMeals, today, committedCompletions, preferences, skipped, slotTimesRefreshKey]);
     const activeSlots = categorizedSlots.filter(s => s.section === 'active');
     const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
     const completedSlots = categorizedSlots.filter(s => s.section === 'completed');

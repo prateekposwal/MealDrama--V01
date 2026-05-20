@@ -23,6 +23,7 @@ import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import { generateMealTitle } from '../../utils/generateMealTitle';
 import { pickFeaturedMeals } from '../../utils/mealRotation';
+import { getISODate } from '../../utils/dateUTC';
 
 export type SlotMode = 'active' | 'upcoming' | 'completed' | 'history' | 'builder' | 'skipped';
 
@@ -77,7 +78,7 @@ export interface SlotBodyProps {
   preferences?: Record<string, { start: string; end: string }>;
 }
 
-const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
+import { getISODate } from '../../utils/dateUTC';
 
 function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals: TrayItem[], mealType: MealType, preferences?: Record<string, { start: string; end: string }>) {
   const today = getISODate(new Date());

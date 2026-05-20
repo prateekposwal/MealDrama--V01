@@ -13,6 +13,7 @@ import { SwapCustomizeModal } from '../meal/SwapCustomizeModal';
 import type { TrayItem } from '../../store/useTrayStore';
 import { type SourcePool } from '../../utils/mealLoopEngine';
 import { isAfterEnd, getSlotDefaultTimes } from '../../types/tray';
+import { getISODate } from '../../utils/dateUTC';
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
 const SLOTS: { key: Slot; mealType: MealType; label: Slot }[] = [
@@ -21,8 +22,6 @@ const SLOTS: { key: Slot; mealType: MealType; label: Slot }[] = [
   { key: 'Snacks', mealType: 'snacks', label: 'Snacks' },
   { key: 'Dinner', mealType: 'dinner', label: 'Dinner' },
 ];
-
-const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
 
 interface TrayScreenProps {
     isOpen: boolean;

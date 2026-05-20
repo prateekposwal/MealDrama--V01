@@ -38,7 +38,6 @@ export interface TrayStore {
   };
   guestMode: GuestMode;
   swapHistory: SwapRecord[];
-  offlineQueue: OfflineAction[];
   saveStatus: Record<string, SaveStatus>;
   templates: SavedTemplate[];
   completions: Record<string, number>;
@@ -183,7 +182,6 @@ export const useTrayStore = create<TrayStore>()(
       plan: { period: 'week', days: {} },
       guestMode: { active: false, startDate: '', endDate: '', extraServings: 0 },
       swapHistory: [],
-      offlineQueue: [],
       saveStatus: {},
       templates: [],
       completions: {},

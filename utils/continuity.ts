@@ -1,5 +1,6 @@
 import type { MealType, TrayItem } from '../store/useTrayStore';
 import { isAfterEnd, isSlotActive, getSlotDefaultTimes } from '../types/tray';
+import { getISODate } from './dateUTC';
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
 
@@ -10,7 +11,7 @@ export const SLOTS: { key: Slot; mealType: MealType; label: Slot; startHour: num
     { key: 'Dinner', mealType: 'dinner', label: 'Dinner', startHour: 19, endHour: 23 },
 ];
 
-const getTodayISO = (d?: Date) => (d || new Date()).toLocaleDateString('en-CA');
+const getTodayISO = getISODate;
 
 function isSlotCompleted(
   getMeals: (date: string, mealType: MealType) => TrayItem[],

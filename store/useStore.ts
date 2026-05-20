@@ -207,7 +207,8 @@ export interface CompletedSlot {
   status: 'cooked' | 'missed' | 'skipped';
 }
 
-export const getISODate = (date: Date): string => date.toLocaleDateString('en-CA');
+import { getISODate } from '../utils/dateUTC';
+export { getISODate };
 
 const _MEAL_RESOLUTION_CACHE = new Map<string, MealResolution>();
 const _MEAL_CACHE_MAX = 100;
@@ -218,8 +219,10 @@ export function getMealResolution(
   isoDate: string,
   slot: string,
   dishes: Dish[],
+  userId?: string,
 ): MealResolution {
-  const cacheKey = `${isoDate}::${slot}::${Object.keys(swaps).length}`;
+  // M3: Scope cache to userId to prevent cross-user cache pollution
+  const cacheKey = `${userId ?? 'anon'}::${isoDate}::${slot}::${Object.keys(swaps).length}`;
   if (_MEAL_RESOLUTION_CACHE.has(cacheKey)) {
     const val = _MEAL_RESOLUTION_CACHE.get(cacheKey)!;
     // LRU: re-insert to move to end

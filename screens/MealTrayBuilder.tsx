@@ -19,6 +19,7 @@ import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOT_TIME_DEFAULTS, aggregateSlotItems } from '../types/tray';
 import type { AggregatedCategory } from '../types/tray';
+import { getISODate } from '../utils/dateUTC';
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
 
@@ -42,7 +43,9 @@ interface MealTrayBuilderProps {
     defaultSlot?: string;
 }
 
-const getTodayISO = () => new Date().toLocaleDateString('en-CA');
+import { getISODate } from '../utils/dateUTC';
+
+const getTodayISO = getISODate;
 
 export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp, onComplete, defaultSlot }) => {
     const mountedRef = useRef(true);
@@ -402,10 +405,6 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         }
         return { valid: true };
     }, [slotTimes, currentSlot.mealType]);
-
-    useEffect(() => {
-        console.log('[MealTrayBuilder] State — dishes:', dishes?.length, 'isLoading:', isLoading, 'error:', error, 'currentSlot:', currentSlotIdx, 'slotItems:', trayLibrary[currentSlot?.mealType]?.length, 'displayMeals:', displayMeals?.length, 'showQuickAdd:', showQuickAdd, 'swapOpenKey:', swapOpenKey);
-    });
 
     return (
         <div className="min-h-screen flex flex-col bg-white">

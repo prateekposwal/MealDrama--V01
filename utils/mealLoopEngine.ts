@@ -1,12 +1,11 @@
 import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, InsertStrategy } from '../types/tray';
 import type { Dish, DishStyle } from '../constants/dishLibrary';
 import { getDishStyle } from '../constants/dishStyles';
+import { getISODate } from './dateUTC';
+
+export { getISODate };
 
 const SLOT_TYPES: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
-
-function getISODate(d: Date): string {
-  return d.toLocaleDateString('en-CA');
-}
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);

@@ -17,6 +17,7 @@ import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkel
 import type { Dish } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
 import type { MealLoopConfig } from './types/tray';
+import { getISODate } from './utils/dateUTC';
 
 const DashScreen = React.lazy(() => import('./screens/Dashboard'));
 const PlanScreen = React.lazy(() => import('./screens/PlanScreen'));
@@ -72,7 +73,7 @@ const App: React.FC = () => {
   // ─── Hooks used downstream — placed here (before any conditional return) to satisfy React's Rules of Hooks ───
   const _trayLibrary = useStore(s => s.trayLibrary);
   const planDays = useTrayStore(s => s.plan.days);
-  const today = new Date().toLocaleDateString('en-CA');
+  const today = getISODate();
   const sourcePool = useMemo((): SourcePool => {
     const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
     const seen = { breakfast: new Set<string>(), lunch: new Set<string>(), snacks: new Set<string>(), dinner: new Set<string>() };

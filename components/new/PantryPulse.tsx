@@ -17,6 +17,7 @@ import {
 import type { Ingredient } from '../../constants/dishLibrary';
 import WhatsAppShareModal from './WhatsAppShareModal';
 import { isAfterEnd, SLOT_TIME_DEFAULTS } from '../../types/tray';
+import { getISODate } from '../../utils/dateUTC';
 
 interface PantryItem {
     id: string;
@@ -134,7 +135,7 @@ const PantryPulse: React.FC = () => {
             const start = new Date(tomorrowISO + 'T00:00:00');
             const end = new Date(weekEndISO + 'T00:00:00');
             for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-                const isoDate = d.toLocaleDateString('en-CA');
+                const isoDate = getISODate(d);
                 for (const slot of allSlots) {
                     processSlot(isoDate, slot);
                 }
@@ -195,7 +196,7 @@ const PantryPulse: React.FC = () => {
         for (let i = 0; i < 6; i++) {
             const date = new Date(start);
             date.setDate(start.getDate() + i);
-            const isoDate = date.toLocaleDateString('en-CA');
+            const isoDate = getISODate(date);
             const slots = includeSnacks
                 ? (['Breakfast', 'Lunch', 'Snacks', 'Dinner'] as const)
                 : (['Breakfast', 'Lunch', 'Dinner'] as const);

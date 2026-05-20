@@ -388,9 +388,9 @@ export const suggestionCache = {
       if (cached) {
         return { suggestions: cached, source: 'cache' };
       }
-      // Ultimate fallback: hardcoded defaults
-      const defaults = trayApi.getSuggestions({ mealType: params.mealType, diet: 'veg', region: 'north' }).catch(() => ({ suggestions: [], source: 'cache' }));
-      return { suggestions: (await defaults).suggestions.slice(0, 3), source: 'cache' };
+      // M9: Return empty defaults immediately — don't double-call getSuggestions
+      // which would fail again with the same network issue
+      return { suggestions: [], source: 'cache' };
     }
   },
 };

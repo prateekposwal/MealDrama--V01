@@ -20,8 +20,10 @@ interface FetchOptions extends RequestInit {
 }
 
 function getToken(): string | null {
+  // M10: Always read from localStorage (primary) — sessionStorage is write-only mirror
+  // This prevents stale token returns when one storage is cleared
   try {
-    return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEY);
   } catch {
     return null;
   }
@@ -59,7 +61,8 @@ function generateIdempotencyKey(): string {
 }
 
 async function request<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  const { timeout = 10000, signal: externalSignal, ...fetchOptions } = options;
+  // M11: 15s default timeout — mobile networks (2G/3G) need more headroom than 10s
+  const { timeout = 15000, signal: externalSignal, ...fetchOptions } = options;
   const token = getToken();
 
   if (!_authReady) {

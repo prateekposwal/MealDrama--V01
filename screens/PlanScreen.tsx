@@ -21,6 +21,7 @@ import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { SLOTS } from '../utils/continuity';
 import { getSkipUndoWindowExpiry } from '../types/tray';
+import { getISODate } from '../utils/dateUTC';
 import { computeStyleWarnings } from '../constants/dishStyles';
 
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
@@ -167,7 +168,7 @@ const HistoryDayRow = React.memo<HistoryDayRowProps>(({
 });
 
 
-const getISODate = (d: Date) => d.toLocaleDateString('en-CA');
+import { getISODate } from '../utils/dateUTC';
 
 const NOOP = () => {};
 const PARTIAL = () => () => {};
