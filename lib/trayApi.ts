@@ -141,16 +141,19 @@ export const offlineQueue = {
     if (queue.length === 0 || !navigator.onLine) return { synced: 0, failed: 0, retryable: 0 };
 
     // H10: Sort by dependency order — 'add' before 'swap'/'update' before 'remove'
-    // This ensures items are created before they're updated or removed
     const sorted = [...queue].sort((a, b) => {
       const priorityDiff = (TYPE_PRIORITY[a.type] ?? 0) - (TYPE_PRIORITY[b.type] ?? 0);
       if (priorityDiff !== 0) return priorityDiff;
-      return a.timestamp - b.timestamp; // stable sort by timestamp within same type
+      return a.timestamp - b.timestamp;
     });
 
     let synced = 0;
     let failed = 0;
     let retryable = 0;
+    // H2: Collect successful IDs — only remove AFTER entire drain completes
+    // This prevents data loss if app crashes mid-drain
+    const successIds: string[] = [];
+    const retryIncrements: Map<string, number> = new Map();
 
     for (const action of sorted) {
       try {
@@ -166,21 +169,29 @@ export const offlineQueue = {
             await trayApi.removeItem(action.payload.itemId as string);
             break;
         }
-        this.remove(action.id);
+        successIds.push(action.id);
         synced++;
       } catch {
         if (action.retryCount >= 3) {
-          this.remove(action.id);
-          failed++; // exhausted — permanently lost
+          failed++; // exhausted — will be removed below
         } else {
-          const updated = this.get().map(a =>
-            a.id === action.id ? { ...a, retryCount: a.retryCount + 1 } : a
-          );
-          localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(updated));
-          retryable++; // will be retried on next drain
+          retryIncrements.set(action.id, action.retryCount + 1);
+          retryable++;
         }
       }
     }
+
+    // H2: Atomic update — remove all successful + exhausted actions in one write
+    const updatedQueue = queue.filter(a => {
+      if (successIds.includes(a.id)) return false; // synced — remove
+      if (failed > 0 && a.retryCount >= 3 && !successIds.includes(a.id) && !retryIncrements.has(a.id)) return false; // exhausted — remove
+      return true;
+    }).map(a => {
+      // Increment retry count for retryable actions
+      const newCount = retryIncrements.get(a.id);
+      return newCount ? { ...a, retryCount: newCount } : a;
+    });
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(updatedQueue));
 
     return { synced, failed, retryable };
   },

@@ -627,14 +627,16 @@ export const useStore = create<StoreState>()(
       },
 
       addPendingMutation: (kind, payload) => {
-        // Reconciliation: merge duplicate mutations for the same date+slot+mealId.
-        // If a 'plan' mutation already exists for this exact date+slot+mealId, replace it
-        // instead of stacking — prevents conflicting queued operations.
-        const dedupKey = `${payload.date ?? ''}::${payload.slot ?? ''}::${payload.mealId ?? ''}`;
+        // H3: Dedup key includes all identifying fields:
+        // - 'plan': date + slot + mealId
+        // - 'complete': date + slot + status (cooked/missed/skipped)
+        const dedupKey = kind === 'plan'
+          ? `${payload.date ?? ''}::${payload.slot ?? ''}::${payload.mealId ?? ''}`
+          : `${payload.date ?? ''}::${payload.slot ?? ''}::${payload.status ?? ''}`;
         set((state) => {
-          const existingIdx = kind === 'plan'
-            ? state.pendingMutations.findIndex(m => m.kind === 'plan' && `${(m.payload as any).date ?? ''}::${(m.payload as any).slot ?? ''}::${(m.payload as any).mealId ?? ''}` === dedupKey)
-            : -1;
+          const existingIdx = state.pendingMutations.findIndex(m =>
+            m.kind === kind && `${(m.payload as any).date ?? ''}::${(m.payload as any).slot ?? ''}::${kind === 'plan' ? (m.payload as any).mealId ?? '' : (m.payload as any).status ?? ''}` === dedupKey
+          );
 
           let next: PendingMutation[];
           if (existingIdx >= 0) {

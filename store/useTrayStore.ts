@@ -149,8 +149,9 @@ export function clearAllDebounceTimers(): void {
  * Debounce save wrapper (1000ms default).
  * Prevents API spam during rapid inline edits.
  * Each itemId gets its own timer — concurrent edits don't cancel each other.
+ * H1: Caller can pass onError callback to handle failures — no more silent console.error.
  */
-function debounceSave(key: string, fn: () => Promise<void>, delay = 1000) {
+function debounceSave(key: string, fn: () => Promise<void>, delay = 1000, onError?: (err: unknown) => void) {
   if (debounceTimers.has(key)) {
     clearTimeout(debounceTimers.get(key));
   }
@@ -158,7 +159,8 @@ function debounceSave(key: string, fn: () => Promise<void>, delay = 1000) {
     try {
       await fn();
     } catch (err) {
-      console.error('[TrayStore] Save failed:', err);
+      if (onError) onError(err);
+      else console.error('[TrayStore] Save failed:', err);
     } finally {
       debounceTimers.delete(key);
     }
@@ -381,6 +383,9 @@ export const useTrayStore = create<TrayStore>()(
         let oldVariantId: string | undefined;
         let oldAddon: string | undefined;
         let oldStyle: string | undefined;
+        let oldItemQtys: Record<string, number> | undefined;
+        let oldStartTime: string | undefined;
+        let oldEndTime: string | undefined;
 
         set((s) => {
           const day = s.plan.days[date];
@@ -403,6 +408,9 @@ export const useTrayStore = create<TrayStore>()(
           oldVariantId = target.variantId;
           oldAddon = target.addon;
           oldStyle = target.style;
+          oldItemQtys = target.itemQtys;
+          oldStartTime = target.start_time;
+          oldEndTime = target.end_time;
 
           // Call helper with NEW meal + slot context for fresh defaults
           const defaults = applySmartDefaults(newMeal, mealType, undefined, { useSmartSuggestions: true });
@@ -499,6 +507,9 @@ export const useTrayStore = create<TrayStore>()(
                   variantId: oldVariantId,
                   addon: oldAddon,
                   style: oldStyle,
+                  itemQtys: oldItemQtys,
+                  start_time: oldStartTime,
+                  end_time: oldEndTime,
                 } : item
               );
               return {

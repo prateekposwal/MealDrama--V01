@@ -116,6 +116,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     }, [slotTimePrefs]);
 
     const handleSlotTimeChange = useCallback((mealType: MealType, field: 'start' | 'end', value: string) => {
+        // H8: Compute new values inside setSlotTimes updater to avoid stale closure
         setSlotTimes(prev => {
             const updated = { ...prev[mealType], [field]: value };
             const next = { ...prev, [mealType]: updated };
@@ -127,15 +128,13 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                     updates: { start_time: next[mealType].start, end_time: next[mealType].end },
                 })));
             }
+            // H8: Dispatch profile update with computed values (not stale closure values)
+            const prefs = { ...slotTimePrefs, [mealType]: { start: next[mealType].start, end: next[mealType].end } };
+            updateProfile({ slotTimePreferences: prefs });
+            window.dispatchEvent(new Event('slot_times_updated'));
             return next;
         });
-        const current = slotTimes[mealType];
-        const start = field === 'start' ? value : current?.start || SLOT_TIME_DEFAULTS[mealType].start;
-        const end = field === 'end' ? value : current?.end || SLOT_TIME_DEFAULTS[mealType].end;
-        const prefs = { ...slotTimePrefs, [mealType]: { start, end } };
-        updateProfile({ slotTimePreferences: prefs });
-        window.dispatchEvent(new Event('slot_times_updated'));
-    }, [planDays, batchUpdateItems, today, slotTimePrefs, slotTimes, updateProfile]);
+    }, [planDays, batchUpdateItems, today, slotTimePrefs, updateProfile]);
 
     /** Convert SuggestionMeal to Meal */
     const suggestionToMeal = useCallback((s: SuggestionMeal): Meal => ({

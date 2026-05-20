@@ -91,12 +91,21 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
   // Combine external AbortSignal (for unmount cancellation) with timeout
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  // H6: Track listeners so they're always removed, even if doFetch throws
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
-    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
   }
   // Link to auth abort — if any request gets 401, all others abort too
-  authController.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  const onAuthAbort = () => controller.abort();
+  if (!authController.signal.aborted) {
+    authController.signal.addEventListener('abort', onAuthAbort, { once: true });
+  }
 
   // C3: Generate idempotency key ONCE and reuse on retry
   const idempotencyKey = IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase())

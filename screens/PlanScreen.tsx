@@ -448,15 +448,16 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         [pastDates, getMeals],
     );
 
+    // H5: Use stable key string instead of planDays object reference
+    // planDays is a new object on every store update — comparing keys avoids unnecessary recomputation
+    const planDayKeys = useMemo(() => Object.keys(planDays).sort().join(','), [planDays]);
+
     const upcomingDates = useMemo(() => {
-        if (mealLoop.config && Object.keys(planDays).length > 0) {
-            return Object.keys(planDays).filter(d => d > today).sort();
+        if (mealLoop.config && planDayKeys.length > 0) {
+            return planDayKeys.split(',').filter(d => d > today);
         }
         return weekDates.filter(d => d > today);
-    }, [weekDates, today, mealLoop.config, planDays]);
-
-    // H11: Stabilize upcomingDates to prevent recomputation when past days change
-    const upcomingDatesStable = useMemo(() => upcomingDates, [upcomingDates.join(',')]);
+    }, [weekDates, today, mealLoop.config, planDayKeys]);
 
     // Week label
     const weekLabel = useMemo(() => {
