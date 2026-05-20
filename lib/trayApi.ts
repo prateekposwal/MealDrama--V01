@@ -80,6 +80,7 @@ export interface GuestModeResponse {
 // ─── Offline Queue ──────────────────────────────────────────────────────────
 
 const OFFLINE_QUEUE_KEY = 'mealdrama_offline_v2';
+const QUEUE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export interface QueuedAction {
   id: string;
@@ -87,6 +88,7 @@ export interface QueuedAction {
   payload: Record<string, unknown>;
   timestamp: number;
   retryCount: number;
+  expiresAt: number;
 }
 
 export const offlineQueue = {
@@ -94,19 +96,28 @@ export const offlineQueue = {
     if (typeof window === 'undefined') return [];
     try {
       const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
-      return raw ? JSON.parse(raw) : [];
+      if (!raw) return [];
+      const queue: QueuedAction[] = JSON.parse(raw);
+      // Filter out expired actions
+      const now = Date.now();
+      const valid = queue.filter(a => a.expiresAt > now);
+      if (valid.length !== queue.length) {
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(valid));
+      }
+      return valid;
     } catch {
       return [];
     }
   },
 
-  add(action: Omit<QueuedAction, 'id' | 'timestamp' | 'retryCount'>) {
+  add(action: Omit<QueuedAction, 'id' | 'timestamp' | 'retryCount' | 'expiresAt'>) {
     const queue = this.get();
     const newAction: QueuedAction = {
       ...action,
       id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       timestamp: Date.now(),
       retryCount: 0,
+      expiresAt: Date.now() + QUEUE_EXPIRY_MS,
     };
     queue.push(newAction);
     localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
