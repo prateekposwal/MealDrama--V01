@@ -46,21 +46,38 @@ export interface PendingMutation {
 const MAX_RETRIES = 3;
 
 // C2: Single online listener lives in connectivity.ts — stores subscribe via onConnectivityChange()
-// Uses dynamic getState() reference to survive HMR store recreation
-let _unsubscribeConnectivity: (() => void) | null = null;
-let _drainTimer: ReturnType<typeof setTimeout> | null = null;
-let _isRetrying = false;
-let _drainTracker = new RequestTracker();
+// H1: Use window singleton for module-level state — survives HMR module recreation
+interface DrainState {
+  timer: ReturnType<typeof setTimeout> | null;
+  isRetrying: boolean;
+  tracker: RequestTracker;
+}
+
+function _getDrainState(): DrainState {
+  if (typeof window === 'undefined') {
+    return { timer: null, isRetrying: false, tracker: new RequestTracker() };
+  }
+  if (!(window as Record<string, unknown>).__mdDrainState) {
+    (window as Record<string, unknown>).__mdDrainState = {
+      timer: null,
+      isRetrying: false,
+      tracker: new RequestTracker(),
+    };
+  }
+  return (window as Record<string, unknown>).__mdDrainState as DrainState;
+}
 
 function _scheduleDrain() {
+  const ds = _getDrainState();
   if (typeof window === 'undefined') return;
-  if (_drainTimer) clearTimeout(_drainTimer);
-  _drainTimer = setTimeout(() => {
-    _drainTimer = null;
+  if (ds.timer) clearTimeout(ds.timer);
+  ds.timer = setTimeout(() => {
+    ds.timer = null;
   }, 2000);
 }
 
 // Subscribe to connectivity changes — drain when online
+let _unsubscribeConnectivity: (() => void) | null = null;
 if (typeof window !== 'undefined') {
   _unsubscribeConnectivity = onConnectivityChange((state) => {
     if (state === 'online') {
@@ -72,10 +89,11 @@ if (typeof window !== 'undefined') {
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       if (_unsubscribeConnectivity) _unsubscribeConnectivity();
-      if (_drainTimer) clearTimeout(_drainTimer);
-      _drainTimer = null;
-      _isRetrying = false;
-      _drainTracker = new RequestTracker();
+      const ds = _getDrainState();
+      if (ds.timer) clearTimeout(ds.timer);
+      ds.timer = null;
+      ds.isRetrying = false;
+      ds.tracker = new RequestTracker();
     });
   }
 }
@@ -432,10 +450,11 @@ export const useStore = create<StoreState>()(
 
       logout: () => {
         // Clear cross-store mutable state to prevent stale data leaking to next user
-        if (_drainTimer) clearTimeout(_drainTimer);
-        _drainTimer = null;
-        _isRetrying = false;
-        _drainTracker.cancelAll();
+        const ds = _getDrainState();
+        if (ds.timer) clearTimeout(ds.timer);
+        ds.timer = null;
+        ds.isRetrying = false;
+        ds.tracker.cancelAll();
         requestDedupCache.clear();
         // M1: Clear meal resolution cache on logout — prevents User A's data leaking to User B
         invalidateMealResolutionCache();
@@ -658,7 +677,7 @@ export const useStore = create<StoreState>()(
           }
           return { pendingMutations: next };
         });
-        if (typeof window !== 'undefined' && !_drainTimer) {
+        if (typeof window !== 'undefined' && !_getDrainState().timer) {
           _scheduleDrain();
         }
       },
@@ -694,7 +713,7 @@ export const useStore = create<StoreState>()(
         get().setToast({ message: `Retrying ${deadLetterMutations.length} failed operation(s)…`, type: 'info' });
 
         // Trigger immediate drain
-        if (typeof window !== 'undefined' && !_drainTimer) {
+        if (typeof window !== 'undefined' && !_getDrainState().timer) {
           _scheduleDrain();
         }
         // Force drain now if online
@@ -707,13 +726,13 @@ export const useStore = create<StoreState>()(
         const state = get();
         const { pendingMutations, removePendingMutation, moveToDeadLetter } = state;
         if (pendingMutations.length === 0) return;
-        if (_isRetrying) return;
-        _isRetrying = true;
-        const requestId = _drainTracker.start();
+        if (_getDrainState().isRetrying) return;
+        _getDrainState().isRetrying = true;
+        const requestId = _getDrainState().tracker.start();
         // C2: Snapshot mutation IDs to iterate — logout() clears the array mid-drain
         const mutationIds = pendingMutations.map(m => m.id);
         for (const id of mutationIds) {
-          if (!_drainTracker.isCurrent(requestId)) break;
+          if (!_getDrainState().tracker.isCurrent(requestId)) break;
           // Re-read mutation from current state (may have been removed by concurrent operations)
           const current = get().pendingMutations.find(m => m.id === id);
           if (!current) continue;
@@ -745,7 +764,7 @@ export const useStore = create<StoreState>()(
             }
           }
         }
-        _isRetrying = false;
+        _getDrainState().isRetrying = false;
       },
 
       // Smart Queue actions

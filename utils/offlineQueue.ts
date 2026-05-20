@@ -88,14 +88,16 @@ export function clearQueue(): void {
   window.dispatchEvent(new CustomEvent('offline_queue_updated', { detail: { count: 0 } }));
 }
 
-/** Process all queued actions. Returns { synced, failed } counts. */
+/** Process all queued actions with retry + exponential backoff. Returns { synced, failed } counts. */
 export async function processQueue(): Promise<{ synced: number; failed: number }> {
   const queue = readQueue();
   if (queue.length === 0) return { synced: 0, failed: 0 };
 
   const synced: string[] = [];
   const failed: string[] = [];
+  const retryable: Array<{ action: QueuedAction; attempt: number }> = [];
 
+  // First pass: try all actions
   for (let i = 0; i < queue.length; i++) {
     const action = queue[i];
     if (!action) continue;
@@ -114,15 +116,47 @@ export async function processQueue(): Promise<{ synced: number; failed: number }
           break;
       }
       synced.push(action.id);
-    } catch (e) {
-      console.warn('[OfflineQueue] Failed action, moving to dead-letter:', action.type, e);
+    } catch {
+      const attempt = (action.retryCount ?? 0) + 1;
+      if (attempt >= 3) {
+        failed.push(action.id);
+      } else {
+        retryable.push({ action, attempt });
+      }
+    }
+  }
+
+  // H6: Retry failed actions with exponential backoff (1s, 2s, 4s)
+  for (const { action, attempt } of retryable) {
+    const delayMs = Math.pow(2, attempt - 1) * 1000;
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    try {
+      switch (action.type) {
+        case 'loop_save':
+          await processLoopSave(action);
+          break;
+        case 'pantry_toggle':
+          await processPantryToggle(action);
+          break;
+        default:
+          break;
+      }
+      synced.push(action.id);
+    } catch {
+      // Second failure — mark as dead letter
       failed.push(action.id);
     }
   }
 
-  // Remove successfully processed items
-  const syncedSet = new Set(synced);
-  const remaining = readQueue().filter(a => !syncedSet.has(a.id));
+  // Remove successfully processed + exhausted items
+  const processedSet = new Set([...synced, ...failed]);
+  const remaining = readQueue()
+    .filter(a => !processedSet.has(a.id))
+    .map(a => {
+      // Increment retry count for items that failed but are still in queue
+      const wasRetried = retryable.find(r => r.action.id === a.id);
+      return wasRetried ? { ...a, retryCount: wasRetried.attempt } : a;
+    });
   writeQueue(remaining);
   window.dispatchEvent(new CustomEvent('offline_queue_updated', { detail: { count: remaining.length } }));
 

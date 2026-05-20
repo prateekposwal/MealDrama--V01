@@ -146,6 +146,16 @@ export function clearAllDebounceTimers(): void {
   debounceTimers.clear();
 }
 
+/** H2: Get current timer count for debugging */
+export function getDebounceTimerCount(): number {
+  return debounceTimers.size;
+}
+
+// H2: Clear pending timers on tab close — offline queue will retry on next load
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => clearAllDebounceTimers());
+}
+
 /**
  * Debounce save wrapper (1000ms default).
  * Prevents API spam during rapid inline edits.
