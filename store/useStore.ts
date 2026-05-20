@@ -58,10 +58,24 @@ function _scheduleDrain() {
 }
 
 // Wire online event once — calls drainPendingMutations when connectivity is restored
+// Uses dynamic getState() reference to survive HMR store recreation
+let _onlineHandler: (() => void) | null = null;
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
+  _onlineHandler = () => {
     setTimeout(() => useStore.getState().drainPendingMutations(), 500);
-  });
+  };
+  window.addEventListener('online', _onlineHandler);
+
+  // HMR cleanup: reset module-level state and re-wire listener on module reload
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      if (_onlineHandler) window.removeEventListener('online', _onlineHandler);
+      if (_drainTimer) clearTimeout(_drainTimer);
+      _drainTimer = null;
+      _isRetrying = false;
+      _drainTracker = new RequestTracker();
+    });
+  }
 }
 
 export interface User {
@@ -409,14 +423,28 @@ export const useStore = create<StoreState>()(
 
       setUser: (user: User) => set({ user, isLoggedIn: true }),
 
-      logout: () =>
+      logout: () => {
+        // Clear cross-store mutable state to prevent stale data leaking to next user
+        if (_drainTimer) clearTimeout(_drainTimer);
+        _drainTimer = null;
+        _isRetrying = false;
+        _drainTracker = new RequestTracker();
+        requestDedupCache.clear();
+        // Notify TrayStore to clear its debounce timers (avoids circular import)
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('store:logout'));
         set({
           isLoggedIn: false,
           user: null,
           swaps: {},
           notifications: [],
           trayEditSession: null,
-        }),
+          pendingMutations: [],
+          deadLetterMutations: [],
+          smartQueue: { week2: [], favorites: [] },
+          trayLibrary: { breakfast: [], lunch: [], dinner: [], snacks: [] },
+          trayBuilt: false,
+        });
+      },
 
       addToTray: (slot: string, meal: MealOption) =>
         set((state) => {
@@ -596,13 +624,13 @@ export const useStore = create<StoreState>()(
       },
 
       addPendingMutation: (kind, payload) => {
-        // Reconciliation: merge duplicate mutations for the same date+slot.
-        // If a 'plan' mutation already exists for this date+slot, replace it
+        // Reconciliation: merge duplicate mutations for the same date+slot+mealId.
+        // If a 'plan' mutation already exists for this exact date+slot+mealId, replace it
         // instead of stacking — prevents conflicting queued operations.
         const dedupKey = `${payload.date ?? ''}::${payload.slot ?? ''}::${payload.mealId ?? ''}`;
         set((state) => {
           const existingIdx = kind === 'plan'
-            ? state.pendingMutations.findIndex(m => m.kind === 'plan' && `${(m.payload as any).date ?? ''}::${(m.payload as any).slot ?? ''}` === dedupKey)
+            ? state.pendingMutations.findIndex(m => m.kind === 'plan' && `${(m.payload as any).date ?? ''}::${(m.payload as any).slot ?? ''}::${(m.payload as any).mealId ?? ''}` === dedupKey)
             : -1;
 
           let next: PendingMutation[];
@@ -837,14 +865,16 @@ export const useStore = create<StoreState>()(
           state.customDishes = [];
         }
         if (fromVersion < 8) {
-          // v7 → v8: force auth reset — handles same-version reinstall where Capacitor localStorage persists
+          // v7 → v8: reset auth state only — preserves user's meal planning data
+          // Handles same-version reinstall where Capacitor localStorage persists
           state.isLoggedIn = false;
           state.user = null;
           state.trayBuilt = false;
           state.swaps = {};
           state.notifications = [];
-          state.trayLibrary = { breakfast: [], lunch: [], dinner: [], snacks: [] };
-          state.smartQueue = { week2: [], favorites: [] };
+          state.pendingMutations = [];
+          state.deadLetterMutations = [];
+          // Preserved: trayLibrary, smartQueue, customDishes, roommateLink
         }
         return persistedState as Parameters<typeof persist>[0] extends (s: infer S) => unknown ? S : never;
       },

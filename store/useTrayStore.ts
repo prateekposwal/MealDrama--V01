@@ -134,6 +134,14 @@ export interface TrayStore {
 
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+/** Clear all pending debounce timers — called on logout/HMR to prevent leaks */
+export function clearAllDebounceTimers(): void {
+  for (const timer of debounceTimers.values()) {
+    clearTimeout(timer);
+  }
+  debounceTimers.clear();
+}
+
 /**
  * Debounce save wrapper (1000ms default).
  * Prevents API spam during rapid inline edits.
@@ -163,8 +171,8 @@ const emptyDayMeals = (): DayMeals => ({
   dinner: [],
 });
 
-let _nextId = 0;
-const uid = () => `item_${Date.now()}_${++_nextId}`;
+// Use nanoid for collision-resistant IDs — no counter overflow issues on HMR
+const uid = () => `item_${nanoid(10)}`;
 
 export const useTrayStore = create<TrayStore>()(
   persist(
@@ -332,13 +340,17 @@ export const useTrayStore = create<TrayStore>()(
         });
 
         // Sync to tray library so Profile summary is accurate
-        useStore.getState().addToTray(mealType, {
-          id: meal.id,
-          dishId: meal.id,
-          name: meal.name,
-          icon: meal.icon,
-          sourceRegion: meal.region,
-        });
+        // Guard: only sync if useStore has hydrated (user exists)
+        const storeState = useStore.getState();
+        if (storeState.user) {
+          storeState.addToTray(mealType, {
+            id: meal.id,
+            dishId: meal.id,
+            name: meal.name,
+            icon: meal.icon,
+            sourceRegion: meal.region,
+          });
+        }
 
         window.dispatchEvent(new Event('pantry:invalidate'));
       },
@@ -351,12 +363,22 @@ export const useTrayStore = create<TrayStore>()(
        * 3. Replaces meal_id/name/icon + resets chips
        * 4. Debounce PATCH → offline queue → revert on error
        */
-      swapMealInSlot: (date, mealType, itemId, newMeal) => {
+       swapMealInSlot: (date, mealType, itemId, newMeal) => {
         let oldMealId = '';
         let oldName = '';
         let oldIcon: string | undefined;
         let oldQuantity = 1;
         let oldServings = 1;
+        let oldGravy: string | undefined;
+        let oldRoti: string | undefined;
+        let oldRice: string | undefined;
+        let oldSides: string[] = [];
+        let oldBeverages: string[] = [];
+        let oldDessert: string[] | undefined;
+        let oldVariant: string | undefined;
+        let oldVariantId: string | undefined;
+        let oldAddon: string | undefined;
+        let oldStyle: string | undefined;
 
         set((s) => {
           const day = s.plan.days[date];
@@ -369,6 +391,16 @@ export const useTrayStore = create<TrayStore>()(
           oldIcon = target.icon;
           oldQuantity = target.quantity;
           oldServings = target.servings;
+          oldGravy = target.gravy;
+          oldRoti = target.roti;
+          oldRice = target.rice;
+          oldSides = target.sides || [];
+          oldBeverages = target.beverages || [];
+          oldDessert = target.dessert;
+          oldVariant = target.variant;
+          oldVariantId = target.variantId;
+          oldAddon = target.addon;
+          oldStyle = target.style;
 
           // Call helper with NEW meal + slot context for fresh defaults
           const defaults = applySmartDefaults(newMeal, mealType, undefined, { useSmartSuggestions: true });
@@ -442,13 +474,30 @@ export const useTrayStore = create<TrayStore>()(
             });
             set((s) => ({ saveStatus: { ...s.saveStatus, [itemId]: 'saved' } }));
           } catch {
-            // Revert on error
+            // Revert on error — restore ALL old values, not just meal_id/name/icon
             set((s) => {
               const day = s.plan.days[date];
               if (!day) return s;
               const items = day[mealType];
               const updatedItems = items.map(item =>
-                item.id === itemId ? { ...item, meal_id: oldMealId, name: oldName, icon: oldIcon } : item
+                item.id === itemId ? {
+                  ...item,
+                  meal_id: oldMealId,
+                  name: oldName,
+                  icon: oldIcon,
+                  quantity: oldQuantity,
+                  servings: oldServings,
+                  gravy: oldGravy,
+                  roti: oldRoti,
+                  rice: oldRice,
+                  sides: oldSides,
+                  beverages: oldBeverages,
+                  dessert: oldDessert,
+                  variant: oldVariant,
+                  variantId: oldVariantId,
+                  addon: oldAddon,
+                  style: oldStyle,
+                } : item
               );
               return {
                 plan: { ...s.plan, days: { ...s.plan.days, [date]: { ...day, [mealType]: updatedItems } } },
@@ -935,11 +984,26 @@ export const useTrayStore = create<TrayStore>()(
 );
 
 // ─── Online Event Listener ───────────────────────────────────────────────────
+// Uses dynamic getState() reference to survive HMR store recreation
 
+let _trayOnlineHandler: (() => void) | null = null;
+let _logoutHandler: (() => void) | null = null;
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    setTimeout(() => {
-      useTrayStore.getState().syncOfflineQueue();
-    }, 500);
-  });
+  _trayOnlineHandler = () => {
+    setTimeout(() => useTrayStore.getState().syncOfflineQueue(), 500);
+  };
+  window.addEventListener('online', _trayOnlineHandler);
+
+  // Listen for logout to clear debounce timers and prevent stale saves
+  _logoutHandler = () => clearAllDebounceTimers();
+  window.addEventListener('store:logout', _logoutHandler);
+
+  // HMR cleanup: clear timers and re-wire listener on module reload
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      if (_trayOnlineHandler) window.removeEventListener('online', _trayOnlineHandler);
+      if (_logoutHandler) window.removeEventListener('store:logout', _logoutHandler);
+      clearAllDebounceTimers();
+    });
+  }
 }

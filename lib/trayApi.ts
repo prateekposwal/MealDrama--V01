@@ -174,16 +174,23 @@ export const offlineQueue = {
   },
 };
 
-// ─── Simulated Network ──────────────────────────────────────────────────────
+// ─── Simulated Network — DEV ONLY ───────────────────────────────────────────
+// These are mock testing utilities. Disabled in production to prevent
+// real user data loss (3% random failure) and artificial latency (300-500ms).
 
-const simulateDelay = (ms = 300, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
-  const timer = setTimeout(resolve, ms + Math.random() * 200);
-  signal?.addEventListener('abort', () => {
-    clearTimeout(timer);
-    reject(new DOMException('Aborted', 'AbortError'));
+const DEV_MODE = import.meta.env.DEV;
+
+const simulateDelay = (ms = 300, signal?: AbortSignal) => {
+  if (!DEV_MODE) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms + Math.random() * 200);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    });
   });
-});
-const simulateFailure = () => Math.random() < 0.03;
+};
+const simulateFailure = () => DEV_MODE && Math.random() < 0.03;
 
 // ─── API Implementation ─────────────────────────────────────────────────────
 
@@ -304,31 +311,25 @@ export const trayApi = {
 
   /**
    * POST /tray/complete — mark a slot as completed
+   * Routes through api.ts auth layer for proper token handling.
    */
   async completeSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
     await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
-    await fetch('/api/tray/complete', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, mealType }),
-      signal,
-    });
+    const { api } = await import('./api');
+    await api.post('/tray/complete', { date, mealType }, { signal });
     return { success: true };
   },
 
   /**
    * POST /api/tray/skip — mark a slot as skipped
+   * Routes through api.ts auth layer for proper token handling.
    */
   async skipSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
     await simulateDelay(200, signal);
     if (simulateFailure()) throw new Error('Network error');
-    await fetch('/api/tray/skip', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, mealType }),
-      signal,
-    });
+    const { api } = await import('./api');
+    await api.post('/tray/skip', { date, mealType }, { signal });
     return { success: true };
   },
 };
