@@ -24,16 +24,6 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       }
-    },
-    build: {
-      target: 'es2020',
-      minify: 'esbuild',
-      cssCodeSplit: true,
-      sourcemap: false,
-      chunkSizeWarningLimit: 800,
-    },
-    optimizeDeps: {
-      include: ['@tanstack/react-virtual'],
     }
   };
 });

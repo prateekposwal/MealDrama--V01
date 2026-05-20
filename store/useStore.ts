@@ -3,8 +3,6 @@ import { persist } from 'zustand/middleware';
 import { Dish } from '../constants/dishLibrary';
 import api from '../lib/api';
 import { RequestTracker, requestDedupCache } from '../utils/asyncGuard';
-import { offlineQueue, trayApi } from '../lib/trayApi';
-import { eventBus } from '../utils/eventBus';
 
 // ─── Roommate Types ──────────────────────────────────────────────────────────
 
@@ -55,8 +53,15 @@ function _scheduleDrain() {
   if (_drainTimer) clearTimeout(_drainTimer);
   _drainTimer = setTimeout(() => {
     _drainTimer = null;
-    // connectivity manager will call drainPendingMutations
+    // online listener will call drainPendingMutations
   }, 2000);
+}
+
+// Wire online event once — calls drainPendingMutations when connectivity is restored
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    setTimeout(() => useStore.getState().drainPendingMutations(), 500);
+  });
 }
 
 export interface User {
@@ -411,13 +416,6 @@ export const useStore = create<StoreState>()(
           swaps: {},
           notifications: [],
           trayEditSession: null,
-          pendingMutations: [],
-          deadLetterMutations: [],
-          trayLibrary: { breakfast: [], lunch: [], dinner: [], snacks: [] },
-          trayBuilt: false,
-          smartQueue: { week2: [], favorites: [] },
-          roommateLink: null,
-          roommateSuggestions: [],
         }),
 
       addToTray: (slot: string, meal: MealOption) =>
@@ -645,77 +643,41 @@ export const useStore = create<StoreState>()(
       drainPendingMutations: async () => {
         const state = get();
         const { pendingMutations, removePendingMutation, moveToDeadLetter } = state;
-
-        // Phase 1: Drain Zustand pendingMutations
-        if (pendingMutations.length > 0 && !_isRetrying) {
-          _isRetrying = true;
-          const requestId = _drainTracker.start();
-          for (const mutation of pendingMutations) {
-            if (!_drainTracker.isCurrent(requestId)) break;
-            try {
-              const endpoint = mutation.kind === 'plan' ? '/plan' : '/complete';
-              await api.post(endpoint, mutation.payload);
-              removePendingMutation(mutation.id);
-            } catch (err: any) {
-              const msg = err?.message ?? '';
-              if (msg.includes('401') || msg.includes('Unauthorized')) {
-                removePendingMutation(mutation.id);
-                state.logout();
-                state.setToast({ message: 'Session expired. Log in again.', type: 'error' });
-                break;
-              }
-              if (msg.includes('409') || msg.includes('Conflict')) {
-                removePendingMutation(mutation.id);
-                break;
-              }
-              const nextCount = mutation.retryCount + 1;
-              if (nextCount >= MAX_RETRIES) {
-                moveToDeadLetter({ ...mutation, retryCount: nextCount });
-              } else {
-                set((s) => ({
-                  pendingMutations: s.pendingMutations.map((m) =>
-                    m.id === mutation.id ? { ...m, retryCount: nextCount } : m
-                  ),
-                }));
-              }
-            }
-          }
-          _isRetrying = false;
-        }
-
-        // Phase 2: Drain localStorage offlineQueue (single source of truth merge)
-        const queued = offlineQueue.get();
-        if (queued.length === 0 || !navigator.onLine) return;
-
-        for (const action of queued) {
+        if (pendingMutations.length === 0) return;
+        if (_isRetrying) return;
+        _isRetrying = true;
+        const requestId = _drainTracker.start();
+        for (const mutation of pendingMutations) {
+          if (!_drainTracker.isCurrent(requestId)) break;
           try {
-            switch (action.type) {
-              case 'add':
-                await trayApi.addSlotItem(action.payload.slotId as string, action.payload as any);
-                break;
-              case 'swap':
-              case 'update':
-                await trayApi.updateItem(action.payload.itemId as string, action.payload as any);
-                break;
-              case 'remove':
-                await trayApi.removeItem(action.payload.itemId as string);
-                break;
+            const endpoint = mutation.kind === 'plan' ? '/plan' : '/complete';
+            await api.post(endpoint, mutation.payload);
+            removePendingMutation(mutation.id);
+          } catch (err: any) {
+            const msg = err?.message ?? '';
+            if (msg.includes('401') || msg.includes('Unauthorized')) {
+              removePendingMutation(mutation.id);
+              state.logout();
+              state.setToast({ message: 'Session expired. Log in again.', type: 'error' });
+              break;
             }
-            offlineQueue.remove(action.id);
-          } catch {
-            if (action.retryCount >= 3) {
-              offlineQueue.remove(action.id);
+            if (msg.includes('409') || msg.includes('Conflict')) {
+              removePendingMutation(mutation.id);
+              break;
+            }
+            const nextCount = mutation.retryCount + 1;
+            if (nextCount >= MAX_RETRIES) {
+              moveToDeadLetter({ ...mutation, retryCount: nextCount });
             } else {
-              const updated = offlineQueue.get().map(a =>
-                a.id === action.id ? { ...a, retryCount: a.retryCount + 1 } : a
-              );
-              // Write back updated retry counts
-              if (typeof window !== 'undefined') {
-                localStorage.setItem('mealdrama_offline_v2', JSON.stringify(updated));
-              }
+              set((s) => ({
+                pendingMutations: s.pendingMutations.map((m) =>
+                  m.id === mutation.id ? { ...m, retryCount: nextCount } : m
+                ),
+              }));
             }
           }
         }
+        _isRetrying = false;
       },
 
       // Smart Queue actions
@@ -889,9 +851,3 @@ export const useStore = create<StoreState>()(
     }
   )
 );
-
-// ─── Event Bus Bridge — Decouples useTrayStore from useStore ─────────────────
-
-eventBus.on('tray:mealAdded', (mealType, meal) => {
-  useStore.getState().addToTray(mealType as string, meal as MealOption);
-});

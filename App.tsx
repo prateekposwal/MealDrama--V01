@@ -13,7 +13,6 @@ import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalConte
 import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
 import { processQueue, getPendingCount, enqueue } from './utils/offlineQueue';
-import { onConnectivityChange, isOnline } from './utils/connectivity';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
 import type { Dish } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
@@ -67,7 +66,8 @@ const App: React.FC = () => {
   } = useStore();
   const { quickSetupOpen, quickSetupPrefill, openQuickSetup, closeQuickSetup } = useStore();
   const { dishes: fetchedDishes } = useBackendDishes();
-  // Zustand v5 persist hydrates synchronously — no guard needed
+  // Hydration guard — prevent routing until Zustand persist has rehydrated
+  const [hydrated, setHydrated] = useState(() => useStore.persist.hasHydrated());
 
   // ─── Hooks used downstream — placed here (before any conditional return) to satisfy React's Rules of Hooks ───
   const _trayLibrary = useStore(s => s.trayLibrary);
@@ -96,18 +96,18 @@ const App: React.FC = () => {
   const [showLoopConfig, setShowLoopConfig] = useState(false);
   const [loopSkipped, setLoopSkipped] = useState(false);
 
-  // ─── Offline queue auto-sync on reconnect (single source via connectivity manager) ───
+  // ─── Offline queue auto-sync on reconnect ───
   useEffect(() => {
-    const unsubscribe = onConnectivityChange(async (state) => {
-      if (state !== 'online') return;
+    const handleOnline = async () => {
       const pending = getPendingCount();
       if (pending === 0) return;
       const result = await processQueue();
       if (result.synced > 0) {
         setToast({ message: `Synced ${result.synced} pending change${result.synced > 1 ? 's' : ''}`, type: 'success' });
       }
-    });
-    return unsubscribe;
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
   }, [setToast]);
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -167,6 +167,11 @@ const App: React.FC = () => {
         }}
       />
     );
+  }
+
+  // Hydration guard — don't route until stores are ready
+  if (!hydrated) {
+    return <PageLoader />;
   }
 
   // ─── Strict Routing: Login → Onboarding → Tray → Loop Config → Dashboard ───

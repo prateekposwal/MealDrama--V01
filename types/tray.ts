@@ -122,21 +122,13 @@ export interface OfflineAction {
 /** Save status for UI indicator */
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
-/** Swap record for undo — stores full snapshot to survive meal deletion */
+/** Swap record for undo */
 export interface SwapRecord {
   id: string;
   date: string;
   mealType: MealType;
   itemId: string;
   oldMealId: string;
-  oldMealName: string;
-  oldMealIcon: string;
-  oldMealGravy: string | null;
-  oldMealRoti: string | null;
-  oldMealRice: string | null;
-  oldMealSides: string[];
-  oldMealBeverages: string[];
-  oldMealDessert: string[];
   newMealId: string;
   timestamp: number;
 }
@@ -340,31 +332,13 @@ export function nextMealSlot(slot: MealType): MealType {
 export function getSkipUndoWindowExpiry(
   mealType: MealType,
   preferences?: SlotTimePreferences | null,
-  timezoneOffsetMinutes?: number,
 ): number {
   const next = nextMealSlot(mealType);
   const defaults = SLOT_TIME_DEFAULTS[next];
   const pref = preferences?.[next];
   const nextStart = pref?.start ?? defaults.start;
   const [h, m] = nextStart.split(':').map(Number);
-
   const now = new Date();
-
-  // If user has a custom timezone offset, calculate expiry in that timezone
-  if (timezoneOffsetMinutes !== undefined) {
-    // Get current time in user's timezone
-    const userTimezoneMs = now.getTime() + (now.getTimezoneOffset() - timezoneOffsetMinutes) * 60_000;
-    const expiry = new Date(userTimezoneMs);
-    expiry.setHours(h ?? 0, m ?? 0, 0, 0);
-    // If next slot is breakfast (wrap to next day), add 1 day
-    if (next === 'breakfast') {
-      expiry.setDate(expiry.getDate() + 1);
-    }
-    // Convert back to UTC timestamp for comparison
-    return expiry.getTime() - (now.getTimezoneOffset() - timezoneOffsetMinutes) * 60_000;
-  }
-
-  // Default: use device local time
   const expiry = new Date(now);
   expiry.setHours(h ?? 0, m ?? 0, 0, 0);
   // If next slot is breakfast (wrap to next day), add 1 day
@@ -386,8 +360,8 @@ export function timeToHours(t: string | undefined | null): number {
 
 /**
  * Resolve effective start/end hours for a slot.
- * Safe for empty arrays — falls back to defaults when items is empty.
- * Priority: item.start_time/end_time → user preferences → SLOT_TIME_DEFAULTS.
+ * Reads from the first meal item's start_time/end_time, falls back to
+ * user preferences, then SLOT_TIME_DEFAULTS.
  * Returns fractional hours for comparison.
  */
 export function resolveSlotTimes(

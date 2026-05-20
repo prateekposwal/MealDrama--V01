@@ -16,24 +16,17 @@ import { generateMealTitle } from '../utils/generateMealTitle';
 import { getDishStyle } from '../constants/dishStyles';
 import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../constants/dishLibrary';
-import { eventBus } from '../utils/eventBus';
+import { useStore } from './useStore';
 
 export type { MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, Meal, MealLoopState, MealLoopConfig, MealLoopAssignment };
 
 // ─── Re-export helper for screens to use directly when needed ────────────────
 export { applySmartDefaults };
 
-/** Resolve effective slot defaults — reads slotTimePreferences from eventBus cache */
-let _cachedSlotTimePreferences: Record<string, { start: string; end: string }> | undefined;
-
-eventBus.on('user:profileUpdated', (_prefs) => {
-  _cachedSlotTimePreferences = _prefs as typeof _cachedSlotTimePreferences;
-});
-
+/** Resolve effective slot defaults — checks user slotTimePreferences, then SLOT_TIME_DEFAULTS */
 function getTimeDef(mealType: MealType): { start: string; end: string } {
-  if (_cachedSlotTimePreferences?.[mealType]) {
-    return { start: _cachedSlotTimePreferences[mealType]!.start, end: _cachedSlotTimePreferences[mealType]!.end };
-  }
+  const prefs = useStore.getState().user?.slotTimePreferences;
+  if (prefs?.[mealType]) return { start: prefs[mealType]!.start, end: prefs[mealType]!.end };
   return SLOT_TIME_DEFAULTS[mealType];
 }
 
@@ -140,24 +133,15 @@ export interface TrayStore {
 // ─── Debounce Registry ───────────────────────────────────────────────────────
 
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const MAX_PENDING_SAVES = 20;
 
 /**
  * Debounce save wrapper (1000ms default).
  * Prevents API spam during rapid inline edits.
  * Each itemId gets its own timer — concurrent edits don't cancel each other.
- * Caps total pending saves to prevent memory exhaustion.
  */
 function debounceSave(key: string, fn: () => Promise<void>, delay = 1000) {
   if (debounceTimers.has(key)) {
     clearTimeout(debounceTimers.get(key));
-  }
-  if (debounceTimers.size >= MAX_PENDING_SAVES && !debounceTimers.has(key)) {
-    const oldestKey = debounceTimers.keys().next().value;
-    if (oldestKey) {
-      clearTimeout(debounceTimers.get(oldestKey));
-      debounceTimers.delete(oldestKey);
-    }
   }
   debounceTimers.set(key, setTimeout(async () => {
     try {
@@ -168,23 +152,6 @@ function debounceSave(key: string, fn: () => Promise<void>, delay = 1000) {
       debounceTimers.delete(key);
     }
   }, delay));
-}
-
-// ─── Pantry Invalidation Debounce ────────────────────────────────────────────
-
-let _pantryInvalidationTimer: ReturnType<typeof setTimeout> | null = null;
-
-/**
- * Debounced pantry invalidation — prevents event storms during rapid edits.
- * Coalesces multiple invalidations into a single event fired after 300ms stable.
- */
-function schedulePantryInvalidate() {
-  if (typeof window === 'undefined') return;
-  if (_pantryInvalidationTimer) clearTimeout(_pantryInvalidationTimer);
-  _pantryInvalidationTimer = setTimeout(() => {
-    _pantryInvalidationTimer = null;
-    window.dispatchEvent(new Event('pantry:invalidate'));
-  }, 300);
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
@@ -364,8 +331,8 @@ export const useTrayStore = create<TrayStore>()(
           }
         });
 
-        // Sync to tray library so Profile summary is accurate (decoupled via event bus)
-        eventBus.emit('tray:mealAdded', mealType, {
+        // Sync to tray library so Profile summary is accurate
+        useStore.getState().addToTray(mealType, {
           id: meal.id,
           dishId: meal.id,
           name: meal.name,
@@ -373,7 +340,7 @@ export const useTrayStore = create<TrayStore>()(
           sourceRegion: meal.region,
         });
 
-        schedulePantryInvalidate();
+        window.dispatchEvent(new Event('pantry:invalidate'));
       },
 
       // ─── Swap Meal (Inline) ─────────────────────────────────────────────
@@ -384,16 +351,24 @@ export const useTrayStore = create<TrayStore>()(
        * 3. Replaces meal_id/name/icon + resets chips
        * 4. Debounce PATCH → offline queue → revert on error
        */
-       swapMealInSlot: (date, mealType, itemId, newMeal) => {
-         let oldItem: TrayItem | undefined;
+      swapMealInSlot: (date, mealType, itemId, newMeal) => {
+        let oldMealId = '';
+        let oldName = '';
+        let oldIcon: string | undefined;
+        let oldQuantity = 1;
+        let oldServings = 1;
 
-         set((s) => {
+        set((s) => {
           const day = s.plan.days[date];
           if (!day) return s;
           const items = day[mealType];
           const target = items.find(i => i.id === itemId);
           if (!target) return s;
-          oldItem = { ...target };
+          oldMealId = target.meal_id;
+          oldName = target.name;
+          oldIcon = target.icon;
+          oldQuantity = target.quantity;
+          oldServings = target.servings;
 
           // Call helper with NEW meal + slot context for fresh defaults
           const defaults = applySmartDefaults(newMeal, mealType, undefined, { useSmartSuggestions: true });
@@ -430,34 +405,18 @@ export const useTrayStore = create<TrayStore>()(
             plan: { ...s.plan, days: { ...s.plan.days, [date]: { ...day, [mealType]: updatedItems } } },
             saveStatus: { ...s.saveStatus, [itemId]: 'saving' },
             swapHistory: [
-              {
-                id: `swap_${Date.now()}`,
-                date,
-                mealType,
-                itemId,
-                oldMealId: target.meal_id,
-                oldMealName: target.name,
-                oldMealIcon: target.icon,
-                oldMealGravy: target.gravy,
-                oldMealRoti: target.roti,
-                oldMealRice: target.rice,
-                oldMealSides: target.sides,
-                oldMealBeverages: target.beverages,
-                oldMealDessert: target.dessert,
-                newMealId: newMeal.id,
-                timestamp: Date.now(),
-              },
+              { id: `swap_${Date.now()}`, date, mealType, itemId, oldMealId, newMealId: newMeal.id, timestamp: Date.now() },
               ...s.swapHistory.slice(0, 9),
             ],
           };
         });
 
-        schedulePantryInvalidate();
+        window.dispatchEvent(new Event('pantry:invalidate'));
 
         // Queue with defaults for replay
         offlineQueue.add({
           type: 'swap',
-          payload: { date, mealType, itemId, newMealId: newMeal.id, oldMealId: oldItem!.meal_id },
+          payload: { date, mealType, itemId, newMealId: newMeal.id, oldMealId },
         });
 
         // Debounce PATCH — sends new defaults server-side
@@ -479,17 +438,17 @@ export const useTrayStore = create<TrayStore>()(
               sides: target?.sides,
               beverages: target?.beverages,
               dessert: target?.dessert,
-              quantity: oldItem?.quantity ?? 1,
+              quantity: oldQuantity,
             });
             set((s) => ({ saveStatus: { ...s.saveStatus, [itemId]: 'saved' } }));
           } catch {
-            // Revert on error — restore FULL snapshot including chips
+            // Revert on error
             set((s) => {
               const day = s.plan.days[date];
-              if (!day || !oldItem) return s;
+              if (!day) return s;
               const items = day[mealType];
               const updatedItems = items.map(item =>
-                item.id === itemId ? { ...oldItem! } : item
+                item.id === itemId ? { ...item, meal_id: oldMealId, name: oldName, icon: oldIcon } : item
               );
               return {
                 plan: { ...s.plan, days: { ...s.plan.days, [date]: { ...day, [mealType]: updatedItems } } },
@@ -515,7 +474,7 @@ export const useTrayStore = create<TrayStore>()(
           };
         });
 
-        schedulePantryInvalidate();
+        window.dispatchEvent(new Event('pantry:invalidate'));
 
         // Queue
         offlineQueue.add({ type: 'update', payload: { date, mealType, itemId, updates } });
@@ -543,14 +502,6 @@ export const useTrayStore = create<TrayStore>()(
 
       // ─── Remove Meal ────────────────────────────────────────────────────
       removeMealFromSlot: (date, mealType, itemId) => {
-        // Clean up any pending debounce timers for this item
-        debounceTimers.forEach((timer, key) => {
-          if (key.includes(`_${itemId}`)) {
-            clearTimeout(timer);
-            debounceTimers.delete(key);
-          }
-        });
-
         set((s) => {
           const day = s.plan.days[date];
           if (!day) return s;
@@ -561,7 +512,7 @@ export const useTrayStore = create<TrayStore>()(
           };
         });
 
-        schedulePantryInvalidate();
+        window.dispatchEvent(new Event('pantry:invalidate'));
 
         offlineQueue.add({ type: 'remove', payload: { date, mealType, itemId } });
 
@@ -594,22 +545,8 @@ export const useTrayStore = create<TrayStore>()(
           const target = items.find(i => i.id === lastSwap.itemId);
           if (!target) return s;
 
-          // Restore full snapshot from swap record — survives meal deletion
           const updatedItems = items.map(item =>
-            item.id === lastSwap.itemId
-              ? {
-                  ...item,
-                  meal_id: lastSwap.oldMealId,
-                  name: lastSwap.oldMealName,
-                  icon: lastSwap.oldMealIcon,
-                  gravy: lastSwap.oldMealGravy,
-                  roti: lastSwap.oldMealRoti,
-                  rice: lastSwap.oldMealRice,
-                  sides: lastSwap.oldMealSides,
-                  beverages: lastSwap.oldMealBeverages,
-                  dessert: lastSwap.oldMealDessert,
-                }
-              : item
+            item.id === lastSwap.itemId ? { ...item, meal_id: lastSwap.oldMealId } : item
           );
 
           return {
@@ -628,17 +565,11 @@ export const useTrayStore = create<TrayStore>()(
         return get().plan.days[date] || emptyDayMeals();
       },
 
-      /** Fill all days in the period with rotation (5-day gap) + anti-repetition (30-day preference)
-       * Returns { success: boolean; reason?: string } for caller feedback */
-      fillPlan: (period: 'week' | 'biweek' | 'month'): { success: boolean; reason?: string } => {
+      /** Fill all days in the period with rotation (5-day gap) + anti-repetition (30-day preference) */
+      fillPlan: (period: 'week' | 'biweek' | 'month') => {
         const today = new Date().toLocaleDateString('en-CA');
         const todayDay = get().plan.days[today];
-        if (!todayDay) return { success: false, reason: 'No plan data for today. Add meals first.' };
-
-        const hasMeals = ['breakfast', 'lunch', 'snacks', 'dinner'].some(
-          mt => (todayDay as any)[mt]?.length > 0
-        );
-        if (!hasMeals) return { success: false, reason: 'Today is empty. Add at least one meal to use as template.' };
+        if (!todayDay) return;
 
         const dayCount = period === 'week' ? 7 : period === 'biweek' ? 14 : 30;
         const types: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
@@ -696,7 +627,7 @@ export const useTrayStore = create<TrayStore>()(
             for (let j = 0; j < selected.length; j++) {
               day[mt].push({
                 ...selected[j]!.meal,
-                id: uid(),
+                id: `${selected[j]!.meal.id}-${iso}-${j}`,
               });
               lastServed.set(selected[j]!.meal.meal_id, iso);
             }
@@ -707,7 +638,6 @@ export const useTrayStore = create<TrayStore>()(
         set((s) => ({
           plan: { ...s.plan, days: { ...s.plan.days, ...days } },
         }));
-        return { success: true };
       },
 
       // ─── Sync Offline Queue ─────────────────────────────────────────────
@@ -865,7 +795,7 @@ export const useTrayStore = create<TrayStore>()(
           };
         });
 
-        schedulePantryInvalidate();
+        window.dispatchEvent(new Event('pantry:invalidate'));
       },
 
       detectLoopPoolChange: (pool, dishes) => {
@@ -1004,15 +934,12 @@ export const useTrayStore = create<TrayStore>()(
   )
 );
 
-// ─── Cleanup on page unload ──────────────────────────────────────────────────
+// ─── Online Event Listener ───────────────────────────────────────────────────
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    // Clear all pending debounce timers
-    debounceTimers.forEach(timer => clearTimeout(timer));
-    debounceTimers.clear();
-    // Clear pantry invalidation timer
-    if (_pantryInvalidationTimer) clearTimeout(_pantryInvalidationTimer);
-    _pantryInvalidationTimer = null;
+  window.addEventListener('online', () => {
+    setTimeout(() => {
+      useTrayStore.getState().syncOfflineQueue();
+    }, 500);
   });
 }

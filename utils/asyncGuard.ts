@@ -83,7 +83,7 @@ export const requestDedupCache = new _RequestDedupCache();
  *     return () => guard.abort();
  *   }, [dep]);
  */
-import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 
 export function useAsyncGuard() {
   const trackerRef = useRef<RequestTracker>(new RequestTracker());
@@ -99,8 +99,7 @@ export function useAsyncGuard() {
   const abort = useCallback(() => trackerRef.current.abort(), []);
   const reset = useCallback(() => trackerRef.current.reset(), []);
 
-  // Stable object reference — safe for useEffect deps
-  return useMemo(() => ({ start, isCurrent, abort, reset }), [start, isCurrent, abort, reset]);
+  return { start, isCurrent, abort, reset };
 }
 
 /**

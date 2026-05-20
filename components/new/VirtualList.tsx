@@ -9,7 +9,6 @@ interface VirtualListProps<T> {
   className?: string;
   outerClassName?: string;
   as?: 'div' | 'ol' | 'ul';
-  getKey?: (item: T, index: number) => string | number;
 }
 
 function VirtualListInner<T>({
@@ -20,24 +19,15 @@ function VirtualListInner<T>({
   className = '',
   outerClassName = '',
   as = 'div',
-  getKey,
 }: VirtualListProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-
-  // Stable key function — reads from ref to avoid stale closure
-  const getItemKey = useMemo(() => {
-    return (index: number) => getKey ? getKey(itemsRef.current[index]!, index) : index;
-  }, [getKey]);
 
   const virtualizerOptions = useMemo(() => ({
     count: items.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimateSize,
     overscan,
-    getItemKey,
-  }), [items.length, estimateSize, overscan, getItemKey]);
+  }), [items.length, estimateSize, overscan]);
 
   const virtualizer = useVirtualizer(virtualizerOptions);
 
@@ -47,7 +37,7 @@ function VirtualListInner<T>({
     <div ref={parentRef} className={`${outerClassName} overflow-auto`}>
       {items.length <= 10 ? (
         <Tag className={className}>
-          {items.map((item, i) => <React.Fragment key={getKey ? getKey(item, i) : i}>{renderItem(item, i)}</React.Fragment>)}
+          {items.map((item, i) => renderItem(item, i))}
         </Tag>
       ) : (
         <Tag className={className} style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>

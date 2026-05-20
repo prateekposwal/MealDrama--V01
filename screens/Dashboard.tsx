@@ -7,7 +7,6 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../lib/trayApi';
-import { suggestionToMeal } from '../utils/suggestionUtils';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import TrayScreen from '../components/new/TrayScreen';
@@ -57,6 +56,26 @@ function inferGrainCategory(name: string): string | null {
   }
   console.log('[FALLBACK]', name, 'no grain keyword match');
   return null;
+}
+
+/** Convert SuggestionMeal (API) to Meal (defaults engine) */
+function suggestionToMeal(s: SuggestionMeal): Meal {
+    return {
+        id: s.id,
+        name: s.name,
+        icon: s.icon,
+        region: s.region.toLowerCase().includes('south') ? 'south'
+            : s.region.toLowerCase().includes('east') ? 'east'
+            : s.region.toLowerCase().includes('west') ? 'west'
+            : 'north',
+        baseGravy: s.defaultGravy,
+        rotiOptions: s.defaultRoti ? [s.defaultRoti] : undefined,
+        riceOptions: s.defaultRice ? [s.defaultRice] : undefined,
+        suggestedPairings: {
+            sides: s.defaultSides,
+            beverages: s.defaultBeverages,
+        },
+    };
 }
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
@@ -177,18 +196,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     }, []);
     const today = getTodayISO(new Date(now));
 
-    const getMeals = useTrayStore(s => s.getMeals);
-    const addMealToSlot = useTrayStore(s => s.addMealToSlot);
-    const swapMealInSlot = useTrayStore(s => s.swapMealInSlot);
-    const updateItemInline = useTrayStore(s => s.updateItemInline);
-    const removeMealFromSlot = useTrayStore(s => s.removeMealFromSlot);
-    const guestMode = useTrayStore(s => s.guestMode);
-    const completions = useTrayStore(s => s.completions);
-    const skipped = useTrayStore(s => s.skipped);
-    const completeSlot = useTrayStore(s => s.completeSlot);
-    const undoCompleteSlot = useTrayStore(s => s.undoCompleteSlot);
-    const skipSlot = useTrayStore(s => s.skipSlot);
-    const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
+    const {
+        getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
+        guestMode, completions, skipped, completeSlot, undoCompleteSlot, skipSlot, undoSkipSlot,
+    } = useTrayStore();
 
     const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const { openKey: swapCustomizeOpenKey, setOpenKey: setSwapCustomizeOpenKey } = useSwapCustomize();
@@ -216,14 +227,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
     const [showTrayScreen, setShowTrayScreen] = useState(false);
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
-    const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    // Cleanup undo timer on unmount
-    useEffect(() => {
-        return () => {
-            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-        };
-    }, []);
     const [showSlotPicker, setShowSlotPicker] = useState(false);
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
@@ -253,9 +256,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             const key = `${today}::${slot.mealType}`;
             const meals = store.getMeals(today, slot.mealType);
             if (meals.length === 0) continue;
-            // Re-read completions/skipped from current state to prevent double-skip
-            const current = useTrayStore.getState();
-            if (current.completions[key] != null || current.skipped[key] != null) continue;
+            if (store.completions[key] != null || store.skipped[key] != null) continue;
             const { start, end } = resolveSlotTimes(meals, slot.mealType);
             if (isAfterEnd(start, end)) {
                 store.skipSlot(today, slot.mealType);
@@ -275,8 +276,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const handleCompleteSlot = useCallback((date: string, mealType: MealType) => {
         completeSlot(date, mealType);
         setUndoSlot({ date, mealType, type: 'complete' });
-        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-        undoTimerRef.current = setTimeout(() => setUndoSlot(null), 10000);
+        setTimeout(() => setUndoSlot(null), 10000);
     }, [completeSlot]);
 
     const handleUndoComplete = useCallback((date: string, mealType: MealType) => {
@@ -287,8 +287,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const handleSkipSlot = useCallback((date: string, mealType: MealType) => {
         skipSlot(date, mealType);
         setUndoSlot({ date, mealType, type: 'skip' });
-        if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
-        undoTimerRef.current = setTimeout(() => setUndoSlot(null), 8000);
+        setTimeout(() => setUndoSlot(null), 8000);
     }, [skipSlot]);
 
     const handleUndoSkip = useCallback((date: string, mealType: MealType) => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import type { MealType } from '../../store/useTrayStore';
 import type { Meal } from '../../types/tray';
 import { suggestionCache, type SuggestionMeal } from '../../lib/trayApi';
@@ -6,7 +6,7 @@ import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
 import { QuickFilters, type DietFilter, type SlotFilter } from './QuickFilters';
-import { isDishAllowedForDiet } from '../../utils/dietFilter';
+import { useAsyncGuard, requestDedupCache } from '../../utils/asyncGuard';
 
 interface SmartSuggestionChipsProps {
   date: string;
@@ -51,7 +51,11 @@ function suggestionToMeal(s: SuggestionMeal): Meal {
 }
 
 function computeDietScoreSimple(mealType: string, userDiet: string): number {
-  return isDishAllowedForDiet(mealType as any, userDiet as any) ? 1 : 0;
+  if (userDiet === 'all' || userDiet === 'non-veg') return 1;
+  if (userDiet === 'veg' && (mealType === 'veg' || mealType === 'vegan' || mealType === 'eggitarian')) return 1;
+  if (userDiet === 'vegan' && mealType === 'vegan') return 1;
+  if (userDiet === 'eggitarian' && (mealType === 'veg' || mealType === 'eggitarian' || mealType === 'vegan')) return 1;
+  return 0;
 }
 
 export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.memo(({
@@ -70,40 +74,37 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
   const [slotFilter, setSlotFilter] = useState<SlotFilter>('all');
 
   const header = SLOT_HEADER[mealType] ?? { emoji: '🍽️', hinglish: 'Add a meal?' };
-  const mountedRef = useRef(true);
+  const asyncGuard = useAsyncGuard();
 
   useEffect(() => {
-    mountedRef.current = true;
-    setLoading(true);
+    const requestId = asyncGuard.start();
+    const cacheKey = `suggestions_${mealType}_${userDiet}_${userRegion}`;
 
-    suggestionCache.getWithFallback({
-      mealType,
-      diet: userDiet,
-      region: userRegion,
-      pantry: pantryStaples.length > 0 ? pantryStaples : undefined,
-    }).then(result => {
-      if (!mountedRef.current) return;
+    setLoading(true);
+    requestDedupCache.get(cacheKey, 5000, () =>
+      suggestionCache.getWithFallback({
+        mealType,
+        diet: userDiet,
+        region: userRegion,
+        pantry: pantryStaples.length > 0 ? pantryStaples : undefined,
+      })
+    ).then(result => {
+      if (!asyncGuard.isCurrent(requestId)) return;
       setSuggestions(result.suggestions);
       setSource(result.source);
       setLoading(false);
-    }).catch(err => {
-      if (!mountedRef.current) return;
-      console.error('[Suggestions] Error:', err);
+    }).catch(() => {
+      if (!asyncGuard.isCurrent(requestId)) return;
       setSuggestions([]);
       setSource('error');
       setLoading(false);
     });
 
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [mealType, userDiet, userRegion, pantryStaples]);
-
-  // Don't render anything when there are no suggestions and not loading
-  if (!loading && suggestions.length === 0) return null;
+    return () => asyncGuard.abort();
+  }, [mealType, userDiet, userRegion, pantryStaples, asyncGuard]);
 
   const scoredSuggestions = useMemo(() => {
-    const filtered = suggestions
+    return suggestions
       .filter(s => {
         if (dietFilter !== 'all') {
           const dietScore = computeDietScoreSimple(s.type, dietFilter);
@@ -128,14 +129,6 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
         return { suggestion: s, scored };
       })
       .sort((a, b) => b.scored.score - a.scored.score);
-
-    // If filters result in zero results, reset to show all
-    if (filtered.length === 0 && suggestions.length > 0) {
-      setDietFilter('all');
-      setSlotFilter('all');
-    }
-
-    return filtered;
   }, [suggestions, dietFilter, slotFilter, mealType, userDiet, userRegion, pantryStaples]);
 
   const handleAdd = useCallback((meal: SuggestionMeal) => {
@@ -190,6 +183,16 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
         <>
           {/* Suggestion chips */}
           <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1" role="list" aria-label="Meal suggestions">
+            {scoredSuggestions.length === 0 && suggestions.length > 0 && (
+              <div className="w-full py-4 text-center">
+                <p className="text-[11px] font-medium text-gray-400">No suggestions match your filters</p>
+              </div>
+            )}
+            {scoredSuggestions.length === 0 && suggestions.length === 0 && source !== 'error' && (
+              <div className="w-full py-4 text-center">
+                <p className="text-[11px] font-medium text-gray-400">No suggestions available</p>
+              </div>
+            )}
             {scoredSuggestions.map(({ suggestion: meal, scored }) => {
               const chipPreview = formatChipPreview(meal);
               const recommendation = formatRecommendation(meal.name, scored.reasons);

@@ -1,21 +1,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { WifiOff, Wifi } from 'lucide-react';
 import { getPendingCount } from '../../utils/offlineQueue';
-import { onConnectivityChange, isOnline } from '../../utils/connectivity';
 
 export const OfflineBanner: React.FC = () => {
-  const [online, setOnline] = useState(isOnline());
+  const [online, setOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(getPendingCount);
 
   const refreshPending = useCallback(() => setPending(getPendingCount()), []);
 
   useEffect(() => {
-    const unsubscribe = onConnectivityChange((state) => {
-      setOnline(state === 'online');
-    });
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
     window.addEventListener('offline_queue_updated', refreshPending);
     return () => {
-      unsubscribe();
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
       window.removeEventListener('offline_queue_updated', refreshPending);
     };
   }, [refreshPending]);
@@ -35,13 +36,17 @@ export const OfflineBanner: React.FC = () => {
 };
 
 export const OnlineStatus: React.FC = () => {
-  const [online, setOnline] = useState(isOnline());
+  const [online, setOnline] = useState(navigator.onLine);
 
   useEffect(() => {
-    const unsubscribe = onConnectivityChange((state) => {
-      setOnline(state === 'online');
-    });
-    return unsubscribe;
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
   }, []);
 
   if (online) return <Wifi size={14} className="text-green-500" />;
