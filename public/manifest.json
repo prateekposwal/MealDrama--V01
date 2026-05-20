@@ -1,0 +1,27 @@
+{
+  "name": "MealDrama — Smart Indian Meal Planner",
+  "short_name": "MealDrama",
+  "description": "Plan, customize, and track your Indian meals with smart suggestions and offline support.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#FF385C",
+  "orientation": "portrait-primary",
+  "categories": ["food", "lifestyle", "productivity"],
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+
   return {
     server: {
       port: 3000,
@@ -24,6 +25,31 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, '.'),
       }
+    },
+    build: {
+      target: 'es2020',
+      minify: 'esbuild',
+      cssCodeSplit: true,
+      sourcemap: false,
+      chunkSizeWarningLimit: 800,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            // Vendor chunks — stable across builds
+            'react-vendor': ['react', 'react-dom'],
+            'lucide-vendor': ['lucide-react'],
+            'zustand-vendor': ['zustand'],
+            'virtual-vendor': ['@tanstack/react-virtual'],
+          },
+          // Long-term caching with content hashes
+          chunkFileNames: 'assets/[name]-[hash].js',
+          entryFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: 'assets/[name]-[hash].[ext]',
+        }
+      }
+    },
+    optimizeDeps: {
+      include: ['react', 'react-dom', 'lucide-react', 'zustand', '@tanstack/react-virtual'],
     }
   };
 });

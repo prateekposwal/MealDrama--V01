@@ -7,6 +7,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../lib/trayApi';
+import { suggestionToMeal } from '../utils/suggestionUtils';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import TrayScreen from '../components/new/TrayScreen';
@@ -56,26 +57,6 @@ function inferGrainCategory(name: string): string | null {
   }
   console.log('[FALLBACK]', name, 'no grain keyword match');
   return null;
-}
-
-/** Convert SuggestionMeal (API) to Meal (defaults engine) */
-function suggestionToMeal(s: SuggestionMeal): Meal {
-    return {
-        id: s.id,
-        name: s.name,
-        icon: s.icon,
-        region: s.region.toLowerCase().includes('south') ? 'south'
-            : s.region.toLowerCase().includes('east') ? 'east'
-            : s.region.toLowerCase().includes('west') ? 'west'
-            : 'north',
-        baseGravy: s.defaultGravy,
-        rotiOptions: s.defaultRoti ? [s.defaultRoti] : undefined,
-        riceOptions: s.defaultRice ? [s.defaultRice] : undefined,
-        suggestedPairings: {
-            sides: s.defaultSides,
-            beverages: s.defaultBeverages,
-        },
-    };
 }
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
