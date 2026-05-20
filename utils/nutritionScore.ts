@@ -111,9 +111,6 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
   const allCategories = meals.flatMap(m => m.healthCategories);
   const allTags = meals.flatMap(m => m.tags);
 
-  console.log('[SCORE_INPUT] meals:', meals.length, 'categories:', allCategories, 'tags:', allTags);
-  console.log('[SCORE_INPUT] has whole-grain:', allCategories.includes('whole-grain'), 'has refined-grain:', allCategories.includes('refined-grain'));
-
   let vegFruitScore = 0;
   let wholeGrainScore = 0;
   let proteinScore = 0;
@@ -131,8 +128,6 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
     if (cat === 'fried') { vegFruitScore -= 1; wholeGrainScore -= 1; }
     if (cat === 'refined-grain') wholeGrainScore -= 1;
   }
-
-  console.log('[SCORE] raw wholeGrainScore:', wholeGrainScore, 'clamped:', Math.max(0, Math.min(10, wholeGrainScore)));
 
   vegFruitScore = Math.max(0, Math.min(10, vegFruitScore));
   wholeGrainScore = Math.max(0, Math.min(10, wholeGrainScore));

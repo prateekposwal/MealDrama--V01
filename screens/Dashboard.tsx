@@ -49,12 +49,11 @@ const REFINED_GRAIN_NAMES = [
 function inferGrainCategory(name: string): string | null {
   const lower = name.toLowerCase();
   for (const kw of WHOLE_GRAIN_NAMES) {
-    if (lower.includes(kw)) { console.log('[FALLBACK]', name, 'matches whole-grain keyword:', kw); return 'whole-grain'; }
+    if (lower.includes(kw)) return 'whole-grain';
   }
   for (const kw of REFINED_GRAIN_NAMES) {
-    if (lower.includes(kw)) { console.log('[FALLBACK]', name, 'matches refined-grain keyword:', kw); return 'refined-grain'; }
+    if (lower.includes(kw)) return 'refined-grain';
   }
-  console.log('[FALLBACK]', name, 'no grain keyword match');
   return null;
 }
 
@@ -539,21 +538,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         return keywords.some(k => allNames.some(n => n.includes(k)));
       };
 
-      console.log('[FATS/SUGAR-CALC] Input items:', allMeals.map(m => ({ name: m.name, quantity: m.quantity, tags: m.tags })));
-
       const fatsMatched = activeItems.filter(i => (i.quantity ?? 1) > 0 && itemMatchesKeywords(i, HEALTHY_FAT_KEYWORDS));
-      console.log('[FATS-FILTER] Matched:', fatsMatched.map(i => i.name), 'Count:', fatsMatched.length);
       const healthyFatsCount = fatsMatched.reduce((sum, i) => sum + (i.quantity ?? 1), 0);
 
       const sugarMatched = activeItems.filter(i => (i.quantity ?? 1) > 0 && itemMatchesKeywords(i, LOW_SUGAR_KEYWORDS));
-      console.log('[SUGAR-FILTER] Matched:', sugarMatched.map(i => i.name), 'Count:', sugarMatched.length);
       const lowSugarCount = sugarMatched.reduce((sum, i) => sum + (i.quantity ?? 1), 0);
 
       result.categories.healthyFat = Math.min(10, healthyFatsCount);
       result.categories.limitSugary = Math.min(5, lowSugarCount);
       result.total = Math.max(0, result.categories.vegFruit + result.categories.wholeGrain + result.categories.protein + result.categories.healthyFat + result.categories.limitSugary + result.categories.limitRedMeat);
-
-      console.log('[METRIC-RENDER] HealthyFats:', healthyFatsCount, 'LowSugar:', lowSugarCount);
 
       return result;
     }, [today, activeSlots, upcomingSlots, completedSlots, getMeals, preferences]);

@@ -169,10 +169,6 @@ export function assignFromQueue(
     last.setDate(last.getDate() + day - 1);
     calendarSpan = Math.round((last.getTime() - s.getTime()) / 86400000) + 1;
   }
-  console.log(
-    `[Loop] Assigned: ${activeDays} active days | ${assignments.length} meals | Skipped: ${skippedDates.length} dates (${skippedDates.join(', ')}) | Total Calendar Span: ${calendarSpan} days`
-  );
-
   return assignments;
 }
 
