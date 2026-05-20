@@ -77,8 +77,21 @@ function generateIdempotencyKey(): string {
   return `idem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function getAdaptiveTimeout(): number {
+  if (typeof navigator === 'undefined') return 15000;
+  const conn = (navigator as Record<string, unknown>).connection as Record<string, unknown> | undefined;
+  if (!conn) return 15000;
+  const effectiveType = conn.effectiveType as string | undefined;
+  switch (effectiveType) {
+    case 'slow-2g': return 30000;
+    case '2g': return 25000;
+    case '3g': return 20000;
+    default: return 15000;
+  }
+}
+
 async function request<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  const { timeout = 15000, signal: externalSignal, ...fetchOptions } = options;
+  const { timeout = getAdaptiveTimeout(), signal: externalSignal, ...fetchOptions } = options;
   const token = getToken();
 
   if (!_authReady) {

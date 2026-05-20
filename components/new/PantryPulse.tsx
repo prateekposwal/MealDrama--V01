@@ -72,7 +72,6 @@ const PantryPulse: React.FC = () => {
     // FIX-10: Listen for pantry invalidation events (swap/cancel)
     React.useEffect(() => {
         const handlePantryInvalidate = () => {
-            console.log('Pantry: Invalidating cache...');
             invalidateIngredientCache();
             setRefreshKey(k => k + 1);
         };

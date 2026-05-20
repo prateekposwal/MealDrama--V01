@@ -120,7 +120,9 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     };
 
     const handleSelectVariant = (variant: DishVariant) => {
-        console.log('[QuickAddModal:handleSelectVariant] selectedDish.id:', selectedDish?.id, 'selectedDish.name:', selectedDish?.name, 'variant.name:', variant.name);
+        if (import.meta.env.DEV) {
+            console.log('[QuickAddModal:handleSelectVariant] selectedDish.id:', selectedDish?.id, 'selectedDish.name:', selectedDish?.name, 'variant.name:', variant.name);
+        }
         if (selectedDish) {
             onAddMeal(date, slot, selectedDish, variant);
             handleClose();

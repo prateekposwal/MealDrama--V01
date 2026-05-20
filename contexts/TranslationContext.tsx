@@ -205,15 +205,34 @@ interface TranslationContextType {
 
 const TranslationContext = createContext<TranslationContextType | undefined>(undefined);
 
+const LANGUAGE_STORAGE_KEY = 'mealdrama_language';
+
 export const TranslationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [language, setLanguage] = useState<Language>('English');
+    const [language, setLanguage] = useState<Language>(() => {
+        try {
+            const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
+            if (saved && saved in translations) return saved as Language;
+        } catch {
+            // storage may be unavailable
+        }
+        return 'English';
+    });
+
+    const setLanguagePersisted = (lang: Language) => {
+        try {
+            localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+        } catch {
+            // storage may be unavailable
+        }
+        setLanguage(lang);
+    };
 
     const t = (key: string) => {
         return translations[language][key] || key;
     };
 
     return (
-        <TranslationContext.Provider value={{ language, setLanguage, t }}>
+        <TranslationContext.Provider value={{ language, setLanguage: setLanguagePersisted, t }}>
             {children}
         </TranslationContext.Provider>
     );

@@ -18,8 +18,9 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   );
-  // Don't skipWaiting immediately — wait for all tabs to close
-  // This prevents JS bundle / SW cache mismatch
+  // M5: Skip waiting immediately — new SW activates right away
+  // This ensures users get the latest assets without closing all tabs
+  self.skipWaiting();
 });
 
 // Activate — clear old caches (scoped to mealdrama-* prefix)

@@ -70,8 +70,17 @@ const App: React.FC = () => {
   } = useStore();
   const { quickSetupOpen, quickSetupPrefill, openQuickSetup, closeQuickSetup } = useStore();
   const { dishes: fetchedDishes } = useBackendDishes();
-  // Hydration guard — prevent routing until Zustand persist has rehydrated
+  // M8: Hydration guard — use onHydrated callback for reliable detection
   const [hydrated, setHydrated] = useState(() => useStore.persist.hasHydrated());
+
+  useEffect(() => {
+    if (!hydrated) {
+      const unsub = useStore.persist.onHydrated(() => {
+        setHydrated(true);
+      });
+      return unsub;
+    }
+  }, [hydrated]);
 
   // ─── Hooks used downstream — placed here (before any conditional return) to satisfy React's Rules of Hooks ───
   const _trayLibrary = useStore(s => s.trayLibrary);
@@ -216,7 +225,6 @@ const App: React.FC = () => {
               console.warn('[LoopConfig] API save failed, saving locally:', e);
             }
             applyLoopConfig(config, sourcePool, fetchedDishes);
-            console.log('[LoopConfig] State updated, navigating to dashboard');
             window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
             setShowLoopConfig(false);
             setLoopSkipped(false);
