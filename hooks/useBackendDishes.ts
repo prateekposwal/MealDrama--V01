@@ -41,29 +41,17 @@ export function useBackendDishes() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const abortController = new AbortController();
-        const { signal } = abortController;
-
-        const storeLen = useStore.getState().dishes.length;
-        if (storeLen > 0) {
-            const stored = useStore.getState().dishes;
-            setDishes(stored);
+        // H4: React to store hydration — if dishes appear in store after mount, use them
+        if (storeDishes.length > 0) {
+            setDishes(storeDishes);
             setSource('store');
             setIsLoading(false);
             setError(null);
-            loadLocalDishesOnce().then(local => {
-                if (signal.aborted) return;
-                const storedIds = new Set(stored.map(d => d.id));
-                const missing = local.filter(d => !storedIds.has(d.id));
-                if (missing.length > 0) {
-                    const merged = [...stored, ...missing];
-                    useStore.getState().setDishes(merged);
-                    setDishes(merged);
-                    setSource('mixed');
-                }
-            });
             return;
         }
+
+        const abortController = new AbortController();
+        const { signal } = abortController;
 
         loadLocalDishesOnce().then(local => {
             if (signal.aborted) return;
@@ -84,8 +72,7 @@ export function useBackendDishes() {
         return () => {
             abortController.abort();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [storeDishes.length]);
 
     const retry = useCallback(() => {
         _loadPromise = null;

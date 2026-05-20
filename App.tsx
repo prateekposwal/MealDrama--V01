@@ -45,10 +45,13 @@ const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; onC
     success: 'bg-green-500',
     info: 'bg-gray-800',
   };
+  const onCloseRef = React.useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
-    const timer = setTimeout(onClose, 4000);
+    const timer = setTimeout(() => onCloseRef.current(), 4000);
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, []);
   return (
     <div className={`fixed top-4 left-4 right-4 max-w-lg mx-auto ${colors[type]} text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between z-[100] animate-in slide-in-from-top-2`}>
       <span className="font-medium text-sm">{message}</span>

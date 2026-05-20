@@ -57,7 +57,17 @@ const PantryPulse: React.FC = () => {
         if (allTodaySlotsPassed()) return 'tomorrow';
         return 'week';
     };
-    const [viewMode, setViewMode] = useState<'tomorrow' | 'week'>(getDefaultViewMode());
+    const [viewMode, setViewMode] = useState<'tomorrow' | 'week'>(getDefaultViewMode);
+
+    // H5: Re-evaluate viewMode when time crosses dinner boundary
+    React.useEffect(() => {
+        const interval = setInterval(() => {
+            if (allTodaySlotsPassed() && viewMode === 'week') {
+                setViewMode('tomorrow');
+            }
+        }, 60000); // Check every minute
+        return () => clearInterval(interval);
+    }, [viewMode]);
     
     // FIX-10: Listen for pantry invalidation events (swap/cancel)
     React.useEffect(() => {

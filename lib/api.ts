@@ -154,13 +154,14 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
       throw err;
     }
     const method = (fetchOptions.method ?? 'GET').toUpperCase();
-    // Only auto-retry idempotent methods (GET, HEAD, DELETE)
-    // POST/PUT/PATCH rely on Idempotency-Key header for server-side dedup
-    if (!IDEMPOTENT_METHODS.has(method)) {
-      await new Promise(r => setTimeout(r, 500));
-      return doFetch();
+    // H3: Only auto-retry idempotent methods (GET, HEAD, DELETE).
+    // POST/PUT/PATCH rely on offline queue for safe retries — auto-retry
+    // here can create duplicate mutations if server already processed.
+    if (IDEMPOTENT_METHODS.has(method)) {
+      throw err;
     }
-    throw err;
+    await new Promise(r => setTimeout(r, 500));
+    return doFetch();
   } finally {
     clearTimeout(timeoutId);
     if (externalSignal) {
