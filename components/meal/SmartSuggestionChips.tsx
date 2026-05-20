@@ -101,7 +101,7 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
     });
 
     return () => asyncGuard.abort();
-  }, [mealType, userDiet, userRegion, pantryStaples, asyncGuard]);
+  }, [mealType, userDiet, userRegion, pantryStaples]);
 
   const scoredSuggestions = useMemo(() => {
     return suggestions

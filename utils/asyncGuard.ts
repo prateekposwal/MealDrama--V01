@@ -15,6 +15,7 @@ export class RequestTracker {
   /** Start a new request — returns its sequence ID */
   start(): number {
     this._sequence++;
+    this._aborted = false;
     return this._sequence;
   }
 
