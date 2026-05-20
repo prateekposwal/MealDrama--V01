@@ -225,6 +225,7 @@ export function applySmartDefaults(
       sides: existingItem.sides,
       beverages: existingItem.beverages,
       dessert: existingItem.dessert,
+      itemQtys: existingItem.itemQtys || {},
     };
   }
 
@@ -349,7 +350,7 @@ export function applySmartDefaults(
   }
 
   const itemQtys: Record<string, number> = {};
-  for (const item of [roti, rice, ...sides, ...beverages, ...dessert].filter(Boolean as (s: string | null) => s is string)) {
+  for (const item of [roti, rice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
     itemQtys[item] = 1;
   }
 

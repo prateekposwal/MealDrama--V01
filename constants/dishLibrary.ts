@@ -56,6 +56,8 @@ export interface DishVariant {
     mealContext?: Category;
     regionOverride?: string;
     baseStyle?: string;
+    tags?: string[];
+    healthCategories?: string[];
     // Optional: regional accompaniments (sides or breads) that pair with this variant
     accompaniments?: string[];
     // Ingredients for shopping list generation
@@ -83,6 +85,7 @@ export interface Dish {
     beverageOptions?: string[];
     description?: string;
     season?: string[];
+    prepTime?: number;
 }
 
 // ─── Helper: auto-generate variants ──────────────────────────────────────────

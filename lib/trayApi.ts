@@ -43,6 +43,7 @@ export interface UpdateItemPayload {
   rice?: string;
   sides?: string[];
   beverages?: string[];
+  dessert?: string[];
   servings?: number;
 }
 

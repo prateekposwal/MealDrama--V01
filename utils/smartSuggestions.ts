@@ -345,7 +345,10 @@ function gatherDessertCandidates(tags: string[], region: RegionKey): string[] {
 // ─── suggestOne: pick top-1 from candidates ──────────────────────────────────
 
 function suggestOne(candidates: string[], source: SuggestionSource): SuggestionCategoryResult {
-  if (candidates.length > 0) return { items: [candidates[0]], source };
+  if (candidates.length > 0) {
+    const item = candidates[0];
+    if (item) return { items: [item], source };
+  }
   return { items: [], source: 'fallback' };
 }
 

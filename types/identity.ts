@@ -36,5 +36,5 @@ export function compactPrimaryId(primaryId: string): string {
   const parts = primaryId.split('-');
   if (parts.length < 4) return primaryId;
   const [prefix, _md, _date, time] = parts;
-  return `${prefix.charAt(0) + prefix.slice(1).toLowerCase()}-${time}`;
+  return `${(prefix ?? '').charAt(0) + (prefix ?? '').slice(1).toLowerCase()}-${time}`;
 }

@@ -15,7 +15,8 @@ export function generateMealTitle(
   }
 
   if (beverages.length > 0) {
-    parts.push(beverages[0]);
+    const firstBev = beverages[0];
+    if (firstBev) parts.push(firstBev);
   }
 
   return parts.join(' + ');

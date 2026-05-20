@@ -584,8 +584,8 @@ describe('DST / timezone edge cases', () => {
   });
 
   it('computeNextIndex returns 0 for empty assignments', () => {
-    const queue = [
-      { dishId: 'a', variantId: 'a_v1', slot: 'lunch' as const, sourceIndex: 0, assignedCount: 100, lastAssigned: '2026-12-01', skippedCount: 0, staleCount: 0 },
+    const queue: RotationQueueItem[] = [
+      { dishId: 'a', dishName: 'A', mealType: 'lunch' as const },
     ];
     expect(computeNextIndex(queue, [])).toBe(0);
   });

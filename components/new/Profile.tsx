@@ -3,6 +3,7 @@ import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import type { MealType } from '../../types/tray';
 import type { SourcePool } from '../../utils/mealLoopEngine';
+import type { Category } from '../../constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X } from 'lucide-react';
@@ -134,7 +135,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
             updateCustomDish(editingDishId, {
                 name: customName.trim(),
                 type: customDiet,
-                category: [customStyle.toLowerCase()],
+                category: [customStyle.toLowerCase() as Category],
                 tags: [...customTags, 'user_created'],
                 icon: customImageDataUrl || '🍽️',
                 variants: [{
@@ -143,7 +144,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                     addOn: '',
                     tags: [...customTags, 'user_created'],
                     healthCategories: customTags,
-                    mealContext: '',
+                    mealContext: undefined,
                     ingredients: ings,
                 }],
             });

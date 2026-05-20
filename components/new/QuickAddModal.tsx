@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
-import type { Dish, DishVariant } from '../../constants/dishLibrary';
+import type { Dish, DishVariant, Category, Region } from '../../constants/dishLibrary';
 import { X, Search, Plus, Sparkles, Clock, Check, ChevronLeft, Edit3, Trash2, Loader2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
@@ -8,6 +8,8 @@ import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import { HealthFilterBar } from '../health/HealthFilterBar';
 import { rankDishes, getRegionKey, getDishVariants, DIET_FILTER } from '../../utils/dishSearch';
 import { useDebounce } from '../../hooks/useDebounce';
+import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
+import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
 
 const CUSTOM_STYLES = ['Gravy', 'Dry', 'Fried', 'Roasted', 'Raw', 'Steamed', 'Grilled', 'Curry', 'Soup', 'Bread'];
 const CUSTOM_TAGS = ['healthy', 'high-protein', 'fiber', 'low-calorie', 'indulgent', 'probiotic', 'antioxidant', 'vitamins', 'iron', 'calcium'];
@@ -137,7 +139,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
             const updated: Partial<Dish> = {
                 name: customName.trim(),
                 type: customDiet,
-                category: [customStyle.toLowerCase()],
+                category: [customStyle.toLowerCase() as Category],
                 tags: [...customTags, 'user_created'],
                 icon: customImageDataUrl || '🍽️',
                 variants: [{
@@ -146,7 +148,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                     addOn: '',
                     tags: [...customTags, 'user_created'],
                     healthCategories: customTags,
-                    mealContext: '',
+                    mealContext: '' as Category | undefined,
                     ingredients: ings,
                 }],
             };
@@ -167,9 +169,9 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
             name: customName.trim(),
             icon: customImageDataUrl || '🍽️',
             type: customDiet,
-            region: userRegion,
-            category: [customStyle.toLowerCase()],
-            states: [userRegion],
+            region: userRegion as Region,
+            category: [customStyle.toLowerCase() as Category],
+            states: [userRegion as Region],
             tags: [...customTags, 'user_created'],
             variants: [{
                 id: `v-${id}`,
@@ -177,21 +179,25 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                 addOn: '',
                 tags: [...customTags, 'user_created'],
                 healthCategories: customTags,
-                mealContext: '',
+                mealContext: undefined,
                 ingredients: ings,
             }],
             prepTime: 15,
             description: '',
+            weight: 'medium',
+            nutrition: [],
         };
         addCustomDish(customDish);
-        onAddMeal(date, slot, customDish, customDish.variants[0]);
+        const variant = customDish.variants[0];
+        if (variant) onAddMeal(date, slot, customDish, variant);
         window.dispatchEvent(new Event('pantry:invalidate'));
         handleClose();
     }, [customName, customStyle, customTags, customDiet, customIngredients, customImageDataUrl, editingDishId, userRegion, date, slot, onAddMeal, addCustomDish, updateCustomDish, handleClose]);
 
     const handleEditCustom = (dish: Dish) => {
         setCustomName(dish.name);
-        setCustomStyle(dish.category[0]?.charAt(0).toUpperCase() + dish.category[0]?.slice(1) || 'Gravy');
+        const cat = dish.category[0];
+        setCustomStyle(cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Gravy');
         setCustomTags(dish.tags.filter(t => t !== 'user_created'));
         setCustomDiet((dish.type === 'eggitarian' ? 'veg' : dish.type) as 'veg' | 'non-veg' | 'vegan');
         setEditingDishId(dish.id);

@@ -105,6 +105,7 @@ export interface MealsForScoring {
   healthCategories: string[];
   tags: string[];
   quantity?: number;
+  mealType?: string;
 }
 
 export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {

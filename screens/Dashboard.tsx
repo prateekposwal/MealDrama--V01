@@ -213,7 +213,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     }, []);
     const stableSwapClose = useCallback(() => setSwapOpenKey(null), []);
     const stableSwapCustomizeOpen = useCallback((id: string) => {
-        setSwapCustomizeOpenKey(prev => prev === id ? null : id);
+        setSwapCustomizeOpenKey(id);
     }, []);
     const stableSwapCustomizeClose = useCallback(() => setSwapCustomizeOpenKey(null), []);
 
@@ -523,7 +523,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
       }
       if (grainNames.length > 0) {
         for (let i = 0; i < grainNames.length; i++) {
-          allMeals.push({ name: `keyword-grain-${i}`, healthCategories: ['whole-grain'], tags: [], quantity: 1 });
+          (allMeals as Array<{ name: string; healthCategories: string[]; tags: string[]; quantity: number }>).push({ name: `keyword-grain-${i}`, healthCategories: ['whole-grain'], tags: [], quantity: 1 });
         }
       }
 

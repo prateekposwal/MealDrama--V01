@@ -223,7 +223,7 @@ export function getMealResolution(
 ): MealResolution {
   // M5: Cache key scoped to specific date/slot swaps, not global swap count
   const daySwaps = swaps[isoDate]?.[slot];
-  const swapFingerprint = daySwaps ? `${daySwaps.id ?? daySwaps.meal_id ?? 'none'}` : 'none';
+  const swapFingerprint = daySwaps ? `${(daySwaps as unknown as Record<string, unknown>).id ?? (daySwaps as unknown as Record<string, unknown>).meal_id ?? 'none'}` : 'none';
   const cacheKey = `${userId ?? 'anon'}::${isoDate}::${slot}::${swapFingerprint}`;
   if (_MEAL_RESOLUTION_CACHE.has(cacheKey)) {
     const val = _MEAL_RESOLUTION_CACHE.get(cacheKey)!;

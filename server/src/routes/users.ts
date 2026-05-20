@@ -96,7 +96,7 @@ router.patch('/:id/slot-times', authMiddleware, async (req, res) => {
     const profile = await prisma.userProfile.upsert({
       where: { userId },
       update: {},
-      create: { userId, dietType: 'veg', region: 'north', spiceLevel: 'medium' },
+      create: { userId: userId!, dietType: 'veg', region: 'north', spiceLevel: 'medium' },
     });
     // Store preferences as a JSON string on the user record — using a profile extension
     // For simplicity, acknowledge the save. Full DB persistence can be added later.

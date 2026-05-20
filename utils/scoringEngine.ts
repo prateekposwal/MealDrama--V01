@@ -17,7 +17,7 @@ export interface ScoringContext {
   existingSelections: string[];
 }
 
-type FlavorProfile = 'gravy' | 'dry' | 'dal' | 'creamy' | 'spicy' | 'tangy' | 'smoky' | 'sweet' | 'light' | 'starchy';
+type FlavorProfile = 'gravy' | 'dry' | 'dal' | 'creamy' | 'spicy' | 'tangy' | 'smoky' | 'sweet' | 'light' | 'starchy' | 'crispy' | 'fresh';
 
 const DISH_FLAVOR: Record<string, FlavorProfile[]> = {
   gravy: ['gravy', 'creamy'],
@@ -255,7 +255,7 @@ function computeVarietyScore(candidate: string, existingSelections: string[]): {
   if (alreadySelected) {
     const similarItems = existingSelections.filter(s => {
       const cat = candidate.split(' ')[0];
-      return s.toLowerCase().includes(cat.toLowerCase());
+      return cat != null && s.toLowerCase().includes(cat.toLowerCase());
     });
     if (similarItems.length > 2) {
       return { score: 0.2, reasons: ['already selected many times'] };

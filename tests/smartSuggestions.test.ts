@@ -615,7 +615,7 @@ describe('getSmartSuggestions — edge cases', () => {
   it('handles midnight timeWindow boundary', () => {
     const input = makeInput({ id: 'midnight-snack', name: 'Midnight Snack', region: 'north', tags: ['snack'] });
     const morning = getSmartSuggestions(input, 'snacks', { useSmartSuggestions: true, timeWindow: 'morning' });
-    const evening = getSmartSuggestions(input, 'snacks', { useSmartSuggestions: true, timeWindow: 'evening' });
+    const evening = getSmartSuggestions(input, 'snacks', { useSmartSuggestions: true, timeWindow: 'snack' });
     expect(morning).toBeDefined();
     expect(evening).toBeDefined();
   });

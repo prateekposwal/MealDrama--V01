@@ -373,9 +373,9 @@ export const useTrayStore = create<TrayStore>()(
         let oldIcon: string | undefined;
         let oldQuantity = 1;
         let oldServings = 1;
-        let oldGravy: string | undefined;
-        let oldRoti: string | undefined;
-        let oldRice: string | undefined;
+        let oldGravy: string | null | undefined;
+        let oldRoti: string | null | undefined;
+        let oldRice: string | null | undefined;
         let oldSides: string[] = [];
         let oldBeverages: string[] = [];
         let oldDessert: string[] | undefined;
@@ -896,18 +896,20 @@ export const useTrayStore = create<TrayStore>()(
         // Build plan days from loop assignments
         const newDays: Record<string, DayMeals> = {};
         for (const a of loopAssignments) {
-          if (!newDays[a.date]) {
-            newDays[a.date] = emptyDayMeals();
+          const date = a.date;
+          const mealType = a.mealType;
+          if (!newDays[date]) {
+            newDays[date] = emptyDayMeals();
           }
           if (dishes) {
             const dish = dishes.find(d => d.id === a.dishId);
             if (dish) {
               const meal = dishToMeal(dish);
-              const defaults = applySmartDefaults(meal, a.mealType, undefined, { useSmartSuggestions: true });
-              const timeDef = getTimeDef(a.mealType);
+              const defaults = applySmartDefaults(meal, mealType, undefined, { useSmartSuggestions: true });
+              const timeDef = getTimeDef(mealType);
               const loopCarb = defaults.roti ?? defaults.rice ?? undefined;
               const loopTitle = generateMealTitle(meal.name, defaults.sides, defaults.beverages, loopCarb);
-              newDays[a.date][a.mealType].push({
+              newDays[date][mealType].push({
                 id: uid(),
                 meal_id: meal.id,
           name: meal.name,

@@ -1,5 +1,5 @@
 import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, InsertStrategy } from '../types/tray';
-import type { Dish, DishStyle } from '../constants/dishLibrary';
+import type { Dish } from '../constants/dishLibrary';
 import { getDishStyle } from '../constants/dishStyles';
 import { getISODate } from './dateUTC';
 
@@ -366,8 +366,9 @@ export function groupAssignmentsByDate(
 ): Record<string, MealLoopAssignment[]> {
   const grouped: Record<string, MealLoopAssignment[]> = {};
   for (const a of assignments) {
-    if (!grouped[a.date]) grouped[a.date] = [];
-    grouped[a.date].push(a);
+    const date = a.date;
+    if (!grouped[date]) grouped[date] = [];
+    grouped[date]!.push(a);
   }
   return grouped;
 }

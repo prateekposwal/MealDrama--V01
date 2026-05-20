@@ -221,7 +221,7 @@ export function getIngredientsForCategoryOption(catId: string): Ingredient[] {
     }
     return kn.includes(normalized) || normalized.includes(kn);
   });
-  return fuzzyKey ? CATEGORY_INGREDIENTS[fuzzyKey] : [];
+  return fuzzyKey ? (CATEGORY_INGREDIENTS[fuzzyKey] ?? []) : [];
 }
 
 export function getIngredientsFromCategorySelections(selections: CategorySelection): Ingredient[] {

@@ -378,15 +378,15 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
 
     /** Validate times for the current slot + check overlaps */
     const timeValidation = useMemo((): { valid: boolean; message?: string } | null => {
-        const cur = currentSlot.mealType;
+        const cur = currentSlot.mealType as MealType;
         const curTime = slotTimes[cur];
-        if (!curTime) return null;
+        if (!cur || !curTime) return null;
         if (curTime.start >= curTime.end) return null; // Allow midnight-spanning slots
         // Check overlap with previous slot
         const slotOrder: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
         const curIdx = slotOrder.indexOf(cur);
         if (curIdx > 0) {
-            const prev = slotOrder[curIdx - 1];
+            const prev = slotOrder[curIdx - 1] as MealType;
             const prevTime = slotTimes[prev];
             if (prevTime && curTime.start < prevTime.end) {
                 return { valid: false, message: `${prev} ends at ${prevTime.end}, ${cur} starts at ${curTime.start}` };
@@ -394,7 +394,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         }
         // Check overlap with next slot
         if (curIdx < slotOrder.length - 1) {
-            const next = slotOrder[curIdx + 1];
+            const next = slotOrder[curIdx + 1] as MealType;
             const nextTime = slotTimes[next];
             if (nextTime && curTime.end > nextTime.start) {
                 return { valid: false, message: `${cur} ends at ${curTime.end}, ${next} starts at ${nextTime.start}` };

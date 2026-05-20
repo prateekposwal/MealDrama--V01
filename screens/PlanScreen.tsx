@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { useTrayStore, MealType, TrayItem, GuestMode } from '../store/useTrayStore';
+import type { Meal } from '../types/tray';
 import { useStore } from '../store/useStore';
 import type { SuggestionMeal } from '../lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
@@ -301,7 +302,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     }, []);
 
     const stableSwapCustomizeOpen = useCallback((id: string) => {
-        setSwapCustomizeOpenKey(prev => prev === id ? null : id);
+        setSwapCustomizeOpenKey(id);
     }, []);
 
     const stableSwapClose = useCallback(() => setSwapOpenKey(null), []);
@@ -311,7 +312,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const handleOpenSearchStable = useCallback(() => {
         const { date, label } = quickAddTrigger.current;
         setQuickAddDate(date);
-        setQuickAddSlot(label);
+        setQuickAddSlot(label as 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner');
         setShowQuickAdd(true);
     }, []);
 

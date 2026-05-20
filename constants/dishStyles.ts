@@ -619,15 +619,15 @@ export function getPairingSuggestions(group: DishStyleGroup): Record<IndianMealC
   };
   for (const cat of cats) {
     if (cat === 'bread') {
-      result.bread = (routing.breads?.length ?? 0) > 0 ? [routing.breads![0]] : [];
+      result.bread = (routing.breads?.length ?? 0) > 0 ? [routing.breads![0]!] : [];
     } else if (cat === 'rice') {
-      result.rice = (routing.rice?.length ?? 0) > 0 ? [routing.rice![0]] : [];
+      result.rice = (routing.rice?.length ?? 0) > 0 ? [routing.rice![0]!] : [];
     } else if (cat === 'side') {
-      result.side = (routing.sides?.length ?? 0) > 0 ? routing.sides!.slice(0, 2) : [];
+      result.side = (routing.sides?.length ?? 0) > 0 ? routing.sides!.slice(0, 2).filter((s): s is string => s != null) : [];
     } else if (cat === 'beverage') {
-      result.beverage = (routing.beverages?.length ?? 0) > 0 ? [routing.beverages![0]] : [];
+      result.beverage = (routing.beverages?.length ?? 0) > 0 ? [routing.beverages![0]!] : [];
     } else if (cat === 'dessert') {
-      result.dessert = indian_meal_categories.dessert.length > 0 ? [indian_meal_categories.dessert[0]] : [];
+      result.dessert = indian_meal_categories.dessert.length > 0 ? [indian_meal_categories.dessert[0]!] : [];
     }
   }
   return result;
