@@ -207,7 +207,7 @@ export interface CompletedSlot {
   status: 'cooked' | 'missed' | 'skipped';
 }
 
-import { getISODate } from '../utils/dateUTC';
+import { getISODate, daysBetweenISO } from '../utils/dateUTC';
 export { getISODate };
 
 const _MEAL_RESOLUTION_CACHE = new Map<string, MealResolution>();
@@ -263,11 +263,10 @@ function _computeMealResolution(
     };
   }
 
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayTime = todayStart.getTime();
-  const isoTime = new Date(isoDate + 'T00:00:00').getTime();
-  const cycleDay = Math.max(0, Math.floor((isoTime - todayTime) / (1000 * 60 * 60 * 24)));
+  // C6: Use IST-based date computation — app is India-only (Asia/Kolkata)
+  // getISODate() returns today's date in IST regardless of device timezone
+  const todayISO = getISODate();
+  const cycleDay = Math.max(0, daysBetweenISO(todayISO, isoDate));
 
   const tray = trayLibrary[slot.toLowerCase() as keyof TrayLibrary] || [];
 
@@ -702,31 +701,36 @@ export const useStore = create<StoreState>()(
         if (_isRetrying) return;
         _isRetrying = true;
         const requestId = _drainTracker.start();
-        for (const mutation of pendingMutations) {
+        // C2: Snapshot mutation IDs to iterate — logout() clears the array mid-drain
+        const mutationIds = pendingMutations.map(m => m.id);
+        for (const id of mutationIds) {
           if (!_drainTracker.isCurrent(requestId)) break;
+          // Re-read mutation from current state (may have been removed by concurrent operations)
+          const current = get().pendingMutations.find(m => m.id === id);
+          if (!current) continue;
           try {
-            const endpoint = mutation.kind === 'plan' ? '/plan' : '/complete';
-            await api.post(endpoint, mutation.payload);
-            removePendingMutation(mutation.id);
+            const endpoint = current.kind === 'plan' ? '/plan' : '/complete';
+            await api.post(endpoint, current.payload);
+            removePendingMutation(id);
           } catch (err: any) {
             const msg = err?.message ?? '';
             if (msg.includes('401') || msg.includes('Unauthorized')) {
-              removePendingMutation(mutation.id);
+              // C2: Logout clears ALL pendingMutations — break immediately, don't mutate mid-iteration
               state.logout();
               state.setToast({ message: 'Session expired. Log in again.', type: 'error' });
               break;
             }
             if (msg.includes('409') || msg.includes('Conflict')) {
-              removePendingMutation(mutation.id);
+              removePendingMutation(id);
               break;
             }
-            const nextCount = mutation.retryCount + 1;
+            const nextCount = current.retryCount + 1;
             if (nextCount >= MAX_RETRIES) {
-              moveToDeadLetter({ ...mutation, retryCount: nextCount });
+              moveToDeadLetter({ ...current, retryCount: nextCount });
             } else {
               set((s) => ({
                 pendingMutations: s.pendingMutations.map((m) =>
-                  m.id === mutation.id ? { ...m, retryCount: nextCount } : m
+                  m.id === id ? { ...m, retryCount: nextCount } : m
                 ),
               }));
             }

@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>MealDrama</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- C5: Tailwind CDN — TODO: migrate to build-time @tailwindcss/vite plugin for offline reliability -->
+    <script src="https://cdn.tailwindcss.com" onerror="document.body.innerHTML='<div style=&quot;padding:40px;text-align:center;font-family:system-ui&quot;><h1>Styles failed to load</h1><p>Check your internet connection and reload.</p><button onclick=&quot;location.reload()&quot; style=&quot;margin-top:16px;padding:8px 16px&quot;>Retry</button></div>'"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
       body {

@@ -14,14 +14,31 @@ export function isAuthReady(): boolean {
 }
 // ───────────────────────────────────────────────────────────────────────────
 
+// ─── 401 Abort Controller — aborts all in-flight requests on first 401 ───
+// Prevents redundant token clears and multiple auth:unauthorized events.
+let _authAbortController: AbortController | null = null;
+
+function getAuthAbortController(): AbortController {
+  if (!_authAbortController || _authAbortController.signal.aborted) {
+    _authAbortController = new AbortController();
+  }
+  return _authAbortController;
+}
+
+function abortAllOn401(): void {
+  if (_authAbortController && !_authAbortController.signal.aborted) {
+    _authAbortController.abort();
+  }
+  _authAbortController = null;
+}
+// ───────────────────────────────────────────────────────────────────────────
+
 interface FetchOptions extends RequestInit {
   timeout?: number;
   signal?: AbortSignal;
 }
 
 function getToken(): string | null {
-  // M10: Always read from localStorage (primary) — sessionStorage is write-only mirror
-  // This prevents stale token returns when one storage is cleared
   try {
     return localStorage.getItem(TOKEN_KEY);
   } catch {
@@ -51,9 +68,9 @@ function isAuthFailure(err: Error): boolean {
   return err.message === 'Auth not ready' || err.message.includes('401') || err.message.includes('Unauthorized');
 }
 
-// ─── Idempotency key set for safe retries ─────────────────────────────────
+// ─── Idempotency key for safe retries ───────────────────────────────────
 // Non-GET requests get a unique idempotency header so the server can
-// deduplicate accidental duplicate sends (e.g., from retry logic).
+// deduplicate accidental duplicate sends. The SAME key is reused on retry.
 const IDEMPOTENT_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
 function generateIdempotencyKey(): string {
@@ -61,13 +78,15 @@ function generateIdempotencyKey(): string {
 }
 
 async function request<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  // M11: 15s default timeout — mobile networks (2G/3G) need more headroom than 10s
   const { timeout = 15000, signal: externalSignal, ...fetchOptions } = options;
   const token = getToken();
 
   if (!_authReady) {
     throw new Error('Auth not ready');
   }
+
+  // C1: Link to global auth abort controller — all requests abort on first 401
+  const authController = getAuthAbortController();
 
   // Combine external AbortSignal (for unmount cancellation) with timeout
   const controller = new AbortController();
@@ -76,8 +95,10 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
   if (externalSignal) {
     externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
+  // Link to auth abort — if any request gets 401, all others abort too
+  authController.signal.addEventListener('abort', () => controller.abort(), { once: true });
 
-  // Generate idempotency key for non-GET requests (safe retry)
+  // C3: Generate idempotency key ONCE and reuse on retry
   const idempotencyKey = IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase())
     ? generateIdempotencyKey()
     : undefined;
@@ -98,6 +119,8 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     });
 
     if (res.status === 401) {
+      // C1: Abort ALL other in-flight requests on first 401
+      abortAllOn401();
       clearToken();
       tokenCleared = true;
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
@@ -114,12 +137,9 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
   try {
     return await doFetch();
   } catch (err) {
-    // H1: Only retry non-auth, non-mutable-method failures.
-    // H2: If token was cleared (401), do NOT retry — the token is gone.
-    // GET/HEAD/DELETE are safe to retry (idempotent).
-    // POST/PUT/PATCH have idempotency keys so server can deduplicate.
+    // H1/H2: If token was cleared (401), do NOT retry
     if (tokenCleared) {
-      throw err; // 401 — token cleared, retry would fail again
+      throw err;
     }
     if (!(err instanceof Error) || isAuthFailure(err)) {
       throw err;

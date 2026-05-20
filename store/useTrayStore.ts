@@ -626,17 +626,23 @@ export const useTrayStore = create<TrayStore>()(
           const items = day[mealType];
           return {
             plan: { ...s.plan, days: { ...s.plan.days, [date]: { ...day, [mealType]: items.filter(i => i.id !== itemId) } } },
-            saveStatus: { ...s.saveStatus, [itemId]: 'saved' },
+            saveStatus: { ...s.saveStatus, [itemId]: 'saving' },
           };
         });
 
         window.dispatchEvent(new Event('pantry:invalidate'));
 
+        // C4: Queue for offline retry — ensures delete is retried if immediate fails
         offlineQueue.add({ type: 'remove', payload: { date, mealType, itemId } });
 
         // Immediate DELETE (no debounce)
         if (navigator.onLine) {
-          trayApi.removeItem(itemId).catch(console.error);
+          trayApi.removeItem(itemId)
+            .then(() => set((s) => ({ saveStatus: { ...s.saveStatus, [itemId]: 'saved' } })))
+            .catch(() => {
+              // DELETE failed — offline queue will retry on next drain
+              set((s) => ({ saveStatus: { ...s.saveStatus, [itemId]: 'error' } }));
+            });
         }
       },
 
