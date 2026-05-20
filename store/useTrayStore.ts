@@ -68,6 +68,9 @@ export interface TrayStore {
   /** Inline edit (gravy/roti/rice/sides/beverages/quantity). Debounced 1000ms. */
   updateItemInline: (date: string, mealType: MealType, itemId: string, updates: Partial<TrayItem>) => void;
 
+  /** H12: Batch update multiple items in one store transaction — avoids N+1 store updates */
+  batchUpdateItems: (date: string, mealType: MealType, itemUpdates: Array<{ itemId: string; updates: Partial<TrayItem> }>) => void;
+
   /** Remove meal from slot */
   removeMealFromSlot: (date: string, mealType: MealType, itemId: string) => void;
 
@@ -549,6 +552,73 @@ export const useTrayStore = create<TrayStore>()(
         });
       },
 
+      // ─── Batch Update (H12: single store transaction for N items) ───────
+      batchUpdateItems: (date, mealType, itemUpdates) => {
+        if (itemUpdates.length === 0) return;
+
+        // Single store update for all items
+        set((s) => {
+          const day = s.plan.days[date];
+          if (!day) return s;
+          const items = day[mealType];
+          const updateMap = new Map(itemUpdates.map(u => [u.itemId, u.updates]));
+          const updatedItems = items.map(item => {
+            const updates = updateMap.get(item.id);
+            return updates ? { ...item, ...updates } : item;
+          });
+          const newStatus = { ...s.saveStatus };
+          for (const u of itemUpdates) {
+            newStatus[u.itemId] = 'saving';
+          }
+          return {
+            plan: { ...s.plan, days: { ...s.plan.days, [date]: { ...day, [mealType]: updatedItems } } },
+            saveStatus: newStatus,
+          };
+        });
+
+        window.dispatchEvent(new Event('pantry:invalidate'));
+
+        // Queue all updates
+        for (const u of itemUpdates) {
+          offlineQueue.add({ type: 'update', payload: { date, mealType, itemId: u.itemId, updates: u.updates } });
+        }
+
+        // Single debounce save for the entire batch
+        debounceSave(`batch_update_${date}_${mealType}`, async () => {
+          if (!navigator.onLine) return;
+          try {
+            // Update each item via API
+            await Promise.all(itemUpdates.map(u =>
+              trayApi.updateItem(u.itemId, {
+                quantity: u.updates.quantity,
+                gravy: u.updates.gravy ?? undefined,
+                roti: u.updates.roti ?? undefined,
+                rice: u.updates.rice ?? undefined,
+                sides: u.updates.sides,
+                beverages: u.updates.beverages,
+                dessert: u.updates.dessert,
+                servings: u.updates.servings,
+              })
+            ));
+            set((s) => {
+              const newStatus = { ...s.saveStatus };
+              for (const u of itemUpdates) {
+                newStatus[u.itemId] = 'saved';
+              }
+              return { saveStatus: newStatus };
+            });
+          } catch {
+            set((s) => {
+              const newStatus = { ...s.saveStatus };
+              for (const u of itemUpdates) {
+                newStatus[u.itemId] = 'error';
+              }
+              return { saveStatus: newStatus };
+            });
+          }
+        });
+      },
+
       // ─── Remove Meal ────────────────────────────────────────────────────
       removeMealFromSlot: (date, mealType, itemId) => {
         set((s) => {
@@ -616,7 +686,9 @@ export const useTrayStore = create<TrayStore>()(
 
       /** Fill all days in the period with rotation (5-day gap) + anti-repetition (30-day preference) */
       fillPlan: (period: 'week' | 'biweek' | 'month') => {
-        const today = new Date().toLocaleDateString('en-CA');
+        // H8: Use UTC-based date computation to avoid timezone-dependent off-by-one errors
+        const now = new Date();
+        const today = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
         const todayDay = get().plan.days[today];
         if (!todayDay) return;
 
@@ -639,15 +711,18 @@ export const useTrayStore = create<TrayStore>()(
         }
 
         function daysBetween(a: string, b: string): number {
-          const da = new Date(a).getTime();
-          const db = new Date(b).getTime();
+          // UTC-based day difference — no timezone ambiguity
+          const [ay, am, ad] = a.split('-').map(Number);
+          const [by, bm, bd] = b.split('-').map(Number);
+          const da = Date.UTC(ay!, am! - 1, ad!);
+          const db = Date.UTC(by!, bm! - 1, bd!);
           return Math.floor((db - da) / 86400000);
         }
 
         for (let i = 0; i < dayCount; i++) {
           const d = new Date();
-          d.setDate(d.getDate() + i);
-          const iso = d.toLocaleDateString('en-CA');
+          d.setUTCDate(d.getUTCDate() + i);
+          const iso = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
           if (iso === today) continue;
 
           const day: DayMeals = emptyDayMeals();

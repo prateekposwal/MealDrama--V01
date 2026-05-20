@@ -457,6 +457,9 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         return weekDates.filter(d => d > today);
     }, [weekDates, today, mealLoop.config, planDays]);
 
+    // H11: Stabilize upcomingDates to prevent recomputation when past days change
+    const upcomingDatesStable = useMemo(() => upcomingDates, [upcomingDates.join(',')]);
+
     // Week label
     const weekLabel = useMemo(() => {
         if (mealLoop.config && upcomingDates.length > 0) {

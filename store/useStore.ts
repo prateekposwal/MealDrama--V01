@@ -359,6 +359,7 @@ interface StoreState {
   removePendingMutation: (id: string) => void;
   moveToDeadLetter: (mutation: PendingMutation) => void;
   clearDeadLetters: () => void;
+  retryDeadLetters: () => Promise<void>;
   drainPendingMutations: () => Promise<void>;
   // Onboarding / Quick Setup flow
   quickSetupOpen: boolean;
@@ -667,6 +668,29 @@ export const useStore = create<StoreState>()(
       },
 
       clearDeadLetters: () => set({ deadLetterMutations: [] }),
+
+      // H4: Retry dead letter mutations — moves them back to pending queue
+      retryDeadLetters: async () => {
+        const state = get();
+        const { deadLetterMutations, addPendingMutation } = state;
+        if (deadLetterMutations.length === 0) return;
+
+        // Reset retry counts and move back to pending
+        for (const mutation of deadLetterMutations) {
+          addPendingMutation(mutation.kind, { ...mutation.payload, retryCount: 0 });
+        }
+        set({ deadLetterMutations: [] });
+        get().setToast({ message: `Retrying ${deadLetterMutations.length} failed operation(s)…`, type: 'info' });
+
+        // Trigger immediate drain
+        if (typeof window !== 'undefined' && !_drainTimer) {
+          _scheduleDrain();
+        }
+        // Force drain now if online
+        if (typeof navigator !== 'undefined' && navigator.onLine) {
+          await get().drainPendingMutations();
+        }
+      },
 
       drainPendingMutations: async () => {
         const state = get();

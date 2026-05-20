@@ -91,6 +91,9 @@ export interface QueuedAction {
   expiresAt: number;
 }
 
+// Dependency ordering: 'add' must succeed before 'swap'/'update'/'remove' for same item
+const TYPE_PRIORITY: Record<string, number> = { add: 0, swap: 1, update: 1, remove: 2 };
+
 export const offlineQueue = {
   get(): QueuedAction[] {
     if (typeof window === 'undefined') return [];
@@ -133,14 +136,23 @@ export const offlineQueue = {
     localStorage.removeItem(OFFLINE_QUEUE_KEY);
   },
 
-  async drain(): Promise<{ synced: number; failed: number }> {
+  async drain(): Promise<{ synced: number; failed: number; retryable: number }> {
     const queue = this.get();
-    if (queue.length === 0 || !navigator.onLine) return { synced: 0, failed: 0 };
+    if (queue.length === 0 || !navigator.onLine) return { synced: 0, failed: 0, retryable: 0 };
+
+    // H10: Sort by dependency order — 'add' before 'swap'/'update' before 'remove'
+    // This ensures items are created before they're updated or removed
+    const sorted = [...queue].sort((a, b) => {
+      const priorityDiff = (TYPE_PRIORITY[a.type] ?? 0) - (TYPE_PRIORITY[b.type] ?? 0);
+      if (priorityDiff !== 0) return priorityDiff;
+      return a.timestamp - b.timestamp; // stable sort by timestamp within same type
+    });
 
     let synced = 0;
     let failed = 0;
+    let retryable = 0;
 
-    for (const action of queue) {
+    for (const action of sorted) {
       try {
         switch (action.type) {
           case 'add':
@@ -159,18 +171,18 @@ export const offlineQueue = {
       } catch {
         if (action.retryCount >= 3) {
           this.remove(action.id);
-          failed++;
+          failed++; // exhausted — permanently lost
         } else {
           const updated = this.get().map(a =>
             a.id === action.id ? { ...a, retryCount: a.retryCount + 1 } : a
           );
           localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(updated));
-          failed++;
+          retryable++; // will be retried on next drain
         }
       }
     }
 
-    return { synced, failed };
+    return { synced, failed, retryable };
   },
 };
 

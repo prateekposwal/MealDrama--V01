@@ -95,7 +95,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     }, [trayLibrary, quickAddSlot]);
 
     const {
-        getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
+        getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot, batchUpdateItems,
     } = useTrayStore();
     const planDays = useTrayStore(s => s.plan.days);
 
@@ -118,12 +118,13 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         setSlotTimes(prev => {
             const updated = { ...prev[mealType], [field]: value };
             const next = { ...prev, [mealType]: updated };
+            // H12: Batch update all items in one store transaction instead of N+1 calls
             const planItems = planDays[today]?.[mealType] || [];
-            for (const item of planItems) {
-                updateItemInline(today, mealType, item.id, {
-                    start_time: next[mealType].start,
-                    end_time: next[mealType].end,
-                });
+            if (planItems.length > 0) {
+                batchUpdateItems(today, mealType, planItems.map(item => ({
+                    itemId: item.id,
+                    updates: { start_time: next[mealType].start, end_time: next[mealType].end },
+                })));
             }
             return next;
         });
@@ -133,7 +134,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         const prefs = { ...slotTimePrefs, [mealType]: { start, end } };
         updateProfile({ slotTimePreferences: prefs });
         window.dispatchEvent(new Event('slot_times_updated'));
-    }, [planDays, updateItemInline, today, slotTimePrefs, slotTimes, updateProfile]);
+    }, [planDays, batchUpdateItems, today, slotTimePrefs, slotTimes, updateProfile]);
 
     /** Convert SuggestionMeal to Meal */
     const suggestionToMeal = useCallback((s: SuggestionMeal): Meal => ({

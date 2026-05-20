@@ -188,12 +188,16 @@ const getTodayISO = (d?: Date) => (d || new Date()).toLocaleDateString('en-CA');
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManageTray }) => {
     const { dishes } = useBackendDishes();
-    const [now, setNow] = useState(() => Date.now());
+    // Only update `today` at midnight — no need to tick every 60s
+    const [today, setToday] = useState(() => getTodayISO());
     useEffect(() => {
-      const id = setInterval(() => setNow(Date.now()), 60000);
-      return () => clearInterval(id);
+      const now = new Date();
+      const msUntilMidnight = new Date(
+        now.getFullYear(), now.getMonth(), now.getDate() + 1
+      ).getTime() - now.getTime();
+      const id = setTimeout(() => setToday(getTodayISO()), msUntilMidnight);
+      return () => clearTimeout(id);
     }, []);
-    const today = getTodayISO(new Date(now));
 
     const {
         getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
@@ -434,9 +438,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [mealTab, setMealTab] = useState<'upcoming' | 'history'>('upcoming');
     const [healthExpanded, setHealthExpanded] = useState(false);
 
+    // H11: plateScore only depends on meal content, not slot timing.
+    // We derive slot lists directly from getMeals to avoid recomputing
+    // when slotTimesRefreshKey changes (which only affects time display).
     const plateScore = useMemo(() => {
-      const allMeals = [...activeSlots, ...upcomingSlots, ...completedSlots].flatMap(({ slot }) => {
-        const meals = getMeals(today, slot.mealType);
+      const slotTypes = ['breakfast', 'lunch', 'snacks', 'dinner'] as const;
+      const allSlots = slotTypes.map(mt => ({
+        mealType: mt,
+        meals: getMeals(today, mt),
+      }));
+
+      const allMeals = allSlots.flatMap(({ mealType, meals }) => {
         if (meals.length === 0) return [];
 
         const categories: string[] = [];
@@ -486,7 +498,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         }
 
         return [{
-          name: slot.mealType,
+          name: mealType,
           healthCategories: categories,
           tags,
           quantity: 1,
@@ -495,7 +507,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
       // ─── Keyword-based whole-grain detection (catches items MISSING from health maps) ───
       const GRAIN_KEYWORDS = ['roti', 'phulka', 'bhakri', 'paratha', 'thepla', 'brown rice', 'oats', 'millet', 'jowar', 'bajra', 'ragi', 'whole wheat', 'multigrain', 'bran'];
-      const rawMeals = [...activeSlots, ...upcomingSlots, ...completedSlots].flatMap(({ slot }) => getMeals(today, slot.mealType));
+      const rawMeals = allSlots.flatMap(({ meals }) => meals);
       const activeItems = rawMeals.filter(m => (m.quantity || 1) > 0);
       const grainNames: string[] = [];
       for (const m of activeItems) {
@@ -517,7 +529,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
       const result = scorePlateBalance(allMeals);
 
       // ─── Brute-force keyword detection for Healthy Fats & Low Sugar ───
-      // Checks ALL component names (dish name + roti, rice, sides, beverages, dessert)
       const HEALTHY_FAT_KEYWORDS = ['ghee', 'butter', 'paneer', 'cheese', 'coconut', 'avocado', 'fish', 'almond', 'cashew', 'walnut', 'peanut', 'nuts', 'sesame', 'til', 'mustard oil', 'olive oil', 'sunflower oil', 'coconut oil', 'sesame oil', 'fish oil', 'seed', 'flaxseed', 'chia', 'omega', 'tahini'];
       const LOW_SUGAR_KEYWORDS = ['water', 'chaas', 'buttermilk', 'nimbu', 'coconut water', 'salad', 'raita', 'curd', 'dahi', 'pickle', 'chutney', 'no sugar', 'unsweetened', 'sugar free', 'zero sugar', 'natural sweetener', 'stevia', 'jaggery', 'date', 'khajur', 'gur', 'low glycemic', 'diabetic friendly'];
 
@@ -549,7 +560,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
       result.total = Math.max(0, result.categories.vegFruit + result.categories.wholeGrain + result.categories.protein + result.categories.healthyFat + result.categories.limitSugary + result.categories.limitRedMeat);
 
       return result;
-    }, [today, activeSlots, upcomingSlots, completedSlots, getMeals, preferences]);
+    }, [today, getMeals]);
     const loopConfig = useTrayStore(s => s.mealLoop.config);
     const loopConfigured = loopConfig !== null;
 

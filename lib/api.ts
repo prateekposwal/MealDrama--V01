@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1';
+const BASE_URL = import.meta.env.VITE_ENV === 'production' ? import.meta.env.VITE_API_URL : '/api/v1';
 
 const TOKEN_KEY = 'mealdrama-token';
 
@@ -49,6 +49,15 @@ function isAuthFailure(err: Error): boolean {
   return err.message === 'Auth not ready' || err.message.includes('401') || err.message.includes('Unauthorized');
 }
 
+// ─── Idempotency key set for safe retries ─────────────────────────────────
+// Non-GET requests get a unique idempotency header so the server can
+// deduplicate accidental duplicate sends (e.g., from retry logic).
+const IDEMPOTENT_METHODS = new Set(['POST', 'PUT', 'PATCH']);
+
+function generateIdempotencyKey(): string {
+  return `idem_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 async function request<T>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const { timeout = 10000, signal: externalSignal, ...fetchOptions } = options;
   const token = getToken();
@@ -65,6 +74,13 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
+  // Generate idempotency key for non-GET requests (safe retry)
+  const idempotencyKey = IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase())
+    ? generateIdempotencyKey()
+    : undefined;
+
+  let tokenCleared = false;
+
   const doFetch = async (): Promise<T> => {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       ...fetchOptions,
@@ -72,6 +88,7 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
         ...fetchOptions.headers,
       },
       signal: controller.signal,
@@ -79,6 +96,7 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
 
     if (res.status === 401) {
       clearToken();
+      tokenCleared = true;
       window.dispatchEvent(new CustomEvent('auth:unauthorized'));
     }
 
@@ -93,12 +111,24 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
   try {
     return await doFetch();
   } catch (err) {
-    // Retry once after 500ms for non-auth failures (cookies may not have propagated yet)
+    // H1: Only retry non-auth, non-mutable-method failures.
+    // H2: If token was cleared (401), do NOT retry — the token is gone.
+    // GET/HEAD/DELETE are safe to retry (idempotent).
+    // POST/PUT/PATCH have idempotency keys so server can deduplicate.
+    if (tokenCleared) {
+      throw err; // 401 — token cleared, retry would fail again
+    }
     if (!(err instanceof Error) || isAuthFailure(err)) {
       throw err;
     }
-    await new Promise(r => setTimeout(r, 500));
-    return doFetch();
+    const method = (fetchOptions.method ?? 'GET').toUpperCase();
+    // Only auto-retry idempotent methods (GET, HEAD, DELETE)
+    // POST/PUT/PATCH rely on Idempotency-Key header for server-side dedup
+    if (!IDEMPOTENT_METHODS.has(method)) {
+      await new Promise(r => setTimeout(r, 500));
+      return doFetch();
+    }
+    throw err;
   } finally {
     clearTimeout(timeoutId);
     if (externalSignal) {
