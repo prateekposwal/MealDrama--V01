@@ -59,15 +59,27 @@ if (typeof window !== 'undefined') {
   _onlineHandler = async () => {
     _state = 'online';
     _listeners.forEach(fn => fn('online'));
-    // C2: Process offline queue when connectivity restored
+    // C1: Drain both offline queues when connectivity restored
     try {
-      const { processQueue } = await import('./offlineQueue');
-      const result = await processQueue();
-      if (result.synced > 0) {
-        window.dispatchEvent(new CustomEvent('offline_queue_synced', { detail: result }));
+      const [trayResult, utilResult] = await Promise.allSettled([
+        (async () => {
+          const { offlineQueue } = await import('../lib/trayApi');
+          return offlineQueue.drain();
+        })(),
+        (async () => {
+          const { processQueue } = await import('./offlineQueue');
+          return processQueue();
+        })(),
+      ]);
+      const traySynced = trayResult.status === 'fulfilled' ? trayResult.value.synced : 0;
+      const utilSynced = utilResult.status === 'fulfilled' ? utilResult.value.synced : 0;
+      if (traySynced > 0 || utilSynced > 0) {
+        window.dispatchEvent(new CustomEvent('offline_queue_synced', {
+          detail: { tray: traySynced, util: utilSynced },
+        }));
       }
     } catch {
-      // processQueue failed — will retry on next online event
+      // drain failed — will retry on next online event
     }
   };
 

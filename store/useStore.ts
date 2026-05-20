@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { Dish } from '../constants/dishLibrary';
 import api from '../lib/api';
 import { RequestTracker, requestDedupCache } from '../utils/asyncGuard';
+import { onConnectivityChange } from '../utils/connectivity';
 
 // ─── Roommate Types ──────────────────────────────────────────────────────────
 
@@ -44,6 +45,9 @@ export interface PendingMutation {
 
 const MAX_RETRIES = 3;
 
+// C2: Single online listener lives in connectivity.ts — stores subscribe via onConnectivityChange()
+// Uses dynamic getState() reference to survive HMR store recreation
+let _unsubscribeConnectivity: (() => void) | null = null;
 let _drainTimer: ReturnType<typeof setTimeout> | null = null;
 let _isRetrying = false;
 let _drainTracker = new RequestTracker();
@@ -53,23 +57,21 @@ function _scheduleDrain() {
   if (_drainTimer) clearTimeout(_drainTimer);
   _drainTimer = setTimeout(() => {
     _drainTimer = null;
-    // online listener will call drainPendingMutations
   }, 2000);
 }
 
-// Wire online event once — calls drainPendingMutations when connectivity is restored
-// Uses dynamic getState() reference to survive HMR store recreation
-let _onlineHandler: (() => void) | null = null;
+// Subscribe to connectivity changes — drain when online
 if (typeof window !== 'undefined') {
-  _onlineHandler = () => {
-    setTimeout(() => useStore.getState().drainPendingMutations(), 500);
-  };
-  window.addEventListener('online', _onlineHandler);
+  _unsubscribeConnectivity = onConnectivityChange((state) => {
+    if (state === 'online') {
+      setTimeout(() => useStore.getState().drainPendingMutations(), 500);
+    }
+  });
 
-  // HMR cleanup: reset module-level state and re-wire listener on module reload
+  // HMR cleanup
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
-      if (_onlineHandler) window.removeEventListener('online', _onlineHandler);
+      if (_unsubscribeConnectivity) _unsubscribeConnectivity();
       if (_drainTimer) clearTimeout(_drainTimer);
       _drainTimer = null;
       _isRetrying = false;
@@ -433,7 +435,7 @@ export const useStore = create<StoreState>()(
         if (_drainTimer) clearTimeout(_drainTimer);
         _drainTimer = null;
         _isRetrying = false;
-        _drainTracker = new RequestTracker();
+        _drainTracker.cancelAll();
         requestDedupCache.clear();
         // M1: Clear meal resolution cache on logout — prevents User A's data leaking to User B
         invalidateMealResolutionCache();

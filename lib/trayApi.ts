@@ -116,6 +116,24 @@ export const offlineQueue = {
 
   add(action: Omit<QueuedAction, 'id' | 'timestamp' | 'retryCount' | 'expiresAt'>) {
     const queue = this.get();
+    // H3: Dedup by itemId + type — prevents duplicate mutations for same item
+    const dedupKey = `${action.type}_${(action.payload as Record<string, unknown>).itemId ?? (action.payload as Record<string, unknown>).slotId ?? ''}`;
+    const existingIdx = queue.findIndex(a =>
+      a.type === action.type &&
+      `${(a.payload as Record<string, unknown>).itemId ?? (a.payload as Record<string, unknown>).slotId ?? ''}` === dedupKey.split('_').slice(1).join('_')
+    );
+    if (existingIdx >= 0) {
+      // Update existing entry with latest payload instead of adding duplicate
+      queue[existingIdx] = {
+        ...queue[existingIdx]!,
+        payload: action.payload,
+        timestamp: Date.now(),
+        retryCount: 0,
+        expiresAt: Date.now() + QUEUE_EXPIRY_MS,
+      };
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+      return queue[existingIdx]!;
+    }
     const newAction: QueuedAction = {
       ...action,
       id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

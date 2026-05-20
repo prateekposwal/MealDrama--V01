@@ -18,6 +18,7 @@ import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../constants/dishLibrary';
 import { useStore } from './useStore';
 import { getISODate, addDaysISO, daysBetweenISO } from '../utils/dateUTC';
+import { onConnectivityChange } from '../utils/connectivity';
 
 export type { MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, Meal, MealLoopState, MealLoopConfig, MealLoopAssignment };
 
@@ -448,7 +449,7 @@ export const useTrayStore = create<TrayStore>()(
             saveStatus: { ...s.saveStatus, [itemId]: 'saving' },
             swapHistory: [
               {
-                id: `swap_${Date.now()}`,
+                id: `swap_${nanoid(12)}`,
                 date,
                 mealType,
                 itemId,
@@ -790,8 +791,8 @@ export const useTrayStore = create<TrayStore>()(
             for (let j = 0; j < selected.length; j++) {
               day[mt].push({
                 ...selected[j]!.meal,
-                // H5: Include mealType and timestamp to prevent ID collisions
-                id: `${selected[j]!.meal.id}-${iso}-${mt}-${j}-${Date.now()}`,
+                // C3: Use uid() (nanoid-based) to prevent ID collisions
+                id: uid(),
               });
               lastServed.set(selected[j]!.meal.meal_id, iso);
             }
@@ -1100,25 +1101,26 @@ export const useTrayStore = create<TrayStore>()(
   )
 );
 
-// ─── Online Event Listener ───────────────────────────────────────────────────
-// Uses dynamic getState() reference to survive HMR store recreation
+// ─── Connectivity Subscription ───────────────────────────────────────────────
+// C2: Single online listener lives in connectivity.ts — stores subscribe via onConnectivityChange()
 
-let _trayOnlineHandler: (() => void) | null = null;
+let _trayUnsubscribeConnectivity: (() => void) | null = null;
 let _logoutHandler: (() => void) | null = null;
 if (typeof window !== 'undefined') {
-  _trayOnlineHandler = () => {
-    setTimeout(() => useTrayStore.getState().syncOfflineQueue(), 500);
-  };
-  window.addEventListener('online', _trayOnlineHandler);
+  _trayUnsubscribeConnectivity = onConnectivityChange((state) => {
+    if (state === 'online') {
+      setTimeout(() => useTrayStore.getState().syncOfflineQueue(), 500);
+    }
+  });
 
   // Listen for logout to clear debounce timers and prevent stale saves
   _logoutHandler = () => clearAllDebounceTimers();
   window.addEventListener('store:logout', _logoutHandler);
 
-  // HMR cleanup: clear timers and re-wire listener on module reload
+  // HMR cleanup: clear timers and unsubscribe on module reload
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
-      if (_trayOnlineHandler) window.removeEventListener('online', _trayOnlineHandler);
+      if (_trayUnsubscribeConnectivity) _trayUnsubscribeConnectivity();
       if (_logoutHandler) window.removeEventListener('store:logout', _logoutHandler);
       clearAllDebounceTimers();
     });

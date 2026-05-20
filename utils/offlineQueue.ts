@@ -1,12 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Offline Queue — localStorage-backed FIFO for write actions when offline
+// Offline Queue — localStorage-backed FIFO for utility actions (loop_save, pantry_toggle)
 // Framework-agnostic. No store coupling. Pure utility.
-// H4: Consolidated with lib/trayApi.ts offline queue — this module now handles
-//     loop_save and pantry_toggle; trayApi handles add/swap/update/remove.
-//     Both share the same storage key and drain via connectivity.ts.
+// C1: Uses separate storage key from lib/trayApi.ts offline queue to prevent
+//     cross-contamination. trayApi handles add/swap/update/remove; this handles
+//     loop_save/pantry_toggle. Both drain via connectivity.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'mealdrama_offline_v2';
+const STORAGE_KEY = 'mealdrama_util_queue';
 const QUEUE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export type OfflineActionType = 'loop_save' | 'pantry_toggle' | 'dish_add' | 'custom_dish';

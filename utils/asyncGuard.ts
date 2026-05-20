@@ -29,6 +29,11 @@ export class RequestTracker {
     this._aborted = true;
   }
 
+  /** Alias for abort() — cancels all in-flight drain operations */
+  cancelAll() {
+    this._aborted = true;
+  }
+
   /** Reset for reuse (e.g., when modal reopens) */
   reset() {
     this._sequence = 0;
