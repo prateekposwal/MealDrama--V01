@@ -577,6 +577,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     <button
                         onClick={() => onNavigate?.('profile')}
                         className="w-10 h-10 rounded-2xl shadow border flex items-center justify-center active:scale-95 transition-all bg-white border-gray-100 overflow-hidden"
+                        aria-label="Open profile settings"
                     >
                         <img src="/logo.png" alt="Profile" className="w-full h-full object-cover" />
                     </button>
@@ -593,7 +594,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             Swap dishes, add dishes, or adjust your meal flavour flow anytime. Changes save automatically.
                         </p>
                     </div>
-                    <button onClick={() => setShowGuide(false)}><X size={14} className="text-gray-400" /></button>
+                    <button onClick={() => setShowGuide(false)} aria-label="Dismiss guide"><X size={14} className="text-gray-400" /></button>
                 </div>
             )}
 
@@ -611,6 +612,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                   <button
                     onClick={() => onManageTray?.()}
                     className="shrink-0 px-4 py-2 rounded-xl bg-amber-600 text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all flex items-center gap-1"
+                    aria-label="Configure meal loop"
                   >
                     Configure <ArrowRight size={12} />
                   </button>
@@ -623,6 +625,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 <button
                     onClick={() => setHealthExpanded(!healthExpanded)}
                     className="w-full flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-100 active:scale-[0.99] transition-all"
+                    aria-label="Toggle health insights"
+                    aria-expanded={healthExpanded}
                 >
                     <div className="flex items-center gap-2">
                         <Heart size={14} className="text-emerald-500" />
@@ -649,6 +653,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 <button
                     onClick={() => onNavigate?.('plan')}
                     className="p-4 rounded-[24px] bg-gray-900 text-white flex items-center gap-2 active:scale-95 transition-all"
+                    aria-label="Open weekly meal plan"
                 >
                     <div className="flex-1 min-w-0">
                         <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-0.5">Weekly</p>
@@ -659,6 +664,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 <button
                     onClick={() => onNavigate?.('pulse')}
                     className="p-4 rounded-[24px] bg-[#FF385C] text-white flex items-center gap-2 active:scale-95 transition-all"
+                    aria-label="Open pantry pulse"
                 >
                     <div className="flex-1 min-w-0">
                         <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-0.5">Pantry</p>

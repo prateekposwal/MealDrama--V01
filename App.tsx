@@ -95,6 +95,12 @@ const App: React.FC = () => {
   const [manageTraySlot, setManageTraySlot] = useState<string | undefined>(undefined);
   const [showLoopConfig, setShowLoopConfig] = useState(false);
   const [loopSkipped, setLoopSkipped] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+
+  // Focus management on tab change for accessibility
+  useEffect(() => {
+    mainRef.current?.focus({ preventScroll: true });
+  }, [activeTab]);
 
   // ─── Offline queue auto-sync on reconnect ───
   useEffect(() => {
@@ -256,7 +262,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-white font-sans text-gray-900 max-w-lg mx-auto">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       <OfflineBanner />
-      <main className="min-h-screen pb-24">
+      <main ref={mainRef} className="min-h-screen pb-24" tabIndex={-1} style={{ outline: 'none' }}>
         {activeTab === 'dashboard' && (
           <ErrorBoundary key="dashboard">
             <Suspense fallback={<DashboardSkeleton />}>
@@ -290,7 +296,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 z-50">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 z-50" role="navigation" aria-label="Main navigation">
         <div className="grid grid-cols-4 px-1 py-1">
           {TABS.map(({ key, label, Icon }) => {
             const active = activeTab === key;
@@ -299,11 +305,14 @@ const App: React.FC = () => {
                 key={key}
                 onClick={() => setActiveTab(key)}
                 className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-2xl transition-all duration-200"
+                aria-label={label}
+                aria-current={active ? 'page' : undefined}
               >
                 <div className={`p-2 rounded-xl transition-all duration-200 ${active ? 'bg-[#FF385C]/10 scale-110' : ''}`}>
                   <Icon
                     size={22}
                     className={`transition-colors duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}
+                    aria-hidden="true"
                   />
                 </div>
                 <span className={`text-[9px] font-black uppercase tracking-widest transition-all duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}>
