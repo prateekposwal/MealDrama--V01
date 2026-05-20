@@ -78,8 +78,6 @@ export interface SlotBodyProps {
   preferences?: Record<string, { start: string; end: string }>;
 }
 
-import { getISODate } from '../../utils/dateUTC';
-
 function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals: TrayItem[], mealType: MealType, preferences?: Record<string, { start: string; end: string }>) {
   const today = getISODate(new Date());
   const isToday = date === today;

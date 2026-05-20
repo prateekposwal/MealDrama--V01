@@ -43,8 +43,6 @@ interface MealTrayBuilderProps {
     defaultSlot?: string;
 }
 
-import { getISODate } from '../utils/dateUTC';
-
 const getTodayISO = getISODate;
 
 export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp, onComplete, defaultSlot }) => {

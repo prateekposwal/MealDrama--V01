@@ -185,8 +185,6 @@ interface DashboardProps {
     onManageTray?: () => void;
 }
 
-import { getISODate } from '../utils/dateUTC';
-
 const getTodayISO = getISODate;
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManageTray }) => {

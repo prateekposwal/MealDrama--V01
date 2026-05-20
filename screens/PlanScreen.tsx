@@ -167,9 +167,6 @@ const HistoryDayRow = React.memo<HistoryDayRowProps>(({
   );
 });
 
-
-import { getISODate } from '../utils/dateUTC';
-
 const NOOP = () => {};
 const PARTIAL = () => () => {};
 
