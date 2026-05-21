@@ -1,6 +1,7 @@
 import type { Meal, MealType, TrayItem, TrayItemDefaults } from '../../types/tray';
 import { getDishStyle, getStyleRouting } from '../../constants/dishStyles';
-import { getSmartSuggestions, ENABLE_SMART_SUGGESTIONS } from '../../utils/smartSuggestions';
+import { computePairingForDish } from '../../src/data/pairingEngine';
+import type { Dish } from '../../constants/dishLibrary';
 
 const LIGHT_CARBS = new Set(['paratha', 'idli', 'dosa', 'poha', 'upma', 'puttu', 'appam']);
 const HEAVY_CARBS = new Set(['naan', 'tandoori naan', 'paratha', 'butter naan', 'garlic naan', 'pulao', 'biryani', 'fried rice']);
@@ -229,8 +230,6 @@ export function applySmartDefaults(
     };
   }
 
-  const useSmartSuggestions = options?.useSmartSuggestions ?? ENABLE_SMART_SUGGESTIONS;
-
   const gravy = meal.baseGravy
     ?? meal.gravyOptions?.[0]
     ?? null;
@@ -322,31 +321,28 @@ export function applySmartDefaults(
     rice = riceOptions[0] ?? null;
   }
 
-  // ─── SIDES: smart suggestions first, then tag/region inference, then suggestedPairings fallback ──
+  // ─── SIDES/BEVERAGES/DESSERT: pairing engine (via suggestedPairings) ──
+  // dishToMeal now uses the pairing engine to populate suggestedPairings
+  // with dish-aware, culturally accurate accompaniments.
+  const style = meal.id ? getDishStyle(meal.id) : undefined;
+  const isStandalone = style && ['beverage', 'sweet-dessert', 'bread', 'side'].includes(style);
+
   let sides: string[] = [];
   let beverages: string[] = [];
   let dessert: string[] = [];
 
-  if (useSmartSuggestions) {
-    const smart = getSmartSuggestions(
-      { id: meal.id, name: meal.name, region: meal.region, tags: meal.tags, category: meal.category },
-      slotType,
-      { useSmartSuggestions: true },
-    );
-    sides = smart.sides.items;
-    const variantSides = meal.sideOptions ?? [];
-    if (variantSides.length > 0) {
-      sides = [...new Set([...variantSides, ...sides])].slice(0, 3);
-    }
-    beverages = smart.beverages.items.slice(0, 1);
-    dessert = slotType === 'dinner' ? smart.dessert.items : [];
-
-    if (smart.sides.source === 'smart_default') {
-      console.warn('[SmartSuggestions] Sides fell back to master list for', meal.name);
-    }
-    if (smart.beverages.source === 'smart_default') {
-      console.warn('[SmartSuggestions] Beverages fell back to master list for', meal.name);
-    }
+  // Primary: use pairing engine results from dishToMeal
+  const pairingSides = meal.suggestedPairings?.sides ?? [];
+  const pairingBevs = meal.suggestedPairings?.beverages ?? [];
+  if (pairingSides.length >= 2) {
+    sides = pairingSides.slice(0, 2);
+  } else if (pairingSides.length > 0 && meal.sideOptions) {
+    sides = [...new Set([...meal.sideOptions, ...pairingSides])].slice(0, 2);
+  } else if (pairingSides.length > 0) {
+    sides = pairingSides.slice(0, 2);
+  }
+  if (pairingBevs.length > 0) {
+    beverages = pairingBevs.slice(0, 1);
   }
 
   const itemQtys: Record<string, number> = {};
@@ -354,28 +350,18 @@ export function applySmartDefaults(
     itemQtys[item] = 1;
   }
 
-  // Fallback: tag/region/style inference (existing logic)
-  const explicitSides = (meal.sideOptions?.length ?? 0) > 0;
-  const sideOptions = explicitSides ? meal.sideOptions! : inferSides(meal, slotType);
-  if (!sides.length) {
-    const suggestedSides = meal.suggestedPairings?.sides ?? [];
-    sides = suggestedSides.length >= 2
-      ? suggestedSides.slice(0, 2)
-      : sideOptions.slice(0, 2);
-    if (sides.length > 0 && useSmartSuggestions) {
-      console.warn('[SmartSuggestions] Sides fell back to suggestedPairings for', meal.name);
+  // Fallback: tag/region/style inference — SKIP for standalone dishes
+  if (!isStandalone) {
+    const explicitSides = (meal.sideOptions?.length ?? 0) > 0;
+    const sideOptions = explicitSides ? meal.sideOptions! : inferSides(meal, slotType);
+    if (!sides.length) {
+      sides = sideOptions.slice(0, 2);
     }
-  }
 
-  const explicitBevs = (meal.beverageOptions?.length ?? 0) > 0;
-  const beverageOptions = explicitBevs ? meal.beverageOptions! : inferBeverages(meal, slotType);
-  if (!beverages.length) {
-    const suggestedBevs = meal.suggestedPairings?.beverages ?? [];
-    beverages = suggestedBevs.length > 0
-      ? suggestedBevs.slice(0, 1)
-      : beverageOptions.slice(0, 1);
-    if (beverages.length > 0 && useSmartSuggestions) {
-      console.warn('[SmartSuggestions] Beverages fell back to suggestedPairings for', meal.name);
+    const explicitBevs = (meal.beverageOptions?.length ?? 0) > 0;
+    const beverageOptions = explicitBevs ? meal.beverageOptions! : inferBeverages(meal, slotType);
+    if (!beverages.length) {
+      beverages = beverageOptions.slice(0, 1);
     }
   }
 

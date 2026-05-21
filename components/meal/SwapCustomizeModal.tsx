@@ -111,7 +111,7 @@ interface SwapCustomizeModalProps {
 }
 
 const allCategories: IndianMealCategory[] = ['bread', 'rice', 'side', 'beverage', 'dessert'];
-const styleGroups: DishStyleGroup[] = ['Gravy', 'Dry', 'Fry', 'Tadka', 'Roast', 'Steam', 'Rice', 'Breakfast'];
+const styleGroups: DishStyleGroup[] = ['Gravy', 'Dry', 'Fry', 'Tadka', 'Roast', 'Steam', 'Rice', 'Breakfast', 'Beverage', 'Sweet', 'Bread', 'Side'];
 
 const CUSTOM_DISH_STYLES: { value: string; label: string; icon: string }[] = [
   { value: 'Gravy', label: 'Gravy', icon: '🍛' },
@@ -122,6 +122,9 @@ const CUSTOM_DISH_STYLES: { value: string; label: string; icon: string }[] = [
   { value: 'Roast', label: 'Roast', icon: '🔥' },
   { value: 'Steam', label: 'Steam', icon: '♨️' },
   { value: 'Breakfast', label: 'Breakfast', icon: '🌅' },
+  { value: 'Beverage', label: 'Beverage', icon: '🥛' },
+  { value: 'Bread', label: 'Bread', icon: '🫓' },
+  { value: 'Side', label: 'Side', icon: '🥗' },
 ];
 
 export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(({

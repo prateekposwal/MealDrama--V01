@@ -243,11 +243,19 @@ export const useTrayStore = create<TrayStore>()(
        * 3. Applies any overrides (quantity, servings, etc.)
        * 4. Optimistic update → debounce PATCH → offline queue
        */
-      addMealToSlot: (date, mealType, meal, overrides) => {
-        // Call helper to get defaults from meal metadata + slot context
-        const defaults = applySmartDefaults(meal, mealType, undefined, { useSmartSuggestions: true });
+       addMealToSlot: (date, mealType, meal, overrides) => {
+         // Call helper to get defaults from meal metadata + slot context
+         const defaults = applySmartDefaults(meal, mealType, undefined, { useSmartSuggestions: true });
 
-        const timeDef = getTimeDef(mealType);
+         // Auto-add ONLY culturally relevant accompaniments (emoji items) to pantry staples
+         // Skip meal components like roti, rice, standard beverages/desserts
+         const EMOJI_ACCOMPANIMENTS = /[\u{1F300}-\u{1F9FF}]/u;
+         const pantryAccompaniments = defaults.sides.filter(s => EMOJI_ACCOMPANIMENTS.test(s));
+         if (pantryAccompaniments.length > 0) {
+           useStore.getState().addToPantry(pantryAccompaniments);
+         }
+
+         const timeDef = getTimeDef(mealType);
         const embeddedCarb = defaults.roti ?? defaults.rice ?? undefined;
         const autoTitle = overrides?.title ?? generateMealTitle(meal.name, defaults.sides, defaults.beverages, embeddedCarb);
         const newItem: TrayItem = {

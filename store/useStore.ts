@@ -363,6 +363,7 @@ interface StoreState {
   setLoggedIn: (value: boolean) => void;
   updateProfile: (updates: Partial<User>) => void;
   setUser: (user: User) => void;
+  addToPantry: (items: string[]) => void;
   logout: () => void;
   addToTray: (slot: string, meal: MealOption) => void;
   removeFromTray: (slot: string, mealId: string) => void;
@@ -447,6 +448,22 @@ export const useStore = create<StoreState>()(
         })),
 
       setUser: (user: User) => set({ user, isLoggedIn: true }),
+
+      addToPantry: (items: string[]) => set((state) => {
+        const existingStaples = state.user?.pantryStaples ?? [];
+        const existing = new Set(existingStaples);
+        let changed = false;
+        for (const item of items) {
+          const normalized = item.trim();
+          if (normalized && !existing.has(normalized)) {
+            existing.add(normalized);
+            changed = true;
+          }
+        }
+        if (!changed) return state;
+        const updatedUser = { ...(state.user ?? {}), pantryStaples: [...existing] };
+        return { user: updatedUser };
+      }),
 
       logout: () => {
         // Clear cross-store mutable state to prevent stale data leaking to next user

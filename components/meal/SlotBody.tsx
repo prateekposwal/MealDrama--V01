@@ -374,8 +374,9 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   className="flex items-center gap-1 text-[10px] font-bold text-[#FF385C]"
                 >
                   Add dish <ChevronRight size={10} />
-                </button>
-              </div>
+            </button>
+            <ChevronRight size={16} className={`text-gray-400 transition-transform duration-200 ${aggregatedExpanded ? 'rotate-90' : ''}`} />
+          </div>
             )}
           </div>
         </div>
@@ -519,35 +520,33 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
       {/* ─── Aggregated slot items per category (collapsible) ─── */}
       {showAggregated && (
-        <div className="py-2 aggregated-categories">
-          <button
-            onClick={() => setAggregatedExpanded(prev => !prev)}
-            className={`group w-full rounded-xl border-2 ${SLOT_META[slotLabel]?.color || 'border-emerald-200'} ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/80'} hover:brightness-95 active:scale-[0.98] transition-all px-4 py-3`}
-          >
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center -space-x-2">
-                    <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
-                    {meals.length > 1 && (
-                      <DishImage name={meals[1]?.name || slotLabel} slot={slotLabel} size="sm" />
-                    )}
-                  </div>
-                  <div className="text-left">
-                  <span className={`text-xs font-black uppercase tracking-widest ${SLOT_META[slotLabel]?.color?.replace('border-', 'text-').replace('100', '700') || 'text-emerald-800'}`}>{slotLabel}</span>
-                  <span className="block text-[10px] font-medium text-gray-600 group-hover:hidden">Flavor Flow Mapping</span>
-                  <span className="hidden group-hover:block text-[10px] font-semibold text-gray-700">Build your ideal {slotLabel.toLowerCase()}</span>
-                </div>
+        <div className="aggregated-categories">
+          <div className={`group flex items-center justify-between rounded-xl border-2 ${SLOT_META[slotLabel]?.color || 'border-emerald-200'} ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/80'} px-3 py-2.5`}>
+            <button
+              onClick={() => setAggregatedExpanded(prev => !prev)}
+              className="flex-1 flex items-center gap-2 text-left hover:brightness-95 active:scale-[0.98] transition-all -m-2 p-2"
+            >
+              <div className="flex items-center -space-x-2">
+                <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
+                {meals.length > 1 && (
+                  <DishImage name={meals[1]?.name || slotLabel} slot={slotLabel} size="sm" />
+                )}
               </div>
-            </div>
-          </button>
+              <div>
+                <span className={`text-xs font-black uppercase tracking-widest ${SLOT_META[slotLabel]?.color?.replace('border-', 'text-').replace('100', '700') || 'text-emerald-800'}`}>{slotLabel}</span>
+                <span className="block text-[10px] font-medium text-gray-600 group-hover:hidden">Flavor Flow Mapping</span>
+                <span className="hidden group-hover:block text-[10px] font-semibold text-gray-700">Build your ideal {slotLabel.toLowerCase()}</span>
+              </div>
+            </button>
+          </div>
           {aggregatedExpanded && (
-            <div className="space-y-1 mt-1">
-              {categoryConfig.map(cat => cat.items.length > 0 && (
-                <div key={cat.label} className="aggregated-category">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{cat.label}</p>
+            <div className="flex flex-col gap-2 mt-2 px-2 pb-2">
+              {categoryConfig.filter(cat => cat.items.length > 0).map(cat => (
+                <div key={cat.label} className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">{cat.label}</span>
                   <div className="flex flex-wrap items-center gap-1">
                     {cat.items.map((agg: AggregatedCategory) => (
-                      <span key={agg.name} className="text-[10px] font-bold px-2 py-1 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={_CHIP_STYLE}>
+                      <span key={agg.name} className="text-[10px] font-bold px-1.5 py-0.5 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={_CHIP_STYLE}>
                         <span className={`${cat.color} contents`}>
                           {cat.label === 'Dessert' && '🍨 '}{agg.name}
                         </span>
@@ -555,7 +554,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                           {editable && (
                             <button
                               onClick={() => handleAggregatedQty(agg.name, -1)}
-                              className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
+                              className="min-w-[28px] min-h-[28px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
                               aria-label={`Decrease ${agg.name}`}
                             >−</button>
                           )}
@@ -563,7 +562,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                           {editable && (
                             <button
                               onClick={() => handleAggregatedQty(agg.name, 1)}
-                              className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
+                              className="min-w-[28px] min-h-[28px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
                               aria-label={`Increase ${agg.name}`}
                             >+</button>
                           )}

@@ -245,7 +245,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const currentSlotMeals = useTrayStore(s => s.plan.days[today]?.[quickAddSlot.toLowerCase() as MealType]);
     const todayMealData = useTrayStore(s => s.plan.days[today]);
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
-    const [showGuide, setShowGuide] = useState(true);
+    const [showGuide, setShowGuide] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return localStorage.getItem('mealdrama_guide_dismissed') !== 'true';
+        }
+        return true;
+    });
+    const dismissGuide = useCallback(() => {
+        localStorage.setItem('mealdrama_guide_dismissed', 'true');
+        setShowGuide(false);
+    }, []);
     const [shareType, setShareType] = useState<'prep' | 'pantry' | null>(null);
     const [slotTimesRefreshKey, setSlotTimesRefreshKey] = useState(0);
     useEffect(() => {
@@ -606,7 +615,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             Swap dishes, add dishes, or adjust your meal flavour flow anytime. Changes save automatically.
                         </p>
                     </div>
-                    <button onClick={() => setShowGuide(false)} aria-label="Dismiss guide"><X size={14} className="text-gray-400" /></button>
+                    <button onClick={dismissGuide} aria-label="Dismiss guide"><X size={14} className="text-gray-400" /></button>
                 </div>
             )}
 

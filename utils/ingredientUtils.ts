@@ -202,6 +202,21 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'mango-kulfi': [ing('Milk', 500, 'ml', 'dairy'), ing('Sugar', 50, 'g', 'pantry'), ing('Pistachios', 20, 'g', 'pantry'), ing('Mango', 1, 'pc', 'produce')],
   'aamras': [ing('Mango', 2, 'pc', 'produce'), ing('Sugar', 30, 'g', 'pantry'), ing('Cardamom', 1, 'pinch', 'spices')],
   'ras-malai': [ing('Milk', 1, 'l', 'dairy'), ing('Sugar', 100, 'g', 'pantry'), ing('Saffron', 1, 'pinch', 'spices')],
+
+  // ─── Accompaniments (market purchase items) ────────────────
+  '🍪 biscuit': [ing('Biscuit', 1, 'packet', 'snacks')],
+  '🍪-biscuit': [ing('Biscuit', 1, 'packet', 'snacks')],
+  'biscuit': [ing('Biscuit', 1, 'packet', 'snacks')],
+  '🥜 roasted peanuts': [ing('Roasted Peanuts', 1, 'packet', 'snacks')],
+  '🥜-roasted-peanuts': [ing('Roasted Peanuts', 1, 'packet', 'snacks')],
+  'roasted-peanuts': [ing('Roasted Peanuts', 1, 'packet', 'snacks')],
+  'roasted peanuts': [ing('Roasted Peanuts', 1, 'packet', 'snacks')],
+  '🧊 ice': [ing('Ice', 1, 'tray', 'pantry')],
+  '🧊-ice': [ing('Ice', 1, 'tray', 'pantry')],
+  'ice': [ing('Ice', 1, 'tray', 'pantry')],
+  '🌿 mint': [ing('Mint Leaves', 1, 'bunch', 'produce')],
+  '🌿-mint': [ing('Mint Leaves', 1, 'bunch', 'produce')],
+  'mint': [ing('Mint Leaves', 1, 'bunch', 'produce')],
 };
 
 export function getIngredientsForCategoryOption(catId: string): Ingredient[] {
@@ -278,9 +293,10 @@ export const CATEGORY_META: Record<IngredientCategory, { label: string; emoji: s
     spices: { label: 'Spices', emoji: '🌶️' },
     pantry: { label: 'Pantry', emoji: '🫙' },
     breads: { label: 'Breads', emoji: '🍞' },
+    snacks: { label: 'Snacks', emoji: '🍿' },
 };
 
-const CATEGORY_ORDER: IngredientCategory[] = ['produce', 'proteins', 'dairy', 'grains', 'spices', 'pantry', 'breads'];
+const CATEGORY_ORDER: IngredientCategory[] = ['produce', 'proteins', 'dairy', 'grains', 'spices', 'pantry', 'breads', 'snacks'];
 
 function toStableId(name: string, category?: string): string {
     // Use the same ID format as toOption() in MealCard

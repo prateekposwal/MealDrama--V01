@@ -197,9 +197,26 @@ const DISH_STYLE_MAP: Record<string, { style: DishStyle; subTag?: string }> = {
 
   // ── Beverage ───────────────────────────────────────────
   'lassi': { style: 'beverage', subTag: 'yogurt' },
+  'mango-lassi': { style: 'beverage', subTag: 'yogurt' },
+  'sweet-lassi': { style: 'beverage', subTag: 'yogurt' },
+  'salted-lassi': { style: 'beverage', subTag: 'yogurt' },
   'masala-chaai': { style: 'beverage', subTag: 'spiced' },
   'chaas': { style: 'beverage', subTag: 'digestive' },
+  'nimbu-pani': { style: 'beverage', subTag: 'citrus' },
+  'jaljeera': { style: 'beverage', subTag: 'spiced' },
+  'aam-panna': { style: 'beverage', subTag: 'mango' },
+  'sol-kadhi': { style: 'beverage', subTag: 'cooling' },
+  'coconut-water': { style: 'beverage', subTag: 'natural' },
+  'thandai': { style: 'beverage', subTag: 'spiced' },
+  'badam-milk': { style: 'beverage', subTag: 'nut' },
+  'sattu-sharbat': { style: 'beverage', subTag: 'roasted' },
+  'ginger-lemon-tea': { style: 'beverage', subTag: 'herbal' },
+  'seasonal-fruit-juice': { style: 'beverage', subTag: 'fresh' },
   'kokam-sherbhat': { style: 'beverage', subTag: 'cooling' },
+
+  // ── Sweet / Dessert ────────────────────────────────────
+  'kulfi': { style: 'sweet-dessert', subTag: 'frozen' },
+  'mango-kulfi': { style: 'sweet-dessert', subTag: 'frozen' },
 };
 
 export function getDishStyle(dishId: string): DishStyle | undefined {
@@ -522,7 +539,8 @@ export const CATEGORY_CONFIG: Record<IndianMealCategory, CategoryConfig> = {
 // ─── Style-Based Dish Selection ─────────────────────────────────────────────
 
 export type DishStyleGroup =
-  | 'Gravy' | 'Dry' | 'Fry' | 'Tadka' | 'Roast' | 'Steam' | 'Rice' | 'Breakfast';
+  | 'Gravy' | 'Dry' | 'Fry' | 'Tadka' | 'Roast' | 'Steam' | 'Rice' | 'Breakfast'
+  | 'Beverage' | 'Sweet' | 'Bread' | 'Side';
 
 export const DISH_STYLES: Record<DishStyleGroup, string[]> = {
   Gravy: [
@@ -562,6 +580,23 @@ export const DISH_STYLES: Record<DishStyleGroup, string[]> = {
     'Poha', 'Upma', 'Dosa', 'Uttapam', 'Idli', 'Paratha',
     'Thepla', 'Kachori', 'Samosa', 'Chole Bhature', 'Puri Bhaji',
   ],
+  Beverage: [
+    'Lassi', 'Masala Chai', 'Chaas', 'Filter Coffee', 'Nimbu Pani',
+    'Sweet Lassi', 'Mango Lassi', 'Salted Lassi', 'Sol Kadhi',
+  ],
+  Sweet: [
+    'Gulab Jamun', 'Jalebi', 'Rasgulla', 'Kheer', 'Rasmalai',
+    'Shrikhand', 'Basundi', 'Mishti Doi', 'Sandesh', 'Payasam',
+    'Mango Kulfi', 'Aamras', 'Imarti', 'Kesari Bath',
+  ],
+  Bread: [
+    'Tandoori Roti', 'Butter Naan', 'Missi Roti', 'Paratha',
+    'Pav', 'Bhakri', 'Jolada Roti', 'Luchi', 'Kulcha',
+  ],
+  Side: [
+    'Raita', 'Salad', 'Papad', 'Pickle', 'Chutney',
+    'Dahi Bhalla', 'Papdi Chaat', 'Sev Poori', 'Pani Puri',
+  ],
 };
 
 export const STYLE_GROUP_ICONS: Record<DishStyleGroup, string> = {
@@ -573,6 +608,10 @@ export const STYLE_GROUP_ICONS: Record<DishStyleGroup, string> = {
   Steam: '♨️',
   Rice: '🍚',
   Breakfast: '🌅',
+  Beverage: '🥛',
+  Sweet: '🍨',
+  Bread: '🫓',
+  Side: '🥗',
 };
 
 export function styleGroupToInternal(group: DishStyleGroup): DishStyle {
@@ -585,6 +624,10 @@ export function styleGroupToInternal(group: DishStyleGroup): DishStyle {
     Steam: 'steam-boil',
     Rice: 'rice-biryani',
     Breakfast: 'breakfast',
+    Beverage: 'beverage',
+    Sweet: 'sweet-dessert',
+    Bread: 'bread',
+    Side: 'side',
   };
   return map[group];
 }
@@ -598,10 +641,10 @@ export function internalToStyleGroup(style: DishStyle): DishStyleGroup | null {
     'steam-boil': 'Steam',
     'rice-biryani': 'Rice',
     'breakfast': 'Breakfast',
-    'sweet-dessert': 'Gravy',
-    'bread': 'Breakfast',
-    'side': 'Fry',
-    'beverage': 'Fry',
+    'sweet-dessert': 'Sweet',
+    'bread': 'Bread',
+    'side': 'Side',
+    'beverage': 'Beverage',
   };
   return map[style] ?? null;
 }
