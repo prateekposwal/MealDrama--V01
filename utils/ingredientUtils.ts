@@ -351,7 +351,12 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         const n = dishName.toLowerCase();
         const hasKeyword = (kw: string) => {
             const re = new RegExp(`\\b${kw}\\b`, 'i');
-            return re.test(dishName) || n.includes(kw.toLowerCase());
+            if (re.test(dishName)) return true;
+            const lower = kw.toLowerCase();
+            // Word-boundary fallback: prevent substring false positives (e.g., 'veg' in 'veggie')
+            // Allows 's' as suffix for plurals (e.g., 'Egg' → 'Eggs')
+            const boundRe = new RegExp(`(?:^|[\\s-])${lower}(?:s\\b|[\\s-]|$)`, 'i');
+            return boundRe.test(n);
         };
 
         if (hasKeyword('Chicken') && !hasKeyword('Chickpea') && !n.includes('chick')) {
@@ -870,8 +875,8 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Potatoes', quantity: 3, unit: 'pc', category: 'produce', inStock: false });
         result.push({ name: 'Tamarind Chutney', quantity: 30, unit: 'g', category: 'pantry', inStock: false });
     }
-    // INF-50: Gota (Gujarati gram flour fritters)
-    if (idLower.includes('gota') && !idLower.includes('machi') && !idLower.includes('fish') && !idLower.includes('prawn')) {
+    // INF-50: Gota (Gujarati gram flour fritters) — only match standalone word
+    if (/^gota-|-gota-|^gota$/.test(idLower) && !idLower.includes('machi') && !idLower.includes('fish') && !idLower.includes('prawn')) {
         result.push({ name: 'Gram Flour', quantity: 150, unit: 'g', category: 'grains', inStock: false });
         result.push({ name: 'Yogurt', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
     }
@@ -908,8 +913,8 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Sapodilla (Chikoo)', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
         result.push({ name: 'Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
     }
-    // INF-58: Mysore Pak (gram flour + ghee sweet)
-    if (idLower.includes('mysore') || idLower.includes('mysore-pak')) {
+    // INF-58: Mysore Pak (gram flour + ghee sweet) — NOT mysore-bonda (savory)
+    if ((idLower.includes('mysore') || idLower.includes('mysore-pak')) && !idLower.includes('bonda')) {
         result.push({ name: 'Gram Flour', quantity: 100, unit: 'g', category: 'grains', inStock: false });
         result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
         result.push({ name: 'Ghee', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
@@ -926,9 +931,28 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Bottle Gourd', quantity: 100, unit: 'g', category: 'produce', inStock: false });
     }
 
+    // CATEGORY_INGREDIENTS fallback: match dish ID tokens against known ingredient sets
+    // Catches Northeast/regional dishes that don't have specific INF patterns
+    if (result.length === 0) {
+        const idTokens = idLower.split('-').filter(t => t.length > 3);
+        const catKey = Object.keys(CATEGORY_INGREDIENTS).find(k => {
+            if (idLower === k) return true;
+            if (idLower.includes(k)) return true;
+            const kTokens = k.split('-').filter(t => t.length > 3);
+            return kTokens.some(kt => idTokens.includes(kt));
+        });
+        if (catKey) {
+            for (const ing of CATEGORY_INGREDIENTS[catKey]) {
+                if (!result.find(i => i.name.toLowerCase() === ing.name.toLowerCase())) {
+                    result.push(ing);
+                }
+            }
+        }
+    }
+
     // INF-04: Ghee/Butter (common in Indian cooking) — skip for drinks, sweets, salads, soups
     const _isDrink = /lassi|chai|sharbat|juice|milkshake|buttermilk|sherbet|lemonade|nimbu|panna|thandai|smoothie|coconut-water|soda|sharbat|milk-tea/.test(idLower);
-    const _isSweet = /kheer|halwa|jalebi|gulab.*jamun|barfi|laddu|pudding|cake|cookie|brownie|muffin|dessert|ice-cream|payasam|custard|cupcake|donut|cheesecake/.test(idLower);
+    const _isSweet = /kheer|halwa|jalebi|gulab.*jamun|barfi|laddu|pudding|cake|cookie|brownie|muffin|dessert|ice-cream|payasam|custard|cupcake|donut|cheesecake|mysore-pak|haalbai|basundi|doodhpak/.test(idLower);
     const _isSalad = /salad/.test(idLower);
     const _isSoup = /soup|shorba|rasam|saar|charu|stew|broth/.test(idLower);
     if (!_isDrink && !_isSweet && !_isSalad && !_isSoup) {
