@@ -65,24 +65,14 @@ const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; onC
 const App: React.FC = () => {
   const {
     isLoggedIn, user,
-    setLoggedIn, updateProfile, logout, setDishes, setSwap, toast, setToast,
-    trayBuilt, setTrayBuilt,
+    login, updateProfile, logout, setDishes, setSwap, toast, setToast,
+    trayBuilt, setTrayBuilt, setLoggedIn,
   } = useStore();
   const { quickSetupOpen, quickSetupPrefill, openQuickSetup, closeQuickSetup } = useStore();
   const { dishes: fetchedDishes } = useBackendDishes();
-  // M8: Hydration guard — use onHydrated callback for reliable detection
-  const [hydrated, setHydrated] = useState(() => useStore.persist.hasHydrated());
 
-  useEffect(() => {
-    if (!hydrated) {
-      const unsub = useStore.persist.onHydrated(() => {
-        setHydrated(true);
-      });
-      return unsub;
-    }
-  }, [hydrated]);
-
-  // ─── Hooks used downstream — placed here (before any conditional return) to satisfy React's Rules of Hooks ───
+  // ─── ALL hooks must be before any conditional return (Rules of Hooks) ───
+  const [hydrated, setHydrated] = useState(false);
   const _trayLibrary = useStore(s => s.trayLibrary);
   const planDays = useTrayStore(s => s.plan.days);
   const today = getISODate();
@@ -111,10 +101,68 @@ const App: React.FC = () => {
   const [loopSkipped, setLoopSkipped] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
 
+  // Listen for navigation events from screens without direct onNavigate prop
+  useEffect(() => {
+    const handler = () => setActiveTab('profile');
+    window.addEventListener('navigate:profile', handler);
+    return () => window.removeEventListener('navigate:profile', handler);
+  }, []);
+
   // Focus management on tab change for accessibility
   useEffect(() => {
     mainRef.current?.focus({ preventScroll: true });
   }, [activeTab]);
+
+  // Hydration detection — Zustand v5
+  useEffect(() => {
+    const unsub = useStore.persist.subscribe?.(() => setHydrated(true));
+    if (useStore.persist.hasHydrated?.()) setHydrated(true);
+    const timeout = setTimeout(() => setHydrated(true), 500);
+    return () => { unsub?.(); clearTimeout(timeout); };
+  }, []);
+
+  // Direct localStorage sync on mount — bypasses Zustand hydration issues
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('mealdrama-store');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const storedState = parsed.state || parsed;
+        const storedIsLoggedIn = storedState.isLoggedIn;
+        const storedUser = storedState.user;
+        const storedTrayBuilt = storedState.trayBuilt;
+
+        console.log('[App] Direct localStorage read:', {
+          isLoggedIn: storedIsLoggedIn,
+          user: storedUser ? { id: storedUser.id, region: storedUser.region } : null,
+          trayBuilt: storedTrayBuilt,
+          onboardingComplete: storedUser?.onboardingComplete,
+        });
+
+        if (storedIsLoggedIn === true && !isLoggedIn) {
+          console.log('[App] Restoring session from localStorage');
+          setLoggedIn(true);
+          if (storedUser) useStore.setState({ user: storedUser });
+          if (storedTrayBuilt === true) useStore.setState({ trayBuilt: true });
+        }
+      }
+    } catch (e) {
+      console.error('[App] Failed to restore session from localStorage:', e);
+    }
+  }, []);
+
+  // ═══ All hooks above — early returns below ═══
+
+  console.log('[App] Rendering, isLoggedIn:', isLoggedIn, 'user:', !!user, 'user.region:', user?.region);
+
+  if (!hydrated) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
+        <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-medium text-gray-400 text-center">Loading your meal plan…</p>
+      </div>
+    );
+  }
 
   // M6: Removed duplicate online listener — useStore and useTrayStore already
   // handle offline queue sync on reconnect. Adding a third listener caused
@@ -146,10 +194,17 @@ const App: React.FC = () => {
     );
   }
 
+  // FIX: No hydration guard - Zustand v5 hydrates synchronously on web
+  // The store is ready before the first render completes
+
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={(userId, primaryId) => {
-      setLoggedIn(true);
-      updateProfile({ id: userId, primaryId, systemId: userId.slice(0, 8) });
+    return <LoginScreen onLogin={async (userId, primaryId) => {
+      console.log('[App] onLogin called, userId:', userId);
+      // FIX: Use atomic login function and wait for persistence
+      login(userId, primaryId);
+      // Wait for Zustand to flush to localStorage before proceeding
+      await useStore.persist.flush?.();
+      console.log('[App] login persisted to localStorage');
     }} />;
   }
 
@@ -158,8 +213,9 @@ const App: React.FC = () => {
   if (!hasRegion || onboardingComplete !== true) {
     return (
       <QuickStartOnboarding
-        onComplete={(preferences) => {
+        onComplete={async (preferences) => {
           try {
+            console.log('[App] Onboarding complete, calling updateProfile');
             updateProfile({
               region: preferences.region,
                diet: preferences.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
@@ -169,6 +225,9 @@ const App: React.FC = () => {
               onboardingComplete: true,
               goal: user?.goal || 'Weekly',
             });
+            // FIX: Wait for Zustand to persist user data to localStorage
+            await useStore.persist.flush?.();
+            console.log('[App] Onboarding data persisted');
           } catch (e) {
             console.error('[App] First-time onboarding error:', e);
           }
@@ -176,11 +235,6 @@ const App: React.FC = () => {
         }}
       />
     );
-  }
-
-  // Hydration guard — don't route until stores are ready
-  if (!hydrated) {
-    return <PageLoader />;
   }
 
   // ─── Strict Routing: Login → Onboarding → Tray → Loop Config → Dashboard ───
@@ -238,13 +292,18 @@ const App: React.FC = () => {
 
   // Step 2: Tray builder (first time, or manage mode from profile)
   if (!trayBuilt || manageTray) {
+    console.log('[App] Showing MealTrayBuilder, trayBuilt:', trayBuilt, 'manageTray:', manageTray);
     return (
       <ErrorBoundary>
         <MealTrayBuilder
           user={user}
           defaultSlot={manageTraySlot}
-          onComplete={() => {
+          onComplete={async () => {
+            console.log('[App] MealTrayBuilder onComplete called');
             setTrayBuilt(true);
+            // FIX: Wait for trayBuilt=true to persist before proceeding
+            await useStore.persist.flush?.();
+            console.log('[App] trayBuilt=true persisted');
             setManageTray(false);
             setManageTraySlot(undefined);
             const returnTab = trayEditSession?.returnTab;
@@ -330,4 +389,10 @@ const App: React.FC = () => {
   );
 };
 
-export default App;
+export default function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}

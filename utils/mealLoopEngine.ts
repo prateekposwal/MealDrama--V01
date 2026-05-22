@@ -1,4 +1,4 @@
-import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, InsertStrategy } from '../types/tray';
+import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, InsertStrategy, RotationSlotPointer } from '../types/tray';
 import type { Dish } from '../constants/dishLibrary';
 import { getDishStyle } from '../constants/dishStyles';
 import { getISODate } from './dateUTC';
@@ -382,6 +382,169 @@ export function getLoopAssignment(
   mealType: MealType,
 ): MealLoopAssignment | undefined {
   return assignments.find(a => a.date === date && a.mealType === mealType);
+}
+
+/**
+ * Non-destructive gap-fill: assigns loop dishes only to empty or loop-source slots.
+ * Never overwrites user-planned or user-swapped meals.
+ * Returns new assignments + updated rotation state pointers.
+ */
+export interface AutoFillResult {
+  assignments: MealLoopAssignment[];
+  rotationState: {
+    breakfast: RotationSlotPointer;
+    lunch: RotationSlotPointer;
+    snacks: RotationSlotPointer;
+    dinner: RotationSlotPointer;
+  };
+}
+
+export function autoFillLoop(
+  config: MealLoopConfig,
+  rotationState: {
+    breakfast: RotationSlotPointer;
+    lunch: RotationSlotPointer;
+    snacks: RotationSlotPointer;
+    dinner: RotationSlotPointer;
+  },
+  existingItems: Array<{ date: string; mealType: MealType; source?: string }>,
+): AutoFillResult {
+  const existingSet = new Set(
+    existingItems
+      .filter(item => item.source !== 'loop')
+      .map(item => `${item.date}:${item.mealType}`),
+  );
+
+  const slotOrder: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
+  const pointers: Record<MealType, number> = {
+    breakfast: rotationState.breakfast.pointer,
+    lunch: rotationState.lunch.pointer,
+    snacks: rotationState.snacks.pointer,
+    dinner: rotationState.dinner.pointer,
+  };
+  const queues: Record<MealType, string[]> = {
+    breakfast: [...rotationState.breakfast.queue],
+    lunch: [...rotationState.lunch.queue],
+    snacks: [...rotationState.snacks.queue],
+    dinner: [...rotationState.dinner.queue],
+  };
+
+  // Shuffle if random pattern
+  if (config.repeatPattern === 'random') {
+    for (const slot of slotOrder) {
+      const q = queues[slot];
+      for (let i = q.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [q[i], q[j]] = [q[j]!, q[i]!];
+      }
+    }
+  }
+
+  const assignments: MealLoopAssignment[] = [];
+  let activeDays = 0;
+  let day = 0;
+  const start = new Date(config.startDate);
+  const maxDays = config.cycleLength * 7; // Safety cap
+
+  while (activeDays < config.cycleLength && day < maxDays) {
+    const date = new Date(start);
+    date.setDate(date.getDate() + day);
+    const dateStr = getISODate(date);
+    day++;
+
+    if (isSkippedDay(dateStr, config.skipDays)) continue;
+
+    for (const slot of slotOrder) {
+      const q = queues[slot];
+      if (q.length === 0) continue;
+
+      const key = `${dateStr}:${slot}`;
+      if (existingSet.has(key)) continue;
+
+      const ptr = pointers[slot] % q.length;
+      pointers[slot]++;
+      const dishId = q[ptr]!;
+
+      assignments.push({
+        date: dateStr,
+        mealType: slot,
+        dishId,
+        dishName: dishId, // Will be resolved by caller
+        order: assignments.length,
+      });
+      existingSet.add(key);
+    }
+    activeDays++;
+  }
+
+  return {
+    assignments,
+    rotationState: {
+      breakfast: { queue: queues.breakfast, pointer: pointers.breakfast },
+      lunch: { queue: queues.lunch, pointer: pointers.lunch },
+      snacks: { queue: queues.snacks, pointer: pointers.snacks },
+      dinner: { queue: queues.dinner, pointer: pointers.dinner },
+    },
+  };
+}
+
+/**
+ * Build rotation state from source pool.
+ * Creates per-slot queues from the pool dishes.
+ */
+export function buildRotationState(
+  pool: SourcePool,
+  dishes?: Dish[],
+): {
+  breakfast: RotationSlotPointer;
+  lunch: RotationSlotPointer;
+  snacks: RotationSlotPointer;
+  dinner: RotationSlotPointer;
+} {
+  const slotOrder: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
+  const result: Record<MealType, RotationSlotPointer> = {} as Record<MealType, RotationSlotPointer>;
+
+  for (const slot of slotOrder) {
+    const queue = pool[slot].map(d => d.id);
+    result[slot] = { queue, pointer: 0 };
+  }
+
+  return result;
+}
+
+/**
+ * FIX 2: Merge pending items into existing rotation state.
+ * Processes items that were added mid-cycle and queued in pendingMerge.
+ */
+export function buildRotationStateWithMerge(
+  current: {
+    breakfast: RotationSlotPointer;
+    lunch: RotationSlotPointer;
+    snacks: RotationSlotPointer;
+    dinner: RotationSlotPointer;
+  },
+  pendingMerge: RotationQueueItem[],
+): {
+  breakfast: RotationSlotPointer;
+  lunch: RotationSlotPointer;
+  snacks: RotationSlotPointer;
+  dinner: RotationSlotPointer;
+} {
+  const merged = {
+    breakfast: { ...current.breakfast, queue: [...current.breakfast.queue] },
+    lunch: { ...current.lunch, queue: [...current.lunch.queue] },
+    snacks: { ...current.snacks, queue: [...current.snacks.queue] },
+    dinner: { ...current.dinner, queue: [...current.dinner.queue] },
+  };
+
+  for (const item of pendingMerge) {
+    const slot = item.mealType;
+    if (merged[slot] && !merged[slot].queue.includes(item.dishId)) {
+      merged[slot].queue.push(item.dishId);
+    }
+  }
+
+  return merged;
 }
 
 export interface LoopSummary {

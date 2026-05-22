@@ -16,6 +16,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
         const primaryId = generatePrimaryId();
         localStorage.setItem('mealdrama-user-id', userId);
         localStorage.setItem('mealdrama-primary-id', primaryId);
+        console.log('[LoginScreen] handleCreateUser called, calling onLogin');
         onLogin(userId, primaryId);
     };
 
@@ -63,22 +64,22 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                             <p className="text-2xl font-bold tracking-tight text-gray-900 leading-snug">"आज खाने में क्या बनाऊं?"</p>
                             <p className="text-base font-semibold text-gray-700 mt-2">Now there's a better way.</p>
                         </div>
-                        <div className="grid gap-2">
-                            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-100/50">
+                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
+                            <div className="flex-shrink-0 w-[220px] flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-100/50">
                                 <span className="text-2xl">🍛</span>
                                 <div>
                                     <p className="text-sm font-bold text-gray-800">Regional meals</p>
                                     <p className="text-[11px] text-gray-500">North, South, East, West — food from home</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100/50">
+                            <div className="flex-shrink-0 w-[220px] flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100/50">
                                 <span className="text-2xl">👨‍👩‍👧</span>
                                 <div>
                                     <p className="text-sm font-bold text-gray-800">Shared planning</p>
                                     <p className="text-[11px] text-gray-500">Cook knows what's for dinner before you ask</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-100/50">
+                            <div className="flex-shrink-0 w-[220px] flex items-center gap-3 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-100/50">
                                 <span className="text-2xl">⚡</span>
                                 <div>
                                     <p className="text-sm font-bold text-gray-800">Quick add & swaps</p>

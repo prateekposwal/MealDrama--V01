@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { nativeStorage } from '../utils/nativeStorage';
 import { Dish } from '../constants/dishLibrary';
 import api from '../lib/api';
 import { RequestTracker, requestDedupCache } from '../utils/asyncGuard';
@@ -361,6 +362,7 @@ interface StoreState {
   toast: { message: string; type: 'error' | 'success' | 'info' } | null;
   setToast: (toast: { message: string; type: 'error' | 'success' | 'info' } | null) => void;
   setLoggedIn: (value: boolean) => void;
+  login: (userId: string, primaryId: string) => void;
   updateProfile: (updates: Partial<User>) => void;
   setUser: (user: User) => void;
   addToPantry: (items: string[]) => void;
@@ -436,16 +438,44 @@ export const useStore = create<StoreState>()(
 
       setToast: (toast) => set({ toast }),
 
-      setLoggedIn: (value: boolean) => set({ isLoggedIn: value }),
-
-      updateProfile: (updates: Partial<User>) =>
+      setLoggedIn: (value: boolean) => {
+        console.log('[Store] setLoggedIn called with:', value, 'previous:', get().isLoggedIn);
         set((state) => ({
-          // Always merge updates into an existing user object or create a new one
+          ...state,
+          isLoggedIn: value,
+        }));
+      },
+
+      // FIX: Atomic login function that sets both isLoggedIn and user in one operation
+      // This prevents race conditions where updateProfile reads stale isLoggedIn=false
+      login: (userId: string, primaryId: string) => {
+        console.log('[Store] login called, userId:', userId);
+        set((state) => ({
+          ...state,
+          isLoggedIn: true,
           user: {
+            id: userId,
+            primaryId,
+            systemId: userId.slice(0, 8),
+          } as User,
+        }));
+        console.log('[Store] login complete, isLoggedIn:', true);
+      },
+
+      updateProfile: (updates: Partial<User>) => {
+        console.log('[Store] updateProfile called, updates:', Object.keys(updates));
+        set((state) => {
+          const newUser = {
             ...(state.user ?? {}),
             ...updates,
-          } as User,
-        })),
+          } as User;
+          // FIX: Spread entire state to preserve ALL fields (isLoggedIn, trayLibrary, etc.)
+          return {
+            ...state,
+            user: newUser,
+          };
+        });
+      },
 
       setUser: (user: User) => set({ user, isLoggedIn: true }),
 
@@ -895,10 +925,39 @@ export const useStore = create<StoreState>()(
     {
       name: 'mealdrama-store',
       version: 8,
+      storage: nativeStorage,
+      // FIX: Explicit partialize to ensure ALL critical fields are saved
+      partialize: (state) => ({
+        isLoggedIn: state.isLoggedIn,
+        user: state.user,
+        trayLibrary: state.trayLibrary,
+        dishes: state.dishes,
+        swaps: state.swaps,
+        trayBuilt: state.trayBuilt,
+        smartQueue: state.smartQueue,
+        customDishes: state.customDishes,
+        roommateLink: state.roommateLink,
+        roommateSuggestions: state.roommateSuggestions,
+        lastFeaturedTimes: state.lastFeaturedTimes,
+        // Don't persist: toast, notifications, pendingMutations, deadLetterMutations, trayEditSession
+      }),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('[Store] Hydration failed:', error);
+        } else if (state) {
+          console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'trayBuilt=', state.trayBuilt, 'user.region=', state.user?.region);
+        }
+      },
       migrate: (persistedState: unknown, fromVersion: number) => {
+        console.log('[Store] Migrating from version', fromVersion);
         const state = persistedState as Record<string, unknown>;
+
+        if (!state || typeof state !== 'object') {
+          console.warn('[Store] Invalid persisted state, resetting');
+          return persistedState;
+        }
+
         if (fromVersion < 1) {
-          // v0 → v1: backfill slot/date on swap entries
           const swaps = state.swaps as Record<string, Record<string, unknown>> | undefined;
           if (swaps) {
             for (const date of Object.keys(swaps)) {
@@ -942,18 +1001,22 @@ export const useStore = create<StoreState>()(
           // v6 already set customDishes — v7 was a duplicate, kept for version continuity
         }
         if (fromVersion < 8) {
-          // v7 → v8: reset auth state only — preserves user's meal planning data
-          // Handles same-version reinstall where Capacitor localStorage persists
-          state.isLoggedIn = false;
-          state.user = null;
-          state.trayBuilt = false;
-          state.swaps = {};
-          state.notifications = [];
-          state.pendingMutations = [];
-          state.deadLetterMutations = [];
-          // Preserved: trayLibrary, smartQueue, customDishes, roommateLink
+          // v7 → v8: DO NOT reset auth state — preserve user session across reloads
+          // Only reset on explicit logout, not during migration
+          console.log('[Store] v8 migration: preserving auth state');
         }
+
+        console.log('[Store] Migration complete, isLoggedIn:', state.isLoggedIn, 'trayLibrary items:', Object.values((state.trayLibrary as any) || {}).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0));
         return persistedState as Parameters<typeof persist>[0] extends (s: infer S) => unknown ? S : never;
+      },
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error('[Store] Hydration failed:', error);
+        } else if (state) {
+          const trayLib = state.trayLibrary || {};
+          const trayTotal = Object.values(trayLib).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0);
+          console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'user.id=', state.user?.id, 'trayLibrary=', trayTotal, 'dishes=', state.dishes?.length);
+        }
       },
     }
   )

@@ -4,16 +4,18 @@ import { useTrayStore, MealType } from '../../store/useTrayStore';
 import { MealCard, SLOT_META } from '../meal/MealCard';
 import { BlankSlot } from './BlankSlot';
 import QuickAddModal from './QuickAddModal';
-import { ChevronLeft, ChevronRight, Calendar, Users, RefreshCw, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Users, X, Settings } from 'lucide-react';
 import { useBackendDishes } from '../../hooks/useBackendDishes';
 import type { Dish } from '../../constants/dishLibrary';
 import { dishToMeal } from '../../utils/dishToMeal';
-import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import { SwapCustomizeModal } from '../meal/SwapCustomizeModal';
 import type { TrayItem } from '../../store/useTrayStore';
-import { type SourcePool } from '../../utils/mealLoopEngine';
 import { isAfterEnd, getSlotDefaultTimes } from '../../types/tray';
 import { getISODate } from '../../utils/dateUTC';
+
+// LOOP UI REMOVED: Loop configuration moved to Profile → Plan Settings.
+// This screen now focuses purely on curating default dishes per slot.
+// Background loop engine (autoFillLoop, rotationState) remains intact.
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
 const SLOTS: { key: Slot; mealType: MealType; label: Slot }[] = [
@@ -28,9 +30,10 @@ interface TrayScreenProps {
     onClose: () => void;
     initialDate?: string;
     initialSlot?: Slot;
+    onNavigateToLoopSettings?: () => void;
 }
 
-const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, initialSlot }) => {
+const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, initialSlot, onNavigateToLoopSettings }) => {
     const { dishes } = useBackendDishes();
 
     const [currentWeekStart, setCurrentWeekStart] = useState(() => {
@@ -53,7 +56,6 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
     const [quickAddOpen, setQuickAddOpen] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<Slot>('Lunch');
     const [quickAddDate, setQuickAddDate] = useState('');
-    const [loopConfigOpen, setLoopConfigOpen] = useState(false);
 
     const currentSlotMeals = useTrayStore(s => s.plan.days[quickAddDate]?.[quickAddSlot.toLowerCase() as MealType]);
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
@@ -152,34 +154,6 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
         setQuickAddOpen(false);
     }, [addMealToSlot, dishToMeal]);
 
-    const {
-        applyLoopConfig, addLoopOverride, mealLoop,
-    } = useTrayStore();
-
-    const traySourcePool = useMemo((): SourcePool => {
-        const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
-        const seen = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
-        for (const date of weekDates) {
-            for (const slot of SLOTS) {
-                const meals = getMeals(date, slot.mealType);
-                for (const item of meals) {
-                    const dish = dishes.find(d => d.id === item.meal_id);
-                    if (dish && !seen[slot.mealType].has(dish.id)) {
-                        seen[slot.mealType].add(dish.id);
-                        pool[slot.mealType].push(dish);
-                    }
-                }
-            }
-        }
-        return pool;
-    }, [weekDates, dishes, getMeals]);
-
-    const handleLoopApply = useCallback((config: any) => {
-        applyLoopConfig(config, traySourcePool, dishes);
-        window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
-        setLoopConfigOpen(false);
-    }, [traySourcePool, applyLoopConfig, dishes]);
-
     const weekLabel = useMemo(() => {
         const start = new Date(currentWeekStart);
         const end = new Date(start);
@@ -221,7 +195,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
             >
                 {/* Header */}
                 <div className="px-6 pt-5 pb-3 border-b flex items-center justify-between border-gray-100">
-                    <div>
+                    <div className="flex-1">
                         <div className="flex items-center gap-2">
                             <Calendar size={14} className="text-[#FF385C]" />
                             <h2 className="text-lg font-black text-gray-900">
@@ -231,8 +205,12 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                         <p className="text-xs mt-0.5 text-gray-500">
                             {weekLabel}
                         </p>
+                        {/* LOOP UI REMOVED: Helper text pointing to Profile for loop settings */}
+                        <p className="text-[10px] mt-1 text-gray-400 leading-tight">
+                            These dishes auto-fill future days. Loop &amp; scheduling in Profile → Plan Settings.
+                        </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 ml-3">
                         <button
                             onClick={goToPrevWeek}
                             className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-90 bg-gray-100"
@@ -350,20 +328,21 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                     <div className="h-4" />
                 </div>
 
-                {/* Footer actions */}
-                <div className="shrink-0 px-5 py-4 border-t border-gray-100 bg-white flex gap-3">
+                {/* Footer actions — LOOP UI REMOVED: replaced with link to Profile settings */}
+                <div className="shrink-0 px-5 py-4 border-t border-gray-100 bg-white">
                     <button
-                        onClick={() => setLoopConfigOpen(true)}
-                        className="flex-1 py-3 rounded-xl bg-gray-900 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+                        onClick={() => { onClose(); onNavigateToLoopSettings?.(); }}
+                        className="w-full py-3 rounded-xl bg-gray-50 text-gray-600 font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all border border-gray-200"
                     >
-                        <RefreshCw size={14} />
-                        Save &amp; Configure Loop
+                        <Settings size={14} />
+                        Configure Loop &amp; Auto-fill in Profile
                     </button>
+                    <div className="h-2" />
                     <button
                         onClick={onClose}
-                        className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
+                        className="w-full py-3 rounded-xl bg-gray-900 text-white font-bold text-sm active:scale-[0.98] transition-all"
                     >
-                        Close
+                        Done
                     </button>
                 </div>
             </div>
@@ -391,15 +370,6 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                     />
                 );
             })()}
-
-            {/* Meal Loop Config Modal */}
-            <MealLoopConfigModal
-                isOpen={loopConfigOpen}
-                onClose={() => setLoopConfigOpen(false)}
-                sourcePool={traySourcePool}
-                onApply={handleLoopApply}
-                onFixSlots={() => setLoopConfigOpen(false)}
-            />
 
             {/* Quick Add Modal */}
             <QuickAddModal

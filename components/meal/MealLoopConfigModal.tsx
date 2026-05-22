@@ -1,10 +1,14 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { X, Check, RefreshCw, Calendar, SkipForward, Shuffle, Zap, ArrowRightToLine } from 'lucide-react';
-import type { MealType, MealLoopConfig, InsertStrategy } from '../../types/tray';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { X, Check, RefreshCw, Calendar } from 'lucide-react';
+import type { MealType, MealLoopConfig } from '../../types/tray';
 import type { RepeatPattern } from '../../types/tray';
 import { validateSourcePool, buildLoopAssignments, buildLoopSummary, type SourcePool } from '../../utils/mealLoopEngine';
 import { useTrayStore } from '../../store/useTrayStore';
 import { getISODate } from '../../utils/dateUTC';
+import { CycleLengthSelector } from './CycleLengthSelector';
+import { SkipDaysPicker } from './SkipDaysPicker';
+import { RepeatPatternSelector } from './RepeatPatternSelector';
+import { InsertStrategySelector } from './InsertStrategySelector';
 
 const SLOT_LABELS: Record<MealType, string> = {
   breakfast: 'Breakfast',
@@ -14,14 +18,13 @@ const SLOT_LABELS: Record<MealType, string> = {
 };
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-const STRATEGY_OPTIONS: { value: InsertStrategy; label: string; desc: string; icon: React.ReactNode }[] = [
-  { value: 'append', label: 'Append to Cycle', desc: 'New dishes added to end of queue', icon: <ArrowRightToLine size={12} /> },
-  { value: 'smart-shuffle', label: 'Smart Shuffle', desc: 'Insert into upcoming 7-day window', icon: <Shuffle size={12} /> },
-  { value: 'immediate', label: 'Immediate Priority', desc: 'New dishes jump to next slot', icon: <Zap size={12} /> },
-  { value: 'next-cycle', label: 'Next Cycle Only', desc: 'Wait until current cycle ends', icon: <Calendar size={12} /> },
-];
+const STRATEGY_LABELS: Record<string, string> = {
+  append: 'Append',
+  'smart-shuffle': 'Smart Shuffle',
+  immediate: 'Immediate',
+  'next-cycle': 'Next Cycle',
+};
 
 interface MealLoopConfigModalProps {
   isOpen: boolean;
@@ -110,21 +113,137 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
     [previewConfig, previewAssignments],
   );
 
+  const [showConfirm, setShowConfirm] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // FIX 2: Handle virtual keyboard obscuring inputs on mobile
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let initialHeight = window.innerHeight;
+    const handleResize = () => {
+      const currentHeight = window.innerHeight;
+      // If height decreased by > 100px, keyboard likely appeared
+      if (initialHeight - currentHeight > 100) {
+        const active = document.activeElement as HTMLElement | null;
+        if (active && active.tagName === 'INPUT') {
+          active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      } else {
+        initialHeight = currentHeight;
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [isOpen]);
+
   const handleApply = useCallback(() => {
     if (!validation.valid) return;
+    // FIX 7: Custom confirmation dialog instead of window.confirm
+    if (isFirstTimeSetup && !showConfirm) {
+      setShowConfirm(true);
+      return;
+    }
     onApply(previewConfig);
-  }, [validation.valid, previewConfig, onApply]);
+    setShowConfirm(false);
+  }, [validation.valid, previewConfig, onApply, isFirstTimeSetup, showConfirm]);
+
+  if (!isOpen) return null;
+
+  // FIX 5: Custom confirmation overlay with accessibility & focus trap
+  if (showConfirm) {
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Confirm loop creation"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setShowConfirm(false);
+          // Focus trap for Tab key
+          if (e.key === 'Tab') {
+            const focusable = e.currentTarget.querySelectorAll('button');
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              (last as HTMLElement).focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              (first as HTMLElement).focus();
+            }
+          }
+        }}
+      >
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowConfirm(false)} />
+        <div
+          className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in zoom-in-95 duration-200"
+          autoFocus
+        >
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Create Meal Loop?</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            This will auto-fill future days based on your tray dishes. You can undo this anytime in Profile.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowConfirm(false)}
+              className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                // FIX 3: Haptic feedback for critical mobile action
+                if ('vibrate' in navigator) navigator.vibrate(15);
+                setShowConfirm(false);
+                onApply(previewConfig);
+              }}
+              className="flex-1 py-3 rounded-xl bg-[#FF385C] text-white font-bold text-sm active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/30"
+            >
+              Create Loop
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+        // FIX 5: Focus trap for tablet/keyboard users — cycle Tab within modal
+        if (e.key === 'Tab') {
+          const modal = e.currentTarget.querySelector('[role="dialog"]');
+          if (!modal) return;
+          const focusable = modal.querySelectorAll(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+          ) as NodeListOf<HTMLElement>;
+          const focusableArray = Array.from(focusable).filter(el => !el.disabled && el.offsetParent !== null);
+          if (focusableArray.length === 0) return;
+          const first = focusableArray[0];
+          const last = focusableArray[focusableArray.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }}
+    >
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
       <div
         className="relative w-full sm:max-w-lg max-h-[90vh] bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label="Configure meal loop"
+        tabIndex={-1}
       >
         {/* Header */}
         <div className="shrink-0 px-5 pt-5 pb-3 border-b border-gray-100">
@@ -149,7 +268,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        <div ref={contentRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
           {/* Validation error */}
           {!validation.valid && (
             <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
@@ -160,26 +279,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           )}
 
           {/* Cycle Length */}
-          <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 block">
-              Cycle Length
-            </label>
-            <div className="flex items-center gap-3">
-              {[3, 5, 7, 14, 30].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setCycleLength(n)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
-                    cycleLength === n
-                      ? 'bg-gray-900 text-white border-gray-900'
-                      : 'bg-white text-gray-600 border-gray-200'
-                  }`}
-                >
-                  {n}d
-                </button>
-              ))}
-            </div>
-          </div>
+          <CycleLengthSelector value={cycleLength} onChange={setCycleLength} />
 
           {/* Start Date */}
           <div>
@@ -196,88 +296,14 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           </div>
 
           {/* Skip Days */}
-          <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 block">
-              <SkipForward size={12} className="inline mr-1" />
-              Skip Days
-            </label>
-            <div className="flex gap-2">
-              {ALL_DAYS.map(day => (
-                <button
-                  key={day}
-                  onClick={() => toggleSkipDay(day)}
-                  className={`w-10 h-10 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-0.5 ${
-                    skipDays.includes(day)
-                      ? 'bg-red-500 text-white border-red-500 shadow-sm'
-                      : 'bg-gray-50 text-gray-600 border-gray-200'
-                  }`}
-                >
-                  {skipDays.includes(day) && <Check size={10} className="shrink-0" />}
-                  {DAY_NAMES[day]}
-                </button>
-              ))}
-            </div>
-          </div>
+          <SkipDaysPicker skipDays={skipDays} onToggle={toggleSkipDay} />
 
           {/* Repeat Pattern */}
-          <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 block">
-              Repeat Pattern
-            </label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setRepeatPattern('sequential')}
-                className={`flex-1 py-3 rounded-xl text-xs font-bold border transition-all ${
-                  repeatPattern === 'sequential'
-                    ? 'bg-gray-900 text-white border-gray-900'
-                    : 'bg-white text-gray-600 border-gray-200'
-                }`}
-              >
-                Sequential
-              </button>
-              <button
-                onClick={() => setRepeatPattern('random')}
-                className={`flex-1 py-3 rounded-xl text-xs font-bold border transition-all ${
-                  repeatPattern === 'random'
-                    ? 'bg-gray-900 text-white border-gray-900'
-                    : 'bg-white text-gray-600 border-gray-200'
-                }`}
-              >
-                Random
-              </button>
-            </div>
-          </div>
+          <RepeatPatternSelector value={repeatPattern} onChange={setRepeatPattern} />
 
           {/* Insert Strategy — only shown when a loop exists AND new dishes were added */}
           {showIntegrationOptions && (
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 block">
-                When New Dishes Are Added
-              </label>
-              <div className="space-y-1.5">
-                {STRATEGY_OPTIONS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setInsertStrategy(opt.value)}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs border transition-all text-left ${
-                      insertStrategy === opt.value
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-gray-600 border-gray-200'
-                    }`}
-                  >
-                    <span className={`shrink-0 ${insertStrategy === opt.value ? 'text-white' : 'text-gray-400'}`}>
-                      {opt.icon}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-bold">{opt.label}</p>
-                      <p className={`text-[9px] ${insertStrategy === opt.value ? 'text-gray-300' : 'text-gray-400'}`}>
-                        {opt.desc}
-                      </p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <InsertStrategySelector value={insertStrategy} onChange={setInsertStrategy} />
           )}
 
           {/* Your Preferences */}
@@ -302,7 +328,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
                 {showIntegrationOptions && (
                   <div>
                     <span className="text-gray-500">New Dishes:</span>
-                    <span className="font-bold text-gray-800 ml-1">{STRATEGY_OPTIONS.find(o => o.value === insertStrategy)?.label?.replace(' to Cycle', '') || insertStrategy}</span>
+                    <span className="font-bold text-gray-800 ml-1">{STRATEGY_LABELS[insertStrategy] ?? insertStrategy}</span>
                   </div>
                 )}
               </div>

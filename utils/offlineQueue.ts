@@ -8,6 +8,7 @@
 
 const STORAGE_KEY = 'mealdrama_util_queue';
 const QUEUE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const QUEUE_MAX_SIZE = 50; // FIX 6: Cap queue size to prevent unbounded growth
 
 export type OfflineActionType = 'loop_save' | 'pantry_toggle' | 'dish_add' | 'custom_dish';
 
@@ -36,6 +37,12 @@ function readQueue(): QueuedAction[] {
     if (valid.length !== queue.length) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(valid));
     }
+    // FIX 6: Enforce max size on read to handle existing bloated queues
+    if (valid.length > QUEUE_MAX_SIZE) {
+      const trimmed = valid.slice(valid.length - QUEUE_MAX_SIZE);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+      return trimmed;
+    }
     return valid;
   } catch {
     return [];
@@ -61,6 +68,12 @@ export function enqueue(type: OfflineActionType, payload: unknown): void {
     retryCount: 0,
     expiresAt: Date.now() + QUEUE_EXPIRY_MS,
   } as QueuedAction);
+
+  // FIX 6: Drop oldest items if queue exceeds max size
+  if (queue.length > QUEUE_MAX_SIZE) {
+    queue.splice(0, queue.length - QUEUE_MAX_SIZE);
+  }
+
   writeQueue(queue);
   window.dispatchEvent(new CustomEvent('offline_queue_updated', { detail: { count: queue.length } }));
 }
@@ -166,9 +179,22 @@ export async function processQueue(): Promise<{ synced: number; failed: number }
 // ─── Action Processors ─────────────────────────────────────────────────────
 
 async function processLoopSave(action: QueuedAction): Promise<void> {
-  const { config } = action.payload as { config: unknown };
+  const payload = action.payload as { config: unknown; sourceDishIds?: string[]; assignments?: unknown[] };
   const { default: api } = await import('../lib/api');
-  await api.post('/loop-config', config);
+  try {
+    await api.post('/loop-config', {
+      config: payload.config,
+      sourceDishIds: payload.sourceDishIds,
+      assignmentCount: payload.assignments?.length ?? 0,
+    });
+  } catch (err: any) {
+    // FIX 2: If endpoint doesn't exist (404), mark as synced to prevent retry spam
+    if (err?.status === 404 || err?.response?.status === 404) {
+      console.warn('[OfflineQueue] /loop-config endpoint not found. Skipping sync.');
+      return;
+    }
+    throw err; // Let retry logic handle other errors
+  }
 }
 
 async function processPantryToggle(action: QueuedAction): Promise<void> {

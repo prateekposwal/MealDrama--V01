@@ -846,6 +846,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 isOpen={showTrayScreen}
                 onClose={() => setShowTrayScreen(false)}
                 initialDate={trayDate}
+                onNavigateToLoopSettings={() => window.dispatchEvent(new CustomEvent('navigate:profile'))}
             />
 
             {/* Add Dish Modal — SwapCustomizeModal in search/add mode (FAB flow) */}

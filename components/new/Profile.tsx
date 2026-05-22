@@ -6,7 +6,8 @@ import type { SourcePool } from '../../utils/mealLoopEngine';
 import type { Category } from '../../constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
-import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X } from 'lucide-react';
+import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Cloud } from 'lucide-react';
+import { getISODate } from '../../utils/dateUTC';
 
 
 const REGION_EMOJI: Record<string, string> = {
@@ -27,6 +28,20 @@ const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType
     useEffect(() => {
         setNameDraft(user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : ''));
     }, [user?.name, user?.primaryId]);
+    
+    // FIX 4: Track online status for offline visual feedback
+    const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
 const [editingRegion, setEditingRegion] = useState(false);
 const [editingAllergy, setEditingAllergy] = useState(false);
 const [editingCook, setEditingCook] = useState(false);
@@ -34,6 +49,7 @@ const [editingSpice, setEditingSpice] = useState(false);
 const [cookInput, setCookInput] = useState(user?.cookContact || '');
 const [notifications, setNotifications] = useState(true);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
+const [showClearLoopConfirm, setShowClearLoopConfirm] = useState(false);
 
 const { customDishes, addCustomDish, updateCustomDish, removeCustomDish } = useStore();
 const [showCustomForm, setShowCustomForm] = useState(false);
@@ -52,7 +68,30 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
     const dishes = useStore(s => s.dishes);
     const plan = useTrayStore(s => s.plan);
     const getMeals = useTrayStore(s => s.getMeals);
-    const { applyLoopConfig } = useTrayStore();
+    const { applyLoopConfig, refreshLoop, undoLoopChange, clearMealLoop } = useTrayStore();
+    const mealLoop = useTrayStore(s => s.mealLoop);
+    const pendingMerge = mealLoop.pendingMerge;
+    const hasLoopUndo = mealLoop.undoStack.length > 0;
+
+    // FIX 6: Live status indicator — refreshes on loop_updated events from background sync
+    const [refreshKey, setRefreshKey] = useState(0);
+    useEffect(() => {
+        const handler = () => setRefreshKey(k => k + 1);
+        window.addEventListener('loop_updated', handler);
+        return () => window.removeEventListener('loop_updated', handler);
+    }, []);
+
+    const loopStatus = useMemo(() => {
+        if (!mealLoop.config) return null;
+        const totalDishes = mealLoop.sourceDishIds.length;
+        if (totalDishes === 0) return { label: 'Empty', color: 'text-gray-400', dot: 'bg-gray-300' };
+        const today = getISODate(new Date());
+        const nextAssignment = mealLoop.assignments.find(a => a.date >= today);
+        const nextDate = nextAssignment
+            ? new Date(nextAssignment.date).toLocaleDateString('en-IN', { weekday: 'short' })
+            : '—';
+        return { label: `Active · ${totalDishes} dishes · Next: ${nextDate}`, color: 'text-emerald-600', dot: 'bg-emerald-500' };
+    }, [mealLoop.config, mealLoop.sourceDishIds, mealLoop.assignments, refreshKey]);
 
     const trayCounts = useMemo(() => {
         const types: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
@@ -93,6 +132,19 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
     const traySourcePool = useMemo((): SourcePool => {
         const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
         const seen = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
+
+        // FIX 2: Use trayLibrary as primary source — plan.days may be empty on first load
+        for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+            for (const dishId of trayLibrary[mt]) {
+                const dish = dishes.find(d => d.id === dishId);
+                if (dish && !seen[mt].has(dish.id)) {
+                    seen[mt].add(dish.id);
+                    pool[mt].push(dish);
+                }
+            }
+        }
+
+        // Also include dishes from existing plan days
         for (const date of Object.keys(plan.days)) {
             for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
                 const meals = plan.days[date]?.[mt] || [];
@@ -105,8 +157,9 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                 }
             }
         }
+
         return pool;
-    }, [plan.days, dishes]);
+    }, [trayLibrary, plan.days, dishes]);
 
     const handleLoopApply = useCallback((config: any) => {
         applyLoopConfig(config, traySourcePool, dishes);
@@ -209,6 +262,22 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                 }
             }
         }
+
+        // FIX 2: Clean loop state — remove dish from rotationQueue, pendingMerge, assignments, sourceDishIds
+        trayStore.setMealLoop(
+            trayStore.mealLoop.config,
+            trayStore.mealLoop.sourceDishIds.filter(id => id !== dish.id),
+            trayStore.mealLoop.assignments.filter(a => a.dishId !== dish.id)
+        );
+        const ml = useTrayStore.getState().mealLoop;
+        useTrayStore.setState({
+            mealLoop: {
+                ...ml,
+                rotationQueue: ml.rotationQueue.filter(item => item.dishId !== dish.id),
+                pendingMerge: ml.pendingMerge.filter(item => item.dishId !== dish.id),
+            }
+        });
+
         window.dispatchEvent(new Event('pantry:invalidate'));
     };
 
@@ -288,8 +357,23 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                         </div>
                         <ChevronRight size={16} className="text-gray-400" />
                     </div>
-                </div>
-            </div>
+                            </div>
+                        </div>
+
+                        {/* FIX 10: Loading state during loop rebuild */}
+                        {mealLoop.refreshing && (
+                            <div className="w-full p-5 rounded-[22px] bg-gray-50 border border-gray-200 animate-pulse">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center">
+                                        <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-bold text-gray-600">Rebuilding loop assignments…</p>
+                                        <p className="text-[10px] text-gray-400">This may take a moment for large plans</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
             <main className="px-6 space-y-5">
                 <section>
@@ -478,16 +562,122 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                 </div>
                                 <div>
                                     <p className="text-xs font-black text-gray-900">Meal Loop</p>
-                                    <p className="text-[11px] text-gray-400">Auto-rotate dishes across your plan</p>
+                                    {loopStatus ? (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                            <span className={`w-1.5 h-1.5 rounded-full ${loopStatus.dot}`} />
+                                            <p className={`text-[10px] ${loopStatus.color}`}>{loopStatus.label}</p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-[11px] text-gray-400">Auto-rotate dishes across your plan</p>
+                                    )}
                                 </div>
                             </div>
-                            <button
-                                onClick={() => setMealLoopModalOpen(true)}
-                                className="px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-emerald-500"
-                            >
-                                Manage
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {hasLoopUndo && (
+                                    <button
+                                        onClick={undoLoopChange}
+                                        className="px-3 py-2 rounded-xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-amber-600 active:scale-95 transition-all"
+                                        title="Undo last loop change"
+                                    >
+                                        Undo
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => refreshLoop(dishes)}
+                                    disabled={mealLoop.refreshing}
+                                    className={`px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all flex items-center gap-1.5 ${
+                                        mealLoop.refreshing
+                                            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                            : 'bg-white border-gray-100 text-gray-500'
+                                    }`}
+                                    title={mealLoop.refreshing ? (isOnline ? 'Refreshing...' : 'Queued for sync') : 'Refresh loop assignments'}
+                                >
+                                    {mealLoop.refreshing ? (
+                                        isOnline ? (
+                                            <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                        ) : (
+                                            <Cloud size={14} className="text-gray-400" />
+                                        )
+                                    ) : (
+                                        'Refresh'
+                                    )}
+                                </button>
+                                <button
+                                    onClick={() => setMealLoopModalOpen(true)}
+                                    className="px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-emerald-500"
+                                >
+                                    Manage
+                                </button>
+                                {mealLoop.config && (
+                                    <button
+                                        onClick={() => setShowClearLoopConfirm(true)}
+                                        className="px-3 py-2 rounded-xl bg-white border border-red-100 text-[10px] font-black uppercase tracking-widest text-red-500 active:scale-95 transition-all"
+                                        title="Clear loop configuration"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                            </div>
                         </div>
+
+                        {/* Pending merge badge — shows dishes waiting for "Next Cycle Only" */}
+                        {pendingMerge.length > 0 && (
+                            <div className="w-full p-5 rounded-[22px] bg-amber-50 border border-amber-200">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                                        <span className="text-sm">⏳</span>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-black text-amber-800">Waiting for Next Cycle</p>
+                                        <p className="text-[10px] text-amber-600">{pendingMerge.length} dish{pendingMerge.length > 1 ? 'es' : ''} queued</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {pendingMerge.slice(0, 5).map(item => {
+                                        const dish = dishes.find(d => d.id === item.dishId);
+                                        return (
+                                            <span key={item.dishId} className="px-2 py-1 rounded-lg bg-white text-[10px] font-bold text-amber-700 border border-amber-200">
+                                                {dish?.name ?? item.dishId}
+                                            </span>
+                                        );
+                                    })}
+                                    {pendingMerge.length > 5 && (
+                                        <span className="px-2 py-1 rounded-lg bg-amber-100 text-[10px] font-bold text-amber-600">
+                                            +{pendingMerge.length - 5} more
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* FIX 9: Loop analytics — shows user progress */}
+                        {mealLoop.config && mealLoop.analytics.mealsAutoFilled > 0 && (
+                            <div className="w-full p-5 rounded-[22px] bg-blue-50 border border-blue-200">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                                        <span className="text-sm">📊</span>
+                                    </div>
+                                    <div>
+                                        <p className="text-xs font-black text-blue-800">Loop Progress</p>
+                                        <p className="text-[10px] text-blue-600">Your meal automation stats</p>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3">
+                                    <div className="text-center">
+                                        <p className="text-lg font-black text-blue-700">{mealLoop.analytics.cyclesCompleted}</p>
+                                        <p className="text-[9px] font-bold text-blue-500 uppercase">Cycles</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-lg font-black text-blue-700">{mealLoop.analytics.mealsAutoFilled}</p>
+                                        <p className="text-[9px] font-bold text-blue-500 uppercase">Meals Filled</p>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="text-lg font-black text-blue-700">{mealLoop.analytics.dishesSkipped}</p>
+                                        <p className="text-[9px] font-bold text-blue-500 uppercase">Skipped</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="w-full p-5 rounded-[22px] bg-gray-50 flex items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -525,6 +715,56 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                     onManageTray?.(targetSlot);
                 }}
             />
+
+            {/* FIX 5: Clear loop confirmation modal */}
+            {showClearLoopConfirm && (
+                <div
+                    className="fixed inset-0 z-[70] flex items-center justify-center"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Confirm clear loop"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') setShowClearLoopConfirm(false);
+                        if (e.key === 'Tab') {
+                            const focusable = e.currentTarget.querySelectorAll('button');
+                            const first = focusable[0];
+                            const last = focusable[focusable.length - 1];
+                            if (e.shiftKey && document.activeElement === first) {
+                                e.preventDefault();
+                                (last as HTMLElement).focus();
+                            } else if (!e.shiftKey && document.activeElement === last) {
+                                e.preventDefault();
+                                (first as HTMLElement).focus();
+                            }
+                        }
+                    }}
+                >
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowClearLoopConfirm(false)} />
+                    <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in zoom-in-95 duration-200" autoFocus>
+                        <h3 className="text-lg font-bold text-gray-900 mb-2">Clear Meal Loop?</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            This will remove all loop assignments and reset your configuration. This action cannot be undone.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowClearLoopConfirm(false)}
+                                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    clearMealLoop();
+                                    setShowClearLoopConfirm(false);
+                                }}
+                                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold text-sm active:scale-[0.98] transition-all shadow-lg shadow-red-500/30"
+                            >
+                                Clear Loop
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

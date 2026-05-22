@@ -100,6 +100,8 @@ export interface TrayItem {
   /** Custom time window for this meal slot (HH:MM format) */
   start_time?: string;
   end_time?: string;
+  /** Origin of this meal — controls gap-fill behavior */
+  source?: 'user' | 'loop' | 'suggestion';
 }
 
 /** Day's meal structure */
@@ -188,6 +190,11 @@ export interface MealLoopAssignment {
   deprecated?: boolean;
 }
 
+export interface RotationSlotPointer {
+  queue: string[];
+  pointer: number;
+}
+
 export interface MealLoopState {
   config: MealLoopConfig | null;
   sourceDishIds: string[];
@@ -197,7 +204,43 @@ export interface MealLoopState {
   pendingMerge: RotationQueueItem[];
   assignments: MealLoopAssignment[];
   overrides: Record<string, string>;
+  /** Persistent per-slot rotation state — resumes where loop left off */
+  rotationState: {
+    breakfast: RotationSlotPointer;
+    lunch: RotationSlotPointer;
+    snacks: RotationSlotPointer;
+    dinner: RotationSlotPointer;
+  };
+  /** Previous loop state for undo — saved before applyLoopConfig */
+  previousState?: {
+    config: MealLoopConfig | null;
+    sourceDishIds: string[];
+    rotationQueue: RotationQueueItem[];
+    assignments: MealLoopAssignment[];
+    rotationState: MealLoopState['rotationState'];
+  };
+  /** FIX 3: Undo stack for multi-level undo support */
+  undoStack: Array<{
+    config: MealLoopConfig | null;
+    sourceDishIds: string[];
+    rotationQueue: RotationQueueItem[];
+    rotationState: MealLoopState['rotationState'];
+    analytics: MealLoopState['analytics'];
+  }>;
+  /** FIX 9: Loop analytics — tracks user progress */
+  analytics: {
+    cyclesCompleted: number;
+    mealsAutoFilled: number;
+    dishesSkipped: number;
+    lastCycleEnd?: string;
+  };
+  /** FIX 4: Rate limit flag — prevents spam during rebuild */
+  refreshing: boolean;
+  /** FIX 10: Timestamp of last refresh start — shows loading state */
+  lastRefreshStart?: number;
 }
+
+const EMPTY_ROTATION_POINTER: RotationSlotPointer = { queue: [], pointer: 0 };
 
 export const EMPTY_LOOP_STATE: MealLoopState = {
   config: null,
@@ -208,6 +251,20 @@ export const EMPTY_LOOP_STATE: MealLoopState = {
   pendingMerge: [],
   assignments: [],
   overrides: {},
+  rotationState: {
+    breakfast: { ...EMPTY_ROTATION_POINTER },
+    lunch: { ...EMPTY_ROTATION_POINTER },
+    snacks: { ...EMPTY_ROTATION_POINTER },
+    dinner: { ...EMPTY_ROTATION_POINTER },
+  },
+  analytics: {
+    cyclesCompleted: 0,
+    mealsAutoFilled: 0,
+    dishesSkipped: 0,
+  },
+  refreshing: false,
+  lastRefreshStart: undefined,
+  undoStack: [],
 };
 
 /**

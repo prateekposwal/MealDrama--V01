@@ -600,3 +600,97 @@ describe('DST / timezone edge cases', () => {
     expect(computeNextIndex(result.queue, result.assignments)).toBeGreaterThanOrEqual(0);
   });
 });
+
+// ─── FIX 7: Tests for new loop features ──────────────────────────────────────
+
+import { autoFillLoop, buildRotationState } from '../utils/mealLoopEngine';
+
+describe('autoFillLoop (new feature)', () => {
+  it('skips user-source meals and only fills empty slots', () => {
+    const config: MealLoopConfig = {
+      cycleLength: 2,
+      startDate: '2026-05-20',
+      skipDays: [],
+      repeatPattern: 'sequential',
+      insertStrategy: 'append',
+    };
+    const rotationState = buildRotationState({
+      breakfast: [makeDish('b1', 'Poha')],
+      lunch: [makeDish('l1', 'Dal')],
+      snacks: [makeDish('sn1', 'Chai')],
+      dinner: [makeDish('d1', 'Roti')],
+    });
+    const existingItems = [
+      { date: '2026-05-20', mealType: 'lunch' as const, source: 'user' as const },
+    ];
+
+    const result = autoFillLoop(config, rotationState, existingItems);
+
+    // Should NOT fill lunch on 2026-05-20 (user meal)
+    const lunchOn20 = result.assignments.find(a => a.date === '2026-05-20' && a.mealType === 'lunch');
+    expect(lunchOn20).toBeUndefined();
+
+    // Should fill other slots
+    expect(result.assignments.length).toBeGreaterThan(0);
+  });
+
+  it('returns empty assignments when all queues are empty', () => {
+    const config: MealLoopConfig = {
+      cycleLength: 1,
+      startDate: '2026-05-20',
+      skipDays: [],
+      repeatPattern: 'sequential',
+      insertStrategy: 'append',
+    };
+    const rotationState = buildRotationState({
+      breakfast: [],
+      lunch: [],
+      snacks: [],
+      dinner: [],
+    });
+
+    const result = autoFillLoop(config, rotationState, []);
+    expect(result.assignments).toEqual([]);
+  });
+
+  it('respects skipDays and does not assign on skipped dates', () => {
+    const config: MealLoopConfig = {
+      cycleLength: 2,
+      startDate: '2026-05-20', // Wednesday
+      skipDays: [3], // Skip Wednesday
+      repeatPattern: 'sequential',
+      insertStrategy: 'append',
+    };
+    const rotationState = buildRotationState({
+      breakfast: [makeDish('b1', 'Poha')],
+      lunch: [makeDish('l1', 'Dal')],
+      snacks: [makeDish('sn1', 'Chai')],
+      dinner: [makeDish('d1', 'Roti')],
+    });
+
+    const result = autoFillLoop(config, rotationState, []);
+
+    // No assignments on 2026-05-20 (Wednesday)
+    const wedAssignments = result.assignments.filter(a => a.date === '2026-05-20');
+    expect(wedAssignments).toEqual([]);
+  });
+});
+
+describe('buildRotationState (new feature)', () => {
+  it('creates per-slot queues from source pool', () => {
+    const pool = {
+      breakfast: [makeDish('b1', 'Poha'), makeDish('b2', 'Upma')],
+      lunch: [makeDish('l1', 'Dal')],
+      snacks: [],
+      dinner: [makeDish('d1', 'Roti'), makeDish('d2', 'Rice')],
+    };
+
+    const result = buildRotationState(pool);
+
+    expect(result.breakfast.queue).toEqual(['b1', 'b2']);
+    expect(result.breakfast.pointer).toBe(0);
+    expect(result.lunch.queue).toEqual(['l1']);
+    expect(result.snacks.queue).toEqual([]);
+    expect(result.dinner.queue).toEqual(['d1', 'd2']);
+  });
+});

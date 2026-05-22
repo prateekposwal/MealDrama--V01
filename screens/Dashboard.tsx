@@ -619,7 +619,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 </div>
             )}
 
-            {/* Loop config CTA — shown when tray has meals but loop not configured */}
+            {/* Loop config CTA — UPDATED: now points to Profile → Plan Settings instead of Tray screen */}
             {!loopConfigured && displayActiveUpcomingSlots.length > 0 && (
               <div className="mx-6 mt-4 p-4 rounded-[20px] border-2 border-amber-200 bg-amber-50">
                 <div className="flex items-center gap-3">
@@ -628,14 +628,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-black text-amber-800">Future days are empty</p>
-                    <p className="text-[11px] text-amber-700 leading-tight mt-0.5">Set up a meal loop to auto-fill upcoming days</p>
+                    <p className="text-[11px] text-amber-700 leading-tight mt-0.5">Set up a meal loop in Profile → Plan Settings to auto-fill upcoming days</p>
                   </div>
                   <button
-                    onClick={() => onManageTray?.()}
+                    onClick={() => onNavigate?.('profile')}
                     className="shrink-0 px-4 py-2 rounded-xl bg-amber-600 text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all flex items-center gap-1"
-                    aria-label="Configure meal loop"
+                    aria-label="Go to Profile to configure meal loop"
                   >
-                    Configure <ArrowRight size={12} />
+                    Go <ArrowRight size={12} />
                   </button>
                 </div>
               </div>
@@ -1016,6 +1016,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 isOpen={showTrayScreen}
                 onClose={() => setShowTrayScreen(false)}
                 initialDate={today}
+                onNavigateToLoopSettings={() => onNavigate?.('profile')}
             />
         </div>
     );
