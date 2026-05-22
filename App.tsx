@@ -121,33 +121,16 @@ const App: React.FC = () => {
     return () => { unsub(); clearTimeout(timeout); };
   }, []);
 
-  // Direct localStorage sync on mount — bypasses Zustand hydration issues
+  // Clean up old localStorage data after storage migration to Capacitor Preferences
   useEffect(() => {
     try {
       const raw = localStorage.getItem('mealdrama-store');
       if (raw) {
-        const parsed = JSON.parse(raw);
-        const storedState = parsed.state || parsed;
-        const storedIsLoggedIn = storedState.isLoggedIn;
-        const storedUser = storedState.user;
-        const storedTrayBuilt = storedState.trayBuilt;
-
-        console.log('[App] Direct localStorage read:', {
-          isLoggedIn: storedIsLoggedIn,
-          user: storedUser ? { id: storedUser.id, region: storedUser.region } : null,
-          trayBuilt: storedTrayBuilt,
-          onboardingComplete: storedUser?.onboardingComplete,
-        });
-
-        if (storedIsLoggedIn === true && !isLoggedIn) {
-          console.log('[App] Restoring session from localStorage');
-          setLoggedIn(true);
-          if (storedUser) useStore.setState({ user: storedUser });
-          if (storedTrayBuilt === true) useStore.setState({ trayBuilt: true });
-        }
+        console.log('[App] Clearing stale localStorage session data (storage migrated to Capacitor Preferences)');
+        localStorage.removeItem('mealdrama-store');
       }
     } catch (e) {
-      console.error('[App] Failed to restore session from localStorage:', e);
+      console.error('[App] Failed to clear old localStorage:', e);
     }
   }, []);
 
