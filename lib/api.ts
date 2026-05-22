@@ -79,7 +79,7 @@ function generateIdempotencyKey(): string {
 
 function getAdaptiveTimeout(): number {
   if (typeof navigator === 'undefined') return 15000;
-  const conn = (navigator as Record<string, unknown>).connection as Record<string, unknown> | undefined;
+  const conn = (navigator as unknown as Record<string, unknown>).connection as Record<string, unknown> | undefined;
   if (!conn) return 15000;
   const effectiveType = conn.effectiveType as string | undefined;
   switch (effectiveType) {

@@ -11,7 +11,7 @@ import { dishToMeal } from '../../utils/dishToMeal';
 import { SwapCustomizeModal } from '../meal/SwapCustomizeModal';
 import type { TrayItem } from '../../store/useTrayStore';
 import { isAfterEnd, getSlotDefaultTimes } from '../../types/tray';
-import { getISODate } from '../../utils/dateUTC';
+import { getISODate, getISTDayOfWeek, parseISODate } from '../../utils/dateUTC';
 
 // LOOP UI REMOVED: Loop configuration moved to Profile → Plan Settings.
 // This screen now focuses purely on curating default dishes per slot.
@@ -38,17 +38,16 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
 
     const [currentWeekStart, setCurrentWeekStart] = useState(() => {
         if (initialDate) {
-            const d = new Date(initialDate);
-            const dayOfWeek = d.getDay();
-            const start = new Date(d);
-            start.setDate(start.getDate() - dayOfWeek);
-            return getISODate(start);
+            const dayOfWeek = getISTDayOfWeek(initialDate);
+            const d = parseISODate(initialDate);
+            const ms = d.getTime() - dayOfWeek * 86400000;
+            return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
         }
-        const today = new Date();
-        const dayOfWeek = today.getDay();
-        const start = new Date(today);
-        start.setDate(start.getDate() - dayOfWeek);
-        return getISODate(start);
+        const todayISO = getISODate();
+        const dayOfWeek = getISTDayOfWeek(todayISO);
+        const d = parseISODate(todayISO);
+        const ms = d.getTime() - dayOfWeek * 86400000;
+        return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     });
 
     const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);

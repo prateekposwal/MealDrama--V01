@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { X, Check, RefreshCw, Calendar } from 'lucide-react';
-import type { MealType, MealLoopConfig } from '../../types/tray';
-import type { RepeatPattern } from '../../types/tray';
+import type { MealType, MealLoopConfig, RepeatPattern, InsertStrategy } from '../../types/tray';
 import { validateSourcePool, buildLoopAssignments, buildLoopSummary, type SourcePool } from '../../utils/mealLoopEngine';
 import { useTrayStore } from '../../store/useTrayStore';
 import { getISODate } from '../../utils/dateUTC';
@@ -222,11 +221,11 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           if (!modal) return;
           const focusable = modal.querySelectorAll(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-          ) as NodeListOf<HTMLElement>;
+          ) as NodeListOf<HTMLElement & { disabled: boolean }>;
           const focusableArray = Array.from(focusable).filter(el => !el.disabled && el.offsetParent !== null);
           if (focusableArray.length === 0) return;
-          const first = focusableArray[0];
-          const last = focusableArray[focusableArray.length - 1];
+          const first = focusableArray[0]!;
+          const last = focusableArray[focusableArray.length - 1]!;
           if (e.shiftKey && document.activeElement === first) {
             e.preventDefault();
             last.focus();

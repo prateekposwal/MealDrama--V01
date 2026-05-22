@@ -924,14 +924,14 @@ export const useStore = create<StoreState>()(
     }),
     {
       name: 'mealdrama-store',
-      version: 8,
+      version: 9,
       storage: nativeStorage,
       // FIX: Explicit partialize to ensure ALL critical fields are saved
       partialize: (state) => ({
         isLoggedIn: state.isLoggedIn,
         user: state.user,
         trayLibrary: state.trayLibrary,
-        dishes: state.dishes,
+        // dishes NOT persisted — always loaded fresh from DISH_LIBRARY module
         swaps: state.swaps,
         trayBuilt: state.trayBuilt,
         smartQueue: state.smartQueue,
@@ -1004,6 +1004,12 @@ export const useStore = create<StoreState>()(
           // v7 → v8: DO NOT reset auth state — preserve user session across reloads
           // Only reset on explicit logout, not during migration
           console.log('[Store] v8 migration: preserving auth state');
+        }
+        if (fromVersion < 9) {
+          // v8 → v9: dishes no longer persisted — load fresh from DISH_LIBRARY
+          const { DISH_LIBRARY } = require('../constants/dishLibrary');
+          state.dishes = Array.isArray(DISH_LIBRARY) ? DISH_LIBRARY : [];
+          console.log('[Store] v9 migration: loaded dishes from DISH_LIBRARY, count=', state.dishes.length);
         }
 
         console.log('[Store] Migration complete, isLoggedIn:', state.isLoggedIn, 'trayLibrary items:', Object.values((state.trayLibrary as any) || {}).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0));

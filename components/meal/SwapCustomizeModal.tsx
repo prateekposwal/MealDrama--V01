@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 
 const DIET_FILTER: Record<string, string[]> = {
-  veg: ['veg'],
+  veg: ['veg', 'vegan'],
   'non-veg': ['veg', 'non-veg', 'eggitarian'],
   eggitarian: ['veg', 'eggitarian', 'non-veg'],
   vegan: ['veg', 'vegan'],
@@ -280,7 +280,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       setCustomDishStyle('Gravy');
       setCustomDishDiet('veg');
       setCustomDishName('');
-      const sourceDish = dishes.find(d => d.id === item.meal_id) || dishes.find(d => d.name === item.name);
+      const allDishes = [...dishes, ...customDishes];
+      const sourceDish = allDishes.find(d => d.id === item.meal_id) || allDishes.find(d => d.name === item.name);
       if (sourceDish) {
         const m = dishToMeal(sourceDish);
         const style = getDishStyle(sourceDish.id);
@@ -305,13 +306,20 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
           });
         }
         initRef.current = item.meal_id;
+      } else {
+        // Saved dish not found in library (stale reference, migration cleared dishes, etc.)
+        // Auto-switch to search mode so the user can pick a new dish directly.
+        // Don't set initRef here — dishes/customDishes may load async, and we want
+        // the effect to re-run when they arrive so the lookup can succeed.
+        setShowSwapSearch(true);
+        setAddAnotherMode(true);
       }
     } else {
       initRef.current = null;
       setAddAnotherMode(false);
       setSelectedVariant(null);
     }
-  }, [isOpen, item.meal_id, item.roti, item.rice, item.sides, item.beverages, item.dessert, dishes, mealType]);
+  }, [isOpen, item.meal_id, item.roti, item.rice, item.sides, item.beverages, item.dessert, dishes, customDishes, mealType]);
 
   useEffect(() => {
     if (showSwapSearch && searchInputRef.current) {

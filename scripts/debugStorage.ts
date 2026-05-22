@@ -47,7 +47,7 @@
       console.log('  - user:', store.state?.user?.name || 'null');
       console.log('  - user.id:', store.state?.user?.id || 'null');
       const trayLib = store.state?.trayLibrary || {};
-      const trayTotal = Object.values(trayLib).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0);
+      const trayTotal = Object.values(trayLib).reduce((sum: number, arr: unknown) => sum + ((arr as any[])?.length || 0), 0);
       console.log('  - trayLibrary items:', trayTotal);
       console.log('  - dishes:', store.state?.dishes?.length || 0);
     } catch (e) {

@@ -24,6 +24,7 @@ import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
+import { suggestionToMeal } from '../utils/suggestionUtils';
 import { getShareStrings, ShareLanguage } from '../utils/share';
 
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
@@ -56,26 +57,6 @@ function inferGrainCategory(name: string): string | null {
     if (lower.includes(kw)) return 'refined-grain';
   }
   return null;
-}
-
-/** Convert SuggestionMeal (API) to Meal (defaults engine) */
-function suggestionToMeal(s: SuggestionMeal): Meal {
-    return {
-        id: s.id,
-        name: s.name,
-        icon: s.icon,
-        region: s.region.toLowerCase().includes('south') ? 'south'
-            : s.region.toLowerCase().includes('east') ? 'east'
-            : s.region.toLowerCase().includes('west') ? 'west'
-            : 'north',
-        baseGravy: s.defaultGravy,
-        rotiOptions: s.defaultRoti ? [s.defaultRoti] : undefined,
-        riceOptions: s.defaultRice ? [s.defaultRice] : undefined,
-        suggestedPairings: {
-            sides: s.defaultSides,
-            beverages: s.defaultBeverages,
-        },
-    };
 }
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';

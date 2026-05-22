@@ -344,7 +344,7 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
 
   it('Chaat/snack dish → skips bread inference for snacks slot', () => {
     const meal = makeMeal({
-      id: 'samosa',
+      id: 'test-samosa-snack',
       name: 'Samosa',
       region: 'north',
       tags: ['snacks', 'fried', 'street food'],

@@ -290,7 +290,6 @@ export const trayApi = {
       dinner: [
         { id: 'paneer-butter', name: 'Paneer Butter Masala', icon: '🧀', region: 'North India', type: 'veg', prepMinutes: 22, defaultGravy: 'Curry', defaultRoti: 'Naan', defaultSides: ['Raita'], defaultBeverages: ['Lassi'] },
         { id: 'dal-makhani', name: 'Dal Makhani', icon: '🥘', region: 'North India', type: 'veg', prepMinutes: 30, defaultRoti: 'Tandoori Naan', defaultSides: ['Salad'], defaultBeverages: ['Lassi'] },
-        { id: 'roti-sabzi', name: 'Roti Sabzi', icon: '🫓', region: 'North India', type: 'veg', prepMinutes: 15, defaultRoti: 'Phulka', defaultSides: ['Salad'], defaultBeverages: [] },
       ],
     };
 

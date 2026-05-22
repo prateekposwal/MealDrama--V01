@@ -45,6 +45,15 @@ export function daysBetweenISO(a: string, b: string): number {
 }
 
 /**
+ * Get the day of week (0=Sunday, 6=Saturday) for an ISO date in IST.
+ * Uses IST timezone — NOT the device's local timezone.
+ * Avoids the bug where `new Date(isoString).getDay()` returns local-TZ day.
+ */
+export function getISTDayOfWeek(iso: string): number {
+  return new Date(iso + 'T00:00:00+05:30').getDay();
+}
+
+/**
  * Add N days to an ISO date — IST-safe.
  */
 export function addDaysISO(iso: string, days: number): string {

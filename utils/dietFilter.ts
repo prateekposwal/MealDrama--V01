@@ -17,7 +17,7 @@ export type DishDietType = 'veg' | 'non-veg' | 'eggitarian' | 'vegan';
 export function getAllowedDishTypes(userDiet: DietType): DishDietType[] {
   switch (userDiet) {
     case 'veg':
-      return ['veg'];
+      return ['veg', 'vegan'];
     case 'non-veg':
       return ['veg', 'non-veg', 'eggitarian', 'vegan'];
     case 'eggitarian':

@@ -12,3 +12,4 @@ coverage/
 .vscode/
 .idea/
 android/local.properties
+constants/dishLibrary.ts.bak

@@ -366,10 +366,10 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         if (hasKeyword('Paneer') || hasKeyword('Cottage Cheese')) {
             result.push({ name: 'Paneer', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
         }
-        if ((hasKeyword('Veg') || hasKeyword('Vegetable') || hasKeyword('Mixed')) && !n.includes('non-veg') && !n.includes('meat')) {
+        if ((hasKeyword('Veg') || hasKeyword('Vegetable') || hasKeyword('Mixed')) && !n.includes('non-veg') && !n.includes('meat') && !n.includes('veggie') && !n.includes('vegetarian')) {
             result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
         }
-        if (hasKeyword('Egg') && !hasKeyword('Eggplant') && !n.includes('baingan') && !n.includes('brinjal')) {
+        if (hasKeyword('Egg') && !n.includes('veggie') && !n.includes('eggless') && !hasKeyword('Eggplant') && !n.includes('baingan') && !n.includes('brinjal')) {
             result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
         }
         if (hasKeyword('Beef')) {
@@ -397,14 +397,14 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
     }
     
     // Protein inference from dishId patterns
-    if (idLower.includes('chole') || idLower.includes('chickpea') || idLower.includes('chana')) {
+    if (idLower.includes('chole') || idLower.includes('chickpea') || idLower.includes('chana') || idLower.includes('kadala')) {
         result.push({ name: 'Chickpeas', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
     }
     if (idLower.includes('rajma')) {
         result.push({ name: 'Rajma', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
     }
     // INF-10: Dal/Lentil inference - specific types
-    if (idLower.includes('chana dal') || idLower.includes('chole') || idLower.includes('chickpea')) {
+    if (idLower.includes('chana dal') || idLower.includes('chole') || idLower.includes('chickpea') || idLower.includes('kadala')) {
         result.push({ name: 'Chana Dal', quantity: 80, unit: 'g', category: 'proteins', inStock: false });
     }
     if (idLower.includes('toor dal') || idLower.includes('arhar') || idLower.includes('tur dal')) {
@@ -431,7 +431,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
     }
     // INF-05: Egg inference (from dishId)
-    if (idLower.includes('egg') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
+    if (idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
     }
     if (idLower.includes('chicken') || idLower.includes('meat')) {
@@ -495,7 +495,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Wheat Flour', quantity: 70, unit: 'g', category: 'grains', inStock: false });
     }
     // INF-09: French Toast / Egg Toast / Bread Dish inference
-    if ((idLower.includes('french') || idLower.includes('egg') || idLower.includes('bread dish') || idLower.includes('bread toast')) && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
+    if ((idLower.includes('french') || idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') || idLower.includes('bread dish') || idLower.includes('bread toast')) && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'White Bread', quantity: 4, unit: 'pcs', category: 'breads', inStock: false });
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
         result.push({ name: 'Milk', quantity: 100, unit: 'ml', category: 'dairy', inStock: false });
@@ -514,6 +514,11 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
     if (idLower.includes('idli') || idLower.includes('dosa') || idLower.includes('uttapam')) {
         result.push({ name: 'Rice', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
         result.push({ name: 'Urad Dal', quantity: 50, unit: 'g', category: 'proteins', inStock: false });
+    }
+    // INF-43: Puttu (Kerala rice cake — rice flour + coconut)
+    if (idLower.includes('puttu')) {
+        result.push({ name: 'Rice Flour', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
+        result.push({ name: 'Coconut', quantity: 0.5, unit: 'cup', category: 'produce', inStock: false });
     }
     // INF-14: Pongal
     if (idLower.includes('pongal')) {
@@ -772,13 +777,38 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
     // INF-39: Avocado dishes (sandwich, toast, salad)
     if (idLower.includes('avocado') || idLower.includes('butter fruit')) {
         result.push({ name: 'Avocado', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
-        result.push({ name: 'Bread', quantity: 2, unit: 'slices', category: 'breads', inStock: false });
-        result.push({ name: 'Lemon', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        if (!idLower.includes('smoothie')) {
+            result.push({ name: 'Bread', quantity: 2, unit: 'slices', category: 'breads', inStock: false });
+            result.push({ name: 'Lemon', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        }
     }
     if (idLower.includes('avocado') && (idLower.includes('toast') || idLower.includes('sandwich'))) {
         if (!result.find(i => i.name === 'Bread')) {
             result.push({ name: 'Bread', quantity: 2, unit: 'slices', category: 'breads', inStock: false });
         }
+    }
+    // INF-40: Peanut / Peanut Butter inference
+    if (idLower.includes('peanut')) {
+        result.push({ name: 'Peanut Butter', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+    }
+    // INF-41: Smoothie inference
+    if (idLower.includes('smoothie')) {
+        result.push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false });
+        result.push({ name: 'Banana', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Ice', quantity: 1, unit: 'cup', category: 'pantry', inStock: false });
+        // Detect specific fruits from dish ID
+        if (idLower.includes('raspberry')) result.push({ name: 'Raspberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        if (idLower.includes('blueberry')) result.push({ name: 'Blueberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        if (idLower.includes('strawberry')) result.push({ name: 'Strawberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        if (idLower.includes('mango')) result.push({ name: 'Mango', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        if (idLower.includes('pineapple')) result.push({ name: 'Pineapple', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        if (idLower.includes('dragon')) result.push({ name: 'Dragon Fruit', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        if (idLower.includes('pumpkin')) result.push({ name: 'Pumpkin', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        if (idLower.includes('arugula')) result.push({ name: 'Arugula', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+    }
+    // INF-42: Burger / Patty dishes
+    if (idLower.includes('burger')) {
+        result.push({ name: 'Burger Bun', quantity: 2, unit: 'pcs', category: 'breads', inStock: false });
     }
 
     // INF-38: Chilla dishes (besan, suji, oats, singhara, sprouts, rice chilla)
@@ -809,13 +839,106 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Onions', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
     }
 
-    // INF-04: Ghee/Butter (common in Indian cooking)
-    result.push({ name: 'Ghee', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
-    result.push({ name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
-    result.push({ name: 'Spices', quantity: 1, unit: 'packet', category: 'spices', inStock: false });
+    // INF-44: Kesari bath / Rava kesari (semolina sweet)
+    if (idLower.includes('kesari')) {
+        result.push({ name: 'Semolina (Rava)', quantity: 100, unit: 'g', category: 'grains', inStock: false });
+        result.push({ name: 'Sugar', quantity: 80, unit: 'g', category: 'pantry', inStock: false });
+        result.push({ name: 'Ghee', quantity: 30, unit: 'g', category: 'dairy', inStock: false });
+    }
+    // INF-45: Pesarattu (moong dal dosa)
+    if (idLower.includes('pesarattu')) {
+        result.push({ name: 'Moong Dal', quantity: 100, unit: 'g', category: 'proteins', inStock: false });
+        result.push({ name: 'Rice', quantity: 30, unit: 'g', category: 'grains', inStock: false });
+        result.push({ name: 'Ginger', quantity: 10, unit: 'g', category: 'produce', inStock: false });
+        result.push({ name: 'Green Chilli', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
+    }
+    // INF-46: Ragi-based dishes (ragi-mudde)
+    if (idLower.includes('ragi')) {
+        result.push({ name: 'Ragi Flour', quantity: 200, unit: 'g', category: 'grains', inStock: false });
+    }
+    // INF-47: Erissery (pumpkin + coconut)
+    if (idLower.includes('erissery')) {
+        result.push({ name: 'Pumpkin', quantity: 200, unit: 'g', category: 'produce', inStock: false });
+        result.push({ name: 'Coconut', quantity: 50, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-48: Misal / Misal-Pav (mixed sprouts curry)
+    if (idLower.includes('misal')) {
+        result.push({ name: 'Mixed Sprouts', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+    }
+    // INF-49: Dabeli (potato-based Gujarati snack)
+    if (idLower.includes('dabeli')) {
+        result.push({ name: 'Potatoes', quantity: 3, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Tamarind Chutney', quantity: 30, unit: 'g', category: 'pantry', inStock: false });
+    }
+    // INF-50: Gota (Gujarati gram flour fritters)
+    if (idLower.includes('gota') && !idLower.includes('machi') && !idLower.includes('fish') && !idLower.includes('prawn')) {
+        result.push({ name: 'Gram Flour', quantity: 150, unit: 'g', category: 'grains', inStock: false });
+        result.push({ name: 'Yogurt', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
+    }
+    // INF-51: Kheema (minced meat dishes)
+    if (idLower.includes('kheema') || idLower.includes('keema')) {
+        result.push({ name: 'Minced Meat', quantity: 250, unit: 'g', category: 'proteins', inStock: false });
+        result.push({ name: 'Peas', quantity: 50, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-52: Murgh / Murghanu-shaak (chicken curry)
+    if (idLower.includes('murgh') || idLower.includes('murghanu')) {
+        result.push({ name: 'Chicken', quantity: 250, unit: 'g', category: 'proteins', inStock: false });
+    }
+    // INF-53: Andhra fish (chepa-pulusu)
+    if (idLower.includes('chepa')) {
+        result.push({ name: 'Fish', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+        result.push({ name: 'Tamarind', quantity: 20, unit: 'g', category: 'pantry', inStock: false });
+    }
+    // INF-54: Ivy gourd (dondakaya)
+    if (idLower.includes('dondakaya')) {
+        result.push({ name: 'Ivy Gourd', quantity: 200, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-55: Pineapple-based curry (ananas menaskai)
+    if (idLower.includes('ananas')) {
+        result.push({ name: 'Pineapple', quantity: 100, unit: 'g', category: 'produce', inStock: false });
+        result.push({ name: 'Coconut', quantity: 30, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-56: Jadoh (Meghalayan rice + pork)
+    if (idLower.includes('jadoh')) {
+        result.push({ name: 'Rice', quantity: 100, unit: 'g', category: 'grains', inStock: false });
+        result.push({ name: 'Pork', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
+    }
+    // INF-57: Chikoo shake
+    if (idLower.includes('chikoo')) {
+        result.push({ name: 'Sapodilla (Chikoo)', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
+    }
+    // INF-58: Mysore Pak (gram flour + ghee sweet)
+    if (idLower.includes('mysore') || idLower.includes('mysore-pak')) {
+        result.push({ name: 'Gram Flour', quantity: 100, unit: 'g', category: 'grains', inStock: false });
+        result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
+        result.push({ name: 'Ghee', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
+    }
+    // INF-59: Bharli Vangi / Ennegai (stuffed eggplant)
+    if (idLower.includes('bharli') || idLower.includes('ennegai')) {
+        result.push({ name: 'Eggplant', quantity: 3, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Peanuts', quantity: 30, unit: 'g', category: 'proteins', inStock: false });
+        result.push({ name: 'Coconut', quantity: 30, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-60: Muthiya (Gujarati steamed dumplings)
+    if (idLower.includes('muthiya')) {
+        result.push({ name: 'Wheat Flour', quantity: 150, unit: 'g', category: 'grains', inStock: false });
+        result.push({ name: 'Bottle Gourd', quantity: 100, unit: 'g', category: 'produce', inStock: false });
+    }
+
+    // INF-04: Ghee/Butter (common in Indian cooking) — skip for drinks, sweets, salads, soups
+    const _isDrink = /lassi|chai|sharbat|juice|milkshake|buttermilk|sherbet|lemonade|nimbu|panna|thandai|smoothie|coconut-water|soda|sharbat|milk-tea/.test(idLower);
+    const _isSweet = /kheer|halwa|jalebi|gulab.*jamun|barfi|laddu|pudding|cake|cookie|brownie|muffin|dessert|ice-cream|payasam|custard|cupcake|donut|cheesecake/.test(idLower);
+    const _isSalad = /salad/.test(idLower);
+    const _isSoup = /soup|shorba|rasam|saar|charu|stew|broth/.test(idLower);
+    if (!_isDrink && !_isSweet && !_isSalad && !_isSoup) {
+        result.push({ name: 'Ghee', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+        result.push({ name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+        result.push({ name: 'Spices', quantity: 1, unit: 'packet', category: 'spices', inStock: false });
+    }
     
-    // Add defaults if no pattern matched
-    if (result.length === 0) {
+    // Add defaults if no pattern matched (skip for drinks, sweets, salads, soups — let explicit ingredients or accompaniments define them)
+    if (result.length === 0 && !_isDrink && !_isSweet && !_isSalad && !_isSoup) {
         result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
         result.push({ name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
         result.push({ name: 'Spices', quantity: 1, unit: 'packet', category: 'spices', inStock: false });
@@ -1062,13 +1185,13 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
         if (!existingNames.has(ing.name.toLowerCase())) result.push(ing);
     };
 
-    if ((nameLower.includes('chole') || nameLower.includes('chickpea') || nameLower.includes('chana')) && !existingNames.has('chickpeas'))
+    if ((nameLower.includes('chole') || nameLower.includes('chickpea') || nameLower.includes('chana') || nameLower.includes('kadala')) && !existingNames.has('chickpeas'))
         result.push({ name: 'Chickpeas', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
     if (nameLower.includes('rajma') && !existingNames.has('rajma'))
         result.push({ name: 'Rajma', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
     if (nameLower.includes('dal') && !existingNames.has('toor dal'))
         result.push({ name: 'Toor Dal', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
-    if ((nameLower.includes('egg') && !nameLower.includes('eggplant') && !nameLower.includes('baingan') && !nameLower.includes('brinjal')) && !existingNames.has('eggs'))
+    if ((nameLower.includes('egg') && !nameLower.includes('veggie') && !nameLower.includes('eggless') && !nameLower.includes('eggplant') && !nameLower.includes('baingan') && !nameLower.includes('brinjal')) && !existingNames.has('eggs'))
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
     if (nameLower.includes('chicken') && !existingNames.has('chicken'))
         result.push({ name: 'Chicken', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
@@ -1103,6 +1226,90 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
 
     if (nameLower.includes('avocado') && !existingNames.has('avocado'))
         result.push({ name: 'Avocado', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+
+    if (nameLower.includes('peanut') && !existingNames.has('peanut butter'))
+        result.push({ name: 'Peanut Butter', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+
+    if (nameLower.includes('smoothie') && !existingNames.has('milk'))
+        result.push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false });
+    if (nameLower.includes('smoothie') && !existingNames.has('banana'))
+        result.push({ name: 'Banana', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+    if (nameLower.includes('smoothie') && !existingNames.has('ice'))
+        result.push({ name: 'Ice', quantity: 1, unit: 'cup', category: 'pantry', inStock: false });
+
+    if (nameLower.includes('smoothie') && !existingNames.has('raspberry') && nameLower.includes('raspberry'))
+        result.push({ name: 'Raspberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+    if (nameLower.includes('smoothie') && !existingNames.has('blueberry') && nameLower.includes('blueberry'))
+        result.push({ name: 'Blueberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+    if (nameLower.includes('smoothie') && !existingNames.has('strawberry') && nameLower.includes('strawberry'))
+        result.push({ name: 'Strawberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+    if (nameLower.includes('smoothie') && !existingNames.has('mango') && nameLower.includes('mango'))
+        result.push({ name: 'Mango', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+    if (nameLower.includes('smoothie') && !existingNames.has('pineapple') && nameLower.includes('pineapple'))
+        result.push({ name: 'Pineapple', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+    if (nameLower.includes('smoothie') && !existingNames.has('dragon fruit') && (nameLower.includes('dragon')))
+        result.push({ name: 'Dragon Fruit', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+
+    if (nameLower.includes('puttu') && !existingNames.has('rice flour'))
+        result.push({ name: 'Rice Flour', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
+    if (nameLower.includes('puttu') && !existingNames.has('coconut'))
+        result.push({ name: 'Coconut', quantity: 0.5, unit: 'cup', category: 'produce', inStock: false });
+
+    if (nameLower.includes('burger') && !existingNames.has('burger bun'))
+        result.push({ name: 'Burger Bun', quantity: 2, unit: 'pcs', category: 'breads', inStock: false });
+
+    if (nameLower.includes('kesari') && !existingNames.has('semolina'))
+        result.push({ name: 'Semolina (Rava)', quantity: 100, unit: 'g', category: 'grains', inStock: false });
+    if (nameLower.includes('kesari') && !existingNames.has('sugar'))
+        result.push({ name: 'Sugar', quantity: 80, unit: 'g', category: 'pantry', inStock: false });
+    if (nameLower.includes('kesari') && !existingNames.has('ghee'))
+        result.push({ name: 'Ghee', quantity: 30, unit: 'g', category: 'dairy', inStock: false });
+
+    if (nameLower.includes('pesarattu') && !existingNames.has('moong dal'))
+        result.push({ name: 'Moong Dal', quantity: 100, unit: 'g', category: 'proteins', inStock: false });
+    if (nameLower.includes('pesarattu') && !existingNames.has('rice'))
+        result.push({ name: 'Rice', quantity: 30, unit: 'g', category: 'grains', inStock: false });
+    if (nameLower.includes('pesarattu') && !existingNames.has('ginger'))
+        result.push({ name: 'Ginger', quantity: 10, unit: 'g', category: 'produce', inStock: false });
+
+    if (nameLower.includes('ragi') && !existingNames.has('ragi flour'))
+        result.push({ name: 'Ragi Flour', quantity: 200, unit: 'g', category: 'grains', inStock: false });
+
+    if (nameLower.includes('erissery') && !existingNames.has('pumpkin'))
+        result.push({ name: 'Pumpkin', quantity: 200, unit: 'g', category: 'produce', inStock: false });
+    if (nameLower.includes('erissery') && !existingNames.has('coconut'))
+        result.push({ name: 'Coconut', quantity: 50, unit: 'g', category: 'produce', inStock: false });
+
+    if (nameLower.includes('misal') && !existingNames.has('mixed sprouts'))
+        result.push({ name: 'Mixed Sprouts', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+
+    if ((nameLower.includes('mysore') || nameLower.includes('mysore pak')) && !existingNames.has('gram flour'))
+        result.push({ name: 'Gram Flour', quantity: 100, unit: 'g', category: 'grains', inStock: false });
+    if ((nameLower.includes('mysore') || nameLower.includes('mysore pak')) && !existingNames.has('sugar'))
+        result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
+    if ((nameLower.includes('mysore') || nameLower.includes('mysore pak')) && !existingNames.has('ghee'))
+        result.push({ name: 'Ghee', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
+
+    if (nameLower.includes('kheema') && !existingNames.has('minced meat'))
+        result.push({ name: 'Minced Meat', quantity: 250, unit: 'g', category: 'proteins', inStock: false });
+    if (nameLower.includes('kheema') && !existingNames.has('peas'))
+        result.push({ name: 'Peas', quantity: 50, unit: 'g', category: 'produce', inStock: false });
+
+    if (nameLower.includes('murgh') && !existingNames.has('chicken'))
+        result.push({ name: 'Chicken', quantity: 250, unit: 'g', category: 'proteins', inStock: false });
+
+    if (nameLower.includes('chepa') && !existingNames.has('fish'))
+        result.push({ name: 'Fish', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+    if (nameLower.includes('chepa') && !existingNames.has('tamarind'))
+        result.push({ name: 'Tamarind', quantity: 20, unit: 'g', category: 'pantry', inStock: false });
+
+    if (nameLower.includes('dondakaya') && !existingNames.has('ivy gourd'))
+        result.push({ name: 'Ivy Gourd', quantity: 200, unit: 'g', category: 'produce', inStock: false });
+
+    if (nameLower.includes('chikoo') && !existingNames.has('sapodilla'))
+        result.push({ name: 'Sapodilla (Chikoo)', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
+    if (nameLower.includes('chikoo') && !existingNames.has('milk'))
+        result.push({ name: 'Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
 
     return result;
 }

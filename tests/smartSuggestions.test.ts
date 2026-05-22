@@ -155,7 +155,7 @@ describe('getSmartSuggestions — 7 dish/slot acceptance combos', () => {
   // Test 3: Rajma (Gravy, North, Lunch)
   it('Rajma → Roti, Jeera Rice, Raita, Chaas (timeWindow=lunch)', () => {
     const input = makeInput({
-      id: 'rajma-chawal',
+      id: 'test-rajma-masala',
       name: 'Rajma Masala',
       region: 'north',
       tags: ['gravy', 'thick', 'north'],

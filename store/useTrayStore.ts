@@ -128,7 +128,7 @@ export interface TrayStore {
   undoSkipSlot: (date: string, mealType: MealType) => void;
 
   /** Configure meal loop with source pool + assignments */
-  setMealLoop: (config: MealLoopConfig, sourceDishIds: string[], assignments: MealLoopAssignment[]) => void;
+  setMealLoop: (config: MealLoopConfig | null, sourceDishIds: string[], assignments: MealLoopAssignment[]) => void;
 
   /** Apply loop config from scratch — builds queue + assignments */
   applyLoopConfig: (config: MealLoopConfig, pool: SourcePool, dishes?: Dish[]) => void;

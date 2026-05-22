@@ -17,6 +17,7 @@ import { useBackendDishes } from '../hooks/useBackendDishes';
 import { ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
 import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
+import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOT_TIME_DEFAULTS, aggregateSlotItems } from '../types/tray';
 import type { AggregatedCategory } from '../types/tray';
 import { getISODate } from '../utils/dateUTC';
@@ -64,6 +65,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Breakfast');
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addAnotherToast, setAddAnotherToast] = useState<string | null>(null);
+    const [validationToast, setValidationToast] = useState<string | null>(null);
 
     const ADD_DISH_DUMMY: TrayItem = {
         id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
@@ -135,24 +137,6 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             return next;
         });
     }, [planDays, batchUpdateItems, today, slotTimePrefs, updateProfile]);
-
-    /** Convert SuggestionMeal to Meal */
-    const suggestionToMeal = useCallback((s: SuggestionMeal): Meal => ({
-        id: s.id,
-        name: s.name,
-        icon: s.icon,
-        region: s.region.toLowerCase().includes('south') ? 'south'
-            : s.region.toLowerCase().includes('east') ? 'east'
-            : s.region.toLowerCase().includes('west') ? 'west'
-            : 'north',
-        baseGravy: s.defaultGravy,
-        rotiOptions: s.defaultRoti ? [s.defaultRoti] : undefined,
-        riceOptions: s.defaultRice ? [s.defaultRice] : undefined,
-        suggestedPairings: {
-            sides: s.defaultSides,
-            beverages: s.defaultBeverages,
-        },
-    }), []);
 
     const currentSlot = SLOTS[currentSlotIdx]!;
     const regionKey = userRegion;
@@ -233,10 +217,12 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const minMet = totalQty >= currentSlot.minRequired;
     const slotStatus = SLOT_MESSAGES[currentSlot.label]!;
 
-    // Check overall progress using trayLibrary
+    // Check overall progress across both planDays and trayLibrary (dishes can be in either)
     const allSlotsComplete = SLOTS.every(s => {
-        const slotItems = trayLibrary[s.mealType] || [];
-        return slotItems.length >= s.minRequired;
+        const trayItems = trayLibrary[s.mealType] || [];
+        const planItems = planDays[today]?.[s.mealType] || [];
+        const unique = new Set([...trayItems.map(i => i.dishId), ...planItems.map(i => i.meal_id)]);
+        return unique.size >= s.minRequired;
     });
 
     // Slot-level aggregation: deduplicate and merge quantities across all dishes in this slot
@@ -327,7 +313,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 end_time: t?.end,
             });
         };
-    }, [addMealToSlot, suggestionToMeal, slotTimes, today]);
+    }, [addMealToSlot, slotTimes, today]);
 
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
@@ -368,11 +354,21 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     setTimeout(() => setAddAnotherToast(null), 3000);
   }, [addMealToSlot, dishToMeal, slotTimes, getMeals, updateItemInline]);
 
-  const handleNextSlot = () => {
+    const handleNextSlot = () => {
         if (currentSlotIdx < SLOTS.length - 1) {
             setCurrentSlotIdx(idx => idx + 1);
         } else if (allSlotsComplete) {
             onComplete();
+        } else {
+            const incomplete = SLOTS.filter(s => {
+                const trayItems = trayLibrary[s.mealType] || [];
+                const planItems = planDays[today]?.[s.mealType] || [];
+                const unique = new Set([...trayItems.map(i => i.dishId ?? i.id), ...planItems.map(i => i.meal_id ?? i.id)]);
+                return unique.size < s.minRequired;
+            });
+            const labels = incomplete.map(s => s.label);
+            setValidationToast(`Add ${labels.length === 4 ? '3 dishes for each meal type' : `3+ dishes for ${labels.join(', ')}`} to continue`);
+            setTimeout(() => setValidationToast(null), 4000);
         }
     };
 
@@ -648,6 +644,23 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         </div>
                         <button
                             onClick={() => setAddAnotherToast(null)}
+                            className="ml-2 p-1 hover:bg-white/20 rounded-lg"
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
+            )}
+            {/* Validation toast — shown when user tries to complete without enough dishes */}
+            {validationToast && (
+                <div className="fixed top-20 left-4 right-4 z-[100] mx-auto max-w-lg animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="bg-amber-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <AlertCircle size={16} />
+                            <span className="font-medium text-sm">{validationToast}</span>
+                        </div>
+                        <button
+                            onClick={() => setValidationToast(null)}
                             className="ml-2 p-1 hover:bg-white/20 rounded-lg"
                         >
                             <X size={16} />

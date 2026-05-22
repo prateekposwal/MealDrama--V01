@@ -99,31 +99,28 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
         if (totalDishes === 0) return { label: 'Empty', color: 'text-gray-400', dot: 'bg-gray-300' };
         const today = getISODate(new Date());
         const nextAssignment = mealLoop.assignments.find(a => a.date >= today);
-        const nextDate = nextAssignment
-            ? new Date(nextAssignment.date).toLocaleDateString('en-IN', { weekday: 'short' })
+        const nextLabel = nextAssignment
+            ? `${nextAssignment.dishName} · ${nextAssignment.mealType.charAt(0).toUpperCase() + nextAssignment.mealType.slice(1)}`
             : '—';
-        return { label: `Active · ${totalDishes} dishes · Next: ${nextDate}`, color: 'text-emerald-600', dot: 'bg-emerald-500' };
+        return { label: `Active · ${totalDishes} dishes · Next: ${nextLabel}`, color: 'text-emerald-600', dot: 'bg-emerald-500' };
     }, [mealLoop.config, mealLoop.sourceDishIds, mealLoop.assignments, refreshKey]);
 
     const trayCounts = useMemo(() => {
+        const today = getISODate(new Date());
         const types: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
-        const libraryTotal = trayLibrary.breakfast.length + trayLibrary.lunch.length + trayLibrary.snacks.length + trayLibrary.dinner.length;
-        if (libraryTotal > 0) {
-            return {
-                breakfast: trayLibrary.breakfast.length,
-                lunch: trayLibrary.lunch.length,
-                snacks: trayLibrary.snacks.length,
-                dinner: trayLibrary.dinner.length,
-            };
-        }
         const counts: Record<MealType, Set<string>> = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
-        const allDates = Object.keys(plan.days);
-        for (const date of allDates) {
-            for (const mt of types) {
-                const meals = getMeals(date, mt);
-                for (const item of meals) {
-                    counts[mt].add(item.meal_id);
-                }
+        // Merge trayLibrary items (user's saved tray)
+        for (const mt of types) {
+            for (const item of trayLibrary[mt]) {
+                counts[mt].add(item.dishId ?? item.id);
+            }
+        }
+        // Merge today's plan.days items only — loop assignments on future dates
+        // should not inflate the tray summary (tray builder only shows today)
+        for (const mt of types) {
+            const meals = getMeals(today, mt);
+            for (const item of meals) {
+                counts[mt].add(item.meal_id ?? item.id);
             }
         }
         return {
@@ -147,8 +144,8 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
 
         // FIX 2: Use trayLibrary as primary source — plan.days may be empty on first load
         for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
-            for (const dishId of trayLibrary[mt]) {
-                const dish = dishes.find(d => d.id === dishId);
+            for (const option of trayLibrary[mt]) {
+                const dish = dishes.find(d => d.id === option.dishId);
                 if (dish && !seen[mt].has(dish.id)) {
                     seen[mt].add(dish.id);
                     pool[mt].push(dish);

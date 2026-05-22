@@ -656,8 +656,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         </div>
       )}
 
-      {/* Swap Customize Modal */}
-      {activeCustomizeItem && onSwapCustomizeApply && (
+      {/* Swap Customize Modal — exclusive with Add Dish modal */}
+      {activeCustomizeItem && onSwapCustomizeApply && !addDishOpen && (
         <SwapCustomizeModal
           key={`${slotLabel}_${date}`}
           isOpen={swapCustomizeOpenKey !== null}
@@ -675,8 +675,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         />
       )}
 
-      {/* Add Dish Modal (opens directly in search/add mode) */}
-      {addDishOpen && onAddAnother && (
+      {/* Add Dish Modal — exclusive with Customize modal */}
+      {addDishOpen && onAddAnother && !swapCustomizeOpenKey && (
         <SwapCustomizeModal
           key={`add_${slotLabel}_${date}`}
           isOpen={addDishOpen}

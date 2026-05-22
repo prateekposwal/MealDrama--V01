@@ -4,17 +4,21 @@
 
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../lib/trayApi';
-import type { Region } from '../constants/dishLibrary';
+import { DISH_LIBRARY, type Region } from '../constants/dishLibrary';
 
 /**
  * Convert SuggestionMeal (API response) to Meal (defaults engine input).
+ * Resolves to a real dish ID from DISH_LIBRARY so that "Build Your Plate"
+ * and future lookups can find the dish by meal_id.
  * Normalizes region string to Region type.
  */
 export function suggestionToMeal(s: SuggestionMeal): Meal {
+  const match = DISH_LIBRARY.find(d => d.name.toLowerCase() === s.name.toLowerCase())
+    || DISH_LIBRARY.find(d => d.name.toLowerCase().startsWith(s.name.toLowerCase()) && (d.name.length === s.name.length || d.name[s.name.length] === ' ' || d.name[s.name.length] === '('));
   return {
-    id: s.id,
+    id: match?.id ?? s.id,
     name: s.name,
-    icon: s.icon,
+    icon: match?.icon ?? s.icon,
     region: normalizeRegion(s.region),
     baseGravy: s.defaultGravy,
     rotiOptions: s.defaultRoti ? [s.defaultRoti] : undefined,

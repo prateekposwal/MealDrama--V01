@@ -115,10 +115,10 @@ const App: React.FC = () => {
 
   // Hydration detection — Zustand v5
   useEffect(() => {
-    const unsub = useStore.persist.subscribe?.(() => setHydrated(true));
-    if (useStore.persist.hasHydrated?.()) setHydrated(true);
+    const unsub = useStore.persist.onFinishHydration(() => setHydrated(true));
+    if (useStore.persist.hasHydrated()) setHydrated(true);
     const timeout = setTimeout(() => setHydrated(true), 500);
-    return () => { unsub?.(); clearTimeout(timeout); };
+    return () => { unsub(); clearTimeout(timeout); };
   }, []);
 
   // Direct localStorage sync on mount — bypasses Zustand hydration issues
@@ -202,8 +202,6 @@ const App: React.FC = () => {
       console.log('[App] onLogin called, userId:', userId);
       // FIX: Use atomic login function and wait for persistence
       login(userId, primaryId);
-      // Wait for Zustand to flush to localStorage before proceeding
-      await useStore.persist.flush?.();
       console.log('[App] login persisted to localStorage');
     }} />;
   }
@@ -225,8 +223,6 @@ const App: React.FC = () => {
               onboardingComplete: true,
               goal: user?.goal || 'Weekly',
             });
-            // FIX: Wait for Zustand to persist user data to localStorage
-            await useStore.persist.flush?.();
             console.log('[App] Onboarding data persisted');
           } catch (e) {
             console.error('[App] First-time onboarding error:', e);
@@ -301,8 +297,6 @@ const App: React.FC = () => {
           onComplete={async () => {
             console.log('[App] MealTrayBuilder onComplete called');
             setTrayBuilt(true);
-            // FIX: Wait for trayBuilt=true to persist before proceeding
-            await useStore.persist.flush?.();
             console.log('[App] trayBuilt=true persisted');
             setManageTray(false);
             setManageTraySlot(undefined);

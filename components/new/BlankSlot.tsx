@@ -15,7 +15,7 @@ interface BlankSlotProps {
 }
 
 const DIET_FILTER: Record<string, string[]> = {
-  veg: ['veg'],
+  veg: ['veg', 'vegan'],
   'non-veg': ['veg', 'non-veg', 'eggitarian'],
   eggitarian: ['veg', 'eggitarian', 'non-veg'],
   vegan: ['veg', 'vegan'],

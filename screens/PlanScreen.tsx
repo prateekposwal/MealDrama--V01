@@ -20,9 +20,10 @@ import TrayScreen from '../components/new/TrayScreen';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
+import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOTS } from '../utils/continuity';
 import { getSkipUndoWindowExpiry } from '../types/tray';
-import { getISODate } from '../utils/dateUTC';
+import { getISODate, getISTDayOfWeek, parseISODate } from '../utils/dateUTC';
 import { computeStyleWarnings } from '../constants/dishStyles';
 
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
@@ -188,11 +189,11 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const { dishes } = useBackendDishes();
 
     const [weekStart, setWeekStart] = useState(() => {
-        const today = new Date();
-        const dayOfWeek = today.getDay();
-        const start = new Date(today);
-        start.setDate(start.getDate() - dayOfWeek);
-        return getISODate(start);
+        const todayISO = getISODate();
+        const dayOfWeek = getISTDayOfWeek(todayISO);
+        const d = parseISODate(todayISO);
+        const ms = d.getTime() - dayOfWeek * 86400000;
+        return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     });
 
     const [loopRefreshKey, setLoopRefreshKey] = useState(0);
@@ -351,24 +352,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         />
     ), [dishes, regionKey, userDiet, pantryStaples, stableGuestMode, getMeals, stableNoopHandlers]);
 
-    /** Convert SuggestionMeal to Meal */
-    const suggestionToMeal = useCallback((s: SuggestionMeal): Meal => ({
-        id: s.id,
-        name: s.name,
-        icon: s.icon,
-        region: s.region.toLowerCase().includes('south') ? 'south'
-            : s.region.toLowerCase().includes('east') ? 'east'
-            : s.region.toLowerCase().includes('west') ? 'west'
-            : 'north',
-        baseGravy: s.defaultGravy,
-        rotiOptions: s.defaultRoti ? [s.defaultRoti] : undefined,
-        riceOptions: s.defaultRice ? [s.defaultRice] : undefined,
-        suggestedPairings: {
-            sides: s.defaultSides,
-            beverages: s.defaultBeverages,
-        },
-    }), []);
-
     const handleSwapCustomizeApply = useCallback((date: string, mealType: MealType, itemId: string) => {
       return (updates: Partial<TrayItem>) => {
         updateItemInline(date, mealType, itemId, updates);
@@ -404,7 +387,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         return (suggestion: SuggestionMeal) => {
             addMealToSlot(date, mealType, suggestionToMeal(suggestion));
         };
-    }, [addMealToSlot, suggestionToMeal]);
+    }, [addMealToSlot]);
 
     const setToast = useStore(s => s.setToast);
 

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import type { MealType } from '../../store/useTrayStore';
 import type { Meal } from '../../types/tray';
 import { suggestionCache, type SuggestionMeal } from '../../lib/trayApi';
+import { DISH_LIBRARY } from '../../constants/dishLibrary';
 import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
@@ -41,10 +42,12 @@ function suggestionToMeal(s: SuggestionMeal): Meal {
     : regionLower.includes('northeast') ? 'northeast'
     : regionLower.includes('central') ? 'central'
     : 'north';
+  const match = DISH_LIBRARY.find(d => d.name.toLowerCase() === s.name.toLowerCase())
+    || DISH_LIBRARY.find(d => d.name.toLowerCase().startsWith(s.name.toLowerCase()) && (d.name.length === s.name.length || d.name[s.name.length] === ' ' || d.name[s.name.length] === '('));
   return {
-    id: s.id,
+    id: match?.id ?? s.id,
     name: s.name,
-    icon: s.icon,
+    icon: match?.icon ?? s.icon,
     region,
     tags: [s.type || 'veg', ...(s.name ? [s.name.toLowerCase()] : [])],
   };
