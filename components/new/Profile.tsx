@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import type { MealType } from '../../types/tray';
@@ -28,6 +28,16 @@ const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType
     useEffect(() => {
         setNameDraft(user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : ''));
     }, [user?.name, user?.primaryId]);
+
+    // Cleanup hold-timer on unmount
+    useEffect(() => {
+        return () => {
+            if (clearHoldTimer.current) {
+                clearInterval(clearHoldTimer.current);
+                clearHoldTimer.current = null;
+            }
+        };
+    }, []);
     
     // FIX 4: Track online status for offline visual feedback
     const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -50,6 +60,8 @@ const [cookInput, setCookInput] = useState(user?.cookContact || '');
 const [notifications, setNotifications] = useState(true);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
 const [showClearLoopConfirm, setShowClearLoopConfirm] = useState(false);
+const [clearHoldProgress, setClearHoldProgress] = useState(0);
+const clearHoldTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
 const { customDishes, addCustomDish, updateCustomDish, removeCustomDish } = useStore();
 const [showCustomForm, setShowCustomForm] = useState(false);
@@ -540,24 +552,6 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                         <div className="w-full p-5 rounded-[22px] bg-gray-50 flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
-                                    <SlidersHorizontal size={18} className="text-[#FF385C]" />
-                                </div>
-                                <div>
-                                    <p className="text-xs font-black text-gray-900">Vibe</p>
-                                    <p className="text-[11px] text-gray-400">Start of something good.</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => { startTrayEdit({ returnTab: 'profile', slot: 'Breakfast' }); onManageTray?.('breakfast'); }}
-                                className="px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-[#FF385C]"
-                            >
-                                Review
-                            </button>
-                        </div>
-
-                        <div className="w-full p-5 rounded-[22px] bg-gray-50 flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
                                     <RefreshCw size={18} className="text-emerald-500" />
                                 </div>
                                 <div>
@@ -583,40 +577,11 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                     </button>
                                 )}
                                 <button
-                                    onClick={() => refreshLoop(dishes)}
-                                    disabled={mealLoop.refreshing}
-                                    className={`px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all flex items-center gap-1.5 ${
-                                        mealLoop.refreshing
-                                            ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                                            : 'bg-white border-gray-100 text-gray-500'
-                                    }`}
-                                    title={mealLoop.refreshing ? (isOnline ? 'Refreshing...' : 'Queued for sync') : 'Refresh loop assignments'}
-                                >
-                                    {mealLoop.refreshing ? (
-                                        isOnline ? (
-                                            <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
-                                        ) : (
-                                            <Cloud size={14} className="text-gray-400" />
-                                        )
-                                    ) : (
-                                        'Refresh'
-                                    )}
-                                </button>
-                                <button
                                     onClick={() => setMealLoopModalOpen(true)}
                                     className="px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-emerald-500"
                                 >
                                     Manage
                                 </button>
-                                {mealLoop.config && (
-                                    <button
-                                        onClick={() => setShowClearLoopConfirm(true)}
-                                        className="px-3 py-2 rounded-xl bg-white border border-red-100 text-[10px] font-black uppercase tracking-widest text-red-500 active:scale-95 transition-all"
-                                        title="Clear loop configuration"
-                                    >
-                                        Clear
-                                    </button>
-                                )}
                             </div>
                         </div>
 
@@ -697,6 +662,73 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                     </div>
                 </section>
 
+                {mealLoop.config && (
+                <section>
+                    <details className="group">
+                        <summary className="flex items-center justify-between cursor-pointer mb-3">
+                            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Advanced</h4>
+                            <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center group-open:rotate-180 transition-transform">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-gray-400"><path d="m6 9 6 6 6-6"/></svg>
+                            </div>
+                        </summary>
+                        <div className="space-y-3">
+                            <div className="w-full p-5 rounded-[22px] bg-gray-50 border border-gray-100">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+                                            <RefreshCw size={18} className="text-gray-500" />
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-black text-gray-900">Refresh Loop</p>
+                                            <p className="text-[11px] text-gray-400">Flush pending dishes & rebuild assignments</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => refreshLoop(dishes)}
+                                        disabled={mealLoop.refreshing}
+                                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all flex items-center gap-1.5 ${
+                                            mealLoop.refreshing
+                                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                                : 'bg-white border-gray-100 text-gray-500'
+                                        }`}
+                                        title={mealLoop.refreshing ? (isOnline ? 'Refreshing...' : 'Queued for sync') : 'Flush pending & rebuild'}
+                                    >
+                                        {mealLoop.refreshing ? (
+                                            isOnline ? (
+                                                <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
+                                            ) : (
+                                                <Cloud size={14} className="text-gray-400" />
+                                            )
+                                        ) : (
+                                            'Refresh'
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="w-full p-5 rounded-[22px] bg-red-50/50 border border-red-100">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-black text-gray-900">Reset Loop</p>
+                                            <p className="text-[11px] text-gray-400">Remove all loop assignments & config</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowClearLoopConfirm(true)}
+                                        className="px-4 py-2 rounded-2xl bg-white border border-red-100 text-[10px] font-black uppercase tracking-widest text-red-500 active:scale-95 transition-all"
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                </section>
+                )}
+
                 <section>
                     <button onClick={onLogout}
                         className="w-full p-5 rounded-[22px] bg-red-50 text-red-500 flex items-center justify-center gap-3 font-bold active:scale-95 transition-all">
@@ -747,19 +779,54 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                         </p>
                         <div className="flex gap-3">
                             <button
-                                onClick={() => setShowClearLoopConfirm(false)}
+                                onClick={() => { setShowClearLoopConfirm(false); setClearHoldProgress(0); }}
                                 className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
                             >
                                 Cancel
                             </button>
                             <button
-                                onClick={() => {
-                                    clearMealLoop();
-                                    setShowClearLoopConfirm(false);
+                                onPointerDown={() => {
+                                    setClearHoldProgress(0);
+                                    clearHoldTimer.current = setInterval(() => {
+                                        setClearHoldProgress(prev => {
+                                            const next = prev + 1;
+                                            if (next >= 100) {
+                                                if (clearHoldTimer.current) {
+                                                    clearInterval(clearHoldTimer.current);
+                                                    clearHoldTimer.current = null;
+                                                }
+                                                clearMealLoop();
+                                                setShowClearLoopConfirm(false);
+                                                return 0;
+                                            }
+                                            return next;
+                                        });
+                                    }, 30);
                                 }}
-                                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold text-sm active:scale-[0.98] transition-all shadow-lg shadow-red-500/30"
+                                onPointerUp={() => {
+                                    if (clearHoldTimer.current) {
+                                        clearInterval(clearHoldTimer.current);
+                                        clearHoldTimer.current = null;
+                                    }
+                                    setClearHoldProgress(0);
+                                }}
+                                onPointerLeave={() => {
+                                    if (clearHoldTimer.current) {
+                                        clearInterval(clearHoldTimer.current);
+                                        clearHoldTimer.current = null;
+                                    }
+                                    setClearHoldProgress(0);
+                                }}
+                                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold text-sm shadow-lg shadow-red-500/30 overflow-hidden relative select-none"
+                                style={{ touchAction: 'none' }}
                             >
-                                Clear Loop
+                                <div
+                                    className="absolute inset-0 bg-red-600 transition-none"
+                                    style={{ width: `${clearHoldProgress}%` }}
+                                />
+                                <span className="relative z-10">
+                                    {clearHoldProgress > 0 ? `Hold ${Math.ceil((100 - clearHoldProgress) / 33)}s` : 'Hold 3s to clear'}
+                                </span>
                             </button>
                         </div>
                     </div>

@@ -9,7 +9,7 @@ import { nanoid } from 'nanoid';
 import { trayApi, offlineQueue } from '../lib/trayApi';
 import { applySmartDefaults } from './helpers/applySmartDefaults';
 import { EMPTY_LOOP_STATE, SLOT_TIME_DEFAULTS, getSlotDefaultTimes } from '../types/tray';
-import type { Meal, MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, SavedTemplate, MealLoopState, MealLoopConfig, MealLoopAssignment } from '../types/tray';
+import type { Meal, MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, SavedTemplate, MealLoopState, MealLoopConfig, MealLoopAssignment, RotationQueueItem } from '../types/tray';
 import { buildLoopAssignments as buildAssignments, handleMidCycleAdd, buildRotationState, buildRotationStateWithMerge, autoFillLoop as autoFillLoopEngine } from '../utils/mealLoopEngine';
 import { dishToMeal } from '../utils/dishToMeal';
 import { generateMealTitle } from '../utils/generateMealTitle';
@@ -196,6 +196,25 @@ export function scheduleLoopPoolChange(pool: SourcePool, dishes?: Dish[]) {
       _pendingPoolChange = null;
     }
   }, 500);
+}
+
+/**
+ * Build a minimal SourcePool from the current tray library.
+ * Used by the meal-tray trigger to feed scheduleLoopPoolChange.
+ */
+export function buildPoolFromStore(): SourcePool {
+  const tray = useStore.getState().trayLibrary;
+  const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+  const seen = { breakfast: new Set<string>(), lunch: new Set<string>(), snacks: new Set<string>(), dinner: new Set<string>() };
+  for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+    for (const item of tray[mt] || []) {
+      if (!seen[mt].has(item.id)) {
+        seen[mt].add(item.id);
+        pool[mt].push(item as unknown as Dish);
+      }
+    }
+  }
+  return pool;
 }
 
 // FIX 9: Debug visibility — call from console: getLoopDebugInfo()
@@ -469,6 +488,28 @@ export const useTrayStore = create<TrayStore>()(
         }
 
         window.dispatchEvent(new Event('pantry:invalidate'));
+
+        // FIX: Notify meal loop of new dish — respects insertStrategy in real time
+        const loopCfg = get().mealLoop.config;
+        if (loopCfg && !get().mealLoop.sourceDishIds.includes(meal.id)) {
+          if (loopCfg.insertStrategy === 'next-cycle') {
+            set((s) => {
+              if (!s.mealLoop.config) return s;
+              return {
+                mealLoop: {
+                  ...s.mealLoop,
+                  sourceDishIds: [...s.mealLoop.sourceDishIds, meal.id],
+                  pendingMerge: [
+                    ...s.mealLoop.pendingMerge,
+                    { dishId: meal.id, dishName: meal.name, mealType: mealType as MealType, style: getDishStyle(meal.id) },
+                  ],
+                },
+              };
+            });
+          } else {
+            scheduleLoopPoolChange(buildPoolFromStore(), useStore.getState().dishes || undefined);
+          }
+        }
       },
 
       // ─── Swap Meal (Inline) ─────────────────────────────────────────────
@@ -1104,7 +1145,41 @@ export const useTrayStore = create<TrayStore>()(
       },
 
       applyLoopConfig: (config, pool, dishes) => {
-        const { queue, assignments: loopAssignments } = buildAssignments(pool, config, dishes);
+        // FIX: When loop exists and new dishes are present, use incremental merge
+        // to respect insertStrategy setting — new dishes follow Append/Smart Shuffle/
+        // Immediate/Next Cycle Only instead of being assigned immediately.
+        let queue: RotationQueueItem[];
+        let loopAssignments: MealLoopAssignment[];
+        let pendingMerge: RotationQueueItem[];
+        let hasNewDishes = false;
+
+        const cur = get();
+        if (cur.mealLoop.config) {
+          const oldIds = cur.mealLoop.sourceDishIds;
+          const newIds = Object.values(pool).flat().map((d: Dish) => d.id);
+          hasNewDishes = newIds.some(id => !oldIds.includes(id));
+          if (hasNewDishes) {
+            const result = handleMidCycleAdd(
+              oldIds, newIds, pool, config,
+              cur.mealLoop.rotationQueue, cur.mealLoop.next_index,
+              cur.mealLoop.assignments, dishes,
+            );
+            queue = result.queue;
+            loopAssignments = result.assignments;
+            pendingMerge = result.pendingMerge;
+          } else {
+            const full = buildAssignments(pool, config, dishes);
+            queue = full.queue;
+            loopAssignments = full.assignments;
+            pendingMerge = [];
+          }
+        } else {
+          const full = buildAssignments(pool, config, dishes);
+          queue = full.queue;
+          loopAssignments = full.assignments;
+          pendingMerge = [];
+        }
+
         const rotationState = buildRotationState(pool, dishes);
 
         // Build plan days from loop assignments
@@ -1186,7 +1261,7 @@ export const useTrayStore = create<TrayStore>()(
               pool_version: 1,
               rotationQueue: queue,
               next_index: Math.min(loopAssignments.length, queue.length),
-              pendingMerge: [],
+              pendingMerge,
               assignments: loopAssignments,
               overrides: s.mealLoop.overrides,
               rotationState,
@@ -1201,12 +1276,14 @@ export const useTrayStore = create<TrayStore>()(
                     analytics: s.mealLoop.analytics,
                   }, ...s.mealLoop.undoStack].slice(0, 5)
                 : s.mealLoop.undoStack,
-              // FIX 9: Update analytics
-              analytics: {
-                ...s.mealLoop.analytics,
-                cyclesCompleted: s.mealLoop.analytics.cyclesCompleted + 1,
-                mealsAutoFilled: s.mealLoop.analytics.mealsAutoFilled + loopAssignments.length,
-              },
+              // FIX: For incremental merge, preserve analytics (no cycle completion)
+              analytics: hasNewDishes
+                ? s.mealLoop.analytics
+                : {
+                    ...s.mealLoop.analytics,
+                    cyclesCompleted: s.mealLoop.analytics.cyclesCompleted + 1,
+                    mealsAutoFilled: s.mealLoop.analytics.mealsAutoFilled + loopAssignments.length,
+                  },
               // Preserve rate limit flags
               refreshing: s.mealLoop.refreshing,
               lastRefreshStart: s.mealLoop.lastRefreshStart,
@@ -1413,10 +1490,6 @@ export const useTrayStore = create<TrayStore>()(
             return s;
           }
 
-          // Mark as refreshing
-          s.mealLoop.refreshing = true;
-          s.mealLoop.lastRefreshStart = Date.now();
-
           // Rebuild assignments from current rotationState
           // FIX 4: Only scan dates within the loop's cycle window, not all 365 plan days
           const loopStartDate = new Date(cfg.startDate);
@@ -1439,7 +1512,14 @@ export const useTrayStore = create<TrayStore>()(
           // FIX 13: Surface errors if assignment fails silently
           if (result.assignments.length === 0 && totalQueueSize > 0) {
             get().setToast({ message: '⚠️ Loop assignment failed. No meals could be scheduled.', type: 'error' });
-            return s;
+            return {
+              ...s,
+              mealLoop: {
+                ...s.mealLoop,
+                refreshing: false,
+                lastRefreshStart: undefined,
+              },
+            };
           }
 
           // FIX 8: Deduplicate assignments — prevent bloat from repeated refreshes
