@@ -49,7 +49,6 @@ const BASE_CONFIG: MealLoopConfig = {
   startDate: '2026-05-18',
   skipDays: [],
   repeatPattern: 'sequential',
-  insertStrategy: 'append',
 };
 
 const makeSourcePool = (overrides?: Partial<Record<string, Dish[]>>) => ({
@@ -244,20 +243,8 @@ describe('mergeIntoQueue', () => {
   ];
 
   it('returns same queue when no new items', () => {
-    const result = mergeIntoQueue(existing, [], 'append');
+    const result = mergeIntoQueue(existing, [], 'smart-shuffle');
     expect(result).toEqual(existing);
-  });
-
-  it('appends new items at end', () => {
-    const result = mergeIntoQueue(existing, newItems, 'append');
-    expect(result).toHaveLength(3);
-    expect(result[2]!.dishId).toBe('s1');
-  });
-
-  it('inserts new items immediately', () => {
-    const result = mergeIntoQueue(existing, newItems, 'immediate');
-    expect(result).toHaveLength(3);
-    expect(result[2]!.dishId).toBe('s1');
   });
 
   it('smart shuffles into first 7 positions', () => {
@@ -274,12 +261,6 @@ describe('mergeIntoQueue', () => {
 
   it('queues for next cycle', () => {
     const result = mergeIntoQueue(existing, newItems, 'next-cycle');
-    expect(result).toHaveLength(3);
-    expect(result[2]!.dishId).toBe('s1');
-  });
-
-  it('falls back to append for unknown strategy', () => {
-    const result = mergeIntoQueue(existing, newItems, 'unknown' as any);
     expect(result).toHaveLength(3);
     expect(result[2]!.dishId).toBe('s1');
   });
@@ -389,14 +370,14 @@ describe('handleMidCycleAdd', () => {
     expect(result.pool_version).toBe(2);
   });
 
-  it('flags items as pending for next-cycle strategy', () => {
-    const config = { ...BASE_CONFIG, insertStrategy: 'next-cycle' as const };
+  it('merges new items into queue on mid-cycle add', () => {
+    const config = { ...BASE_CONFIG };
     const oldIds = ['p1'];
     const newIds = ['p1', 'p2'];
     const pool = makeSourcePool({ lunch: POLISH_DISHES.slice(0, 2) });
     const queue = buildRotationQueue(makeSourcePool({ lunch: POLISH_DISHES.slice(0, 1) }));
     const result = handleMidCycleAdd(oldIds, newIds, pool, config, queue, 0, [], POLISH_DISHES);
-    expect(result.pendingMerge.length).toBeGreaterThan(0);
+    expect(result.assignments.length).toBeGreaterThan(0);
   });
 });
 
@@ -528,14 +509,13 @@ describe('buildLoopSummary', () => {
     expect(summary.skipDays).toContain('Sat');
   });
 
-  it('labels insert strategies', () => {
-    const config1 = { ...BASE_CONFIG, insertStrategy: 'smart-shuffle' as const };
-    const s1 = buildLoopSummary(config1, []);
-    expect(s1.insertStrategy).toBe('Smart Shuffle');
-
-    const config2 = { ...BASE_CONFIG, insertStrategy: 'next-cycle' as const };
-    const s2 = buildLoopSummary(config2, []);
-    expect(s2.insertStrategy).toBe('Next Cycle Only');
+  it('returns correct summary shape', () => {
+    const summary = buildLoopSummary(BASE_CONFIG, []);
+    expect(summary.cycleLength).toBe(7);
+    expect(summary.totalAssignments).toBe(0);
+    expect(summary.uniqueDishCount).toBe(0);
+    expect(summary.skipDays).toEqual([]);
+    expect(summary.repeatPattern).toBe('sequential');
   });
 });
 
@@ -612,7 +592,6 @@ describe('autoFillLoop (new feature)', () => {
       startDate: '2026-05-20',
       skipDays: [],
       repeatPattern: 'sequential',
-      insertStrategy: 'append',
     };
     const rotationState = buildRotationState({
       breakfast: [makeDish('b1', 'Poha')],
@@ -640,7 +619,6 @@ describe('autoFillLoop (new feature)', () => {
       startDate: '2026-05-20',
       skipDays: [],
       repeatPattern: 'sequential',
-      insertStrategy: 'append',
     };
     const rotationState = buildRotationState({
       breakfast: [],
@@ -659,7 +637,6 @@ describe('autoFillLoop (new feature)', () => {
       startDate: '2026-05-20', // Wednesday
       skipDays: [3], // Skip Wednesday
       repeatPattern: 'sequential',
-      insertStrategy: 'append',
     };
     const rotationState = buildRotationState({
       breakfast: [makeDish('b1', 'Poha')],

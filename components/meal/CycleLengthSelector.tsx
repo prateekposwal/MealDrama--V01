@@ -5,7 +5,7 @@ interface CycleLengthSelectorProps {
   onChange: (n: number) => void;
 }
 
-const OPTIONS = [3, 5, 7, 14, 30];
+const OPTIONS = [7, 14, 30];
 
 export const CycleLengthSelector: React.FC<CycleLengthSelectorProps> = ({ value, onChange }) => (
   <div>

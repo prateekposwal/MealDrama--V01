@@ -1,6 +1,6 @@
-const BASE_URL = import.meta.env.VITE_ENV === 'production' ? import.meta.env.VITE_API_URL : '/api/v1';
+import { useStore } from '../store/useStore';
 
-const TOKEN_KEY = 'mealdrama-token';
+const BASE_URL = import.meta.env.VITE_ENV === 'production' ? import.meta.env.VITE_API_URL : '/api/v1';
 
 // ─── Auth readiness guard ─────────────────────────────────────────────────
 let _authReady = false;
@@ -14,8 +14,7 @@ export function isAuthReady(): boolean {
 }
 // ───────────────────────────────────────────────────────────────────────────
 
-// ─── 401 Abort Controller — aborts all in-flight requests on first 401 ───
-// Prevents redundant token clears and multiple auth:unauthorized events.
+// ─── 401 Abort Controller ─────────────────────────────────────────────────
 let _authAbortController: AbortController | null = null;
 
 function getAuthAbortController(): AbortController {
@@ -40,7 +39,7 @@ interface FetchOptions extends RequestInit {
 
 function getToken(): string | null {
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    return useStore.getState().token ?? null;
   } catch {
     return null;
   }
@@ -48,17 +47,15 @@ function getToken(): string | null {
 
 function setToken(token: string): void {
   try {
-    localStorage.setItem(TOKEN_KEY, token);
-    sessionStorage.setItem(TOKEN_KEY, token);
+    useStore.getState().setToken(token);
   } catch {
-    // storage may be unavailable
+    // store may not be available yet
   }
 }
 
 function clearToken(): void {
   try {
-    localStorage.removeItem(TOKEN_KEY);
-    sessionStorage.removeItem(TOKEN_KEY);
+    useStore.getState().clearToken();
   } catch {
     // ignore
   }
@@ -69,8 +66,6 @@ function isAuthFailure(err: Error): boolean {
 }
 
 // ─── Idempotency key for safe retries ───────────────────────────────────
-// Non-GET requests get a unique idempotency header so the server can
-// deduplicate accidental duplicate sends. The SAME key is reused on retry.
 const IDEMPOTENT_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
 function generateIdempotencyKey(): string {
@@ -98,14 +93,11 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     throw new Error('Auth not ready');
   }
 
-  // C1: Link to global auth abort controller — all requests abort on first 401
   const authController = getAuthAbortController();
 
-  // Combine external AbortSignal (for unmount cancellation) with timeout
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  // H6: Track listeners so they're always removed, even if doFetch throws
   const onExternalAbort = () => controller.abort();
   if (externalSignal) {
     if (externalSignal.aborted) {
@@ -114,13 +106,11 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
       externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
   }
-  // Link to auth abort — if any request gets 401, all others abort too
   const onAuthAbort = () => controller.abort();
   if (!authController.signal.aborted) {
     authController.signal.addEventListener('abort', onAuthAbort, { once: true });
   }
 
-  // C3: Generate idempotency key ONCE and reuse on retry
   const idempotencyKey = IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase())
     ? generateIdempotencyKey()
     : undefined;
@@ -141,7 +131,6 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     });
 
     if (res.status === 401) {
-      // C1: Abort ALL other in-flight requests on first 401
       abortAllOn401();
       clearToken();
       tokenCleared = true;
@@ -159,7 +148,6 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
   try {
     return await doFetch();
   } catch (err) {
-    // H1/H2: If token was cleared (401), do NOT retry
     if (tokenCleared) {
       throw err;
     }
@@ -167,9 +155,6 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
       throw err;
     }
     const method = (fetchOptions.method ?? 'GET').toUpperCase();
-    // H3: Only auto-retry idempotent methods (GET, HEAD, DELETE).
-    // POST/PUT/PATCH rely on offline queue for safe retries — auto-retry
-    // here can create duplicate mutations if server already processed.
     if (IDEMPOTENT_METHODS.has(method)) {
       throw err;
     }
@@ -216,5 +201,4 @@ export const api = {
     }),
 };
 
-export { getToken, setToken, clearToken };
 export default api;

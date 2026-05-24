@@ -14,12 +14,13 @@ import type { SuggestionMeal } from '../lib/trayApi';
 import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
-import { ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
 import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
-import { SLOT_TIME_DEFAULTS, aggregateSlotItems } from '../types/tray';
+import { SLOT_TIME_DEFAULTS } from '../types/tray';
 import type { AggregatedCategory } from '../types/tray';
+import { useNormalizedComposition } from '../components/meal/useNormalizedComposition';
 import { getISODate } from '../utils/dateUTC';
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
@@ -41,12 +42,13 @@ const SLOT_MESSAGES: Record<string, { progress: string; done: string }> = {
 interface MealTrayBuilderProps {
     user: any;
     onComplete: () => void;
+    onBack?: () => void;
     defaultSlot?: string;
 }
 
 const getTodayISO = getISODate;
 
-export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp, onComplete, defaultSlot }) => {
+export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp, onComplete, onBack, defaultSlot }) => {
     const mountedRef = useRef(true);
     useEffect(() => () => { mountedRef.current = false; }, []);
 
@@ -226,7 +228,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     });
 
     // Slot-level aggregation: deduplicate and merge quantities across all dishes in this slot
-    const aggregated = useMemo(() => aggregateSlotItems(displayMeals), [displayMeals]);
+    const aggregated = useNormalizedComposition(displayMeals);
 
     const handleAggregatedQty = useCallback((name: string, delta: number) => {
         const planItems = planDays[today]?.[currentSlot.mealType] || [];
@@ -308,28 +310,33 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const handleSuggestionAdd = useCallback((mealType: MealType) => {
         return (suggestion: SuggestionMeal) => {
             const t = slotTimes[mealType];
+            addToTray(mealType, { id: suggestion.id, dishId: suggestion.id, name: suggestion.name, icon: suggestion.icon, sourceRegion: suggestion.region });
             addMealToSlot(today, mealType, suggestionToMeal(suggestion), {
                 start_time: t?.start,
                 end_time: t?.end,
+                source: 'onboarding',
             });
         };
-    }, [addMealToSlot, slotTimes, today]);
+    }, [addToTray, addMealToSlot, slotTimes, today]);
 
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
         const t = slotTimes[mealType];
+        addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
         addMealToSlot(date, mealType, dishToMeal(dish, variant), {
             start_time: t?.start,
             end_time: t?.end,
             variant: variant?.name,
             variantId: variant?.id,
             addon: variant?.addOn,
+            source: 'onboarding',
         });
     setShowQuickAdd(false);
-  }, [addMealToSlot, slotTimes]);
+  }, [addToTray, addMealToSlot, slotTimes]);
 
   const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
     const meal = dishToMeal(dish, variant);
+    addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
     const existing = getMeals(date, mealType);
     const existingItem = existing.find(m => m.meal_id === dish.id);
     if (existingItem) {
@@ -348,11 +355,12 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         variant: variant?.name,
         variantId: variant?.id,
         addon: variant?.addOn,
+        source: 'onboarding',
       });
     }
     setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)}`);
     setTimeout(() => setAddAnotherToast(null), 3000);
-  }, [addMealToSlot, dishToMeal, slotTimes, getMeals, updateItemInline]);
+  }, [addToTray, addMealToSlot, dishToMeal, slotTimes, getMeals, updateItemInline]);
 
     const handleNextSlot = () => {
         if (currentSlotIdx < SLOTS.length - 1) {
@@ -404,7 +412,12 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             {/* Header */}
             <div className="sticky top-0 z-20 px-6 pt-14 pb-3 bg-white">
                 <div className="flex items-center justify-between mb-2">
-                    <div>
+                    <div className="flex items-center gap-2">
+                        {onBack && (
+                            <button onClick={onBack} className="p-1 -ml-1 hover:bg-gray-100 rounded-xl transition-colors" aria-label="Go back">
+                                <ChevronLeft size={22} className="text-gray-600" />
+                            </button>
+                        )}
                         <span className="text-2xl font-black tracking-tight leading-none">
                             Meal<span className="text-[#FF385C]">Drama</span>
                         </span>
@@ -552,8 +565,8 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
 
                         {/* Aggregated slot items: deduplicated across all dishes */}
                         {displayMeals.length > 0 && (
-                            <div className="px-1 pt-2 pb-1 space-y-2">
-                                <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">
+                            <div className="px-2 pt-2 pb-1 space-y-2">
+                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">
                                     {currentSlot.label} Total
                                 </p>
                                 {[
@@ -564,21 +577,21 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                                     { items: aggregated.beverages, label: 'Beverages', color: 'bg-gray-50 text-gray-500 border-gray-100' },
                                     { items: aggregated.dessert, label: 'Dessert', color: 'bg-pink-50 text-pink-700 border-pink-100' },
                                 ].map(cat => cat.items.length > 0 && (
-                                    <div key={cat.label} className="flex flex-wrap items-center gap-1.5">
+                                    <div key={cat.label} className="flex flex-wrap items-center gap-2">
                                         {cat.items.map((agg: AggregatedCategory) => (
-                                            <span key={agg.name} className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${cat.color} inline-flex items-center gap-1`}>
+                                            <span key={agg.name} className={`text-xs font-bold px-3 py-1 rounded-full border ${cat.color} inline-flex items-center gap-1.5`}>
                                                 {cat.label === 'Dessert' && '🍨 '}{agg.name}
-                                                <span className="inline-flex items-center gap-0.5 ml-1">
+                                                <span className="inline-flex items-center gap-1 ml-1.5">
                                                     <button
                                                         onClick={() => handleAggregatedQty(agg.name, -1)}
-                                                        className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-gray-100 text-[8px] font-bold text-gray-600 active:bg-gray-200 leading-none"
+                                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600 active:bg-gray-200 leading-none"
                                                     >−</button>
-                                                    <span className="text-[9px] font-bold text-gray-700 min-w-[8px] text-center tabular-nums">{agg.totalQty}</span>
+                                                    <span className="text-xs font-bold text-gray-700 min-w-[12px] text-center tabular-nums">{agg.totalQty}</span>
                                                     <button
                                                         onClick={() => handleAggregatedQty(agg.name, 1)}
-                                                        className="w-3.5 h-3.5 flex items-center justify-center rounded-full bg-gray-100 text-[8px] font-bold text-gray-600 active:bg-gray-200 leading-none"
+                                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600 active:bg-gray-200 leading-none"
                                                     >+</button>
-                                                    <span className="text-[7px] text-gray-400 ml-0.5">{agg.unit}</span>
+                                                    <span className="text-[9px] text-gray-400 ml-0.5">{agg.unit}</span>
                                                 </span>
                                             </span>
                                         ))}

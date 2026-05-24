@@ -74,8 +74,13 @@ export interface SlotBodyProps {
   /** When true, extra items beyond the first are shown as compact chips inside the card */
   mergeExtraItems?: boolean;
 
+  /** Max dishes to show in a merged slot (default: no cap). First is a card, rest are chips. */
+  maxVisible?: number;
+
   /** Per-slot time preferences from user profile — overrides SLOT_TIME_DEFAULTS */
   preferences?: Record<string, { start: string; end: string }>;
+
+  /** Show empty-state amber guide (Dashboard-only). Defaults to true. */
 }
 
 function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals: TrayItem[], mealType: MealType, preferences?: Record<string, { start: string; end: string }>) {
@@ -164,8 +169,10 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   onComplete, onSkipSlot, onUndoComplete, isUserCompleted, tomorrowMeals, tomorrowDate,
   styleWarnings,
   mergeExtraItems,
+  maxVisible,
   preferences,
 }) => {
+  const slotMeals = maxVisible != null ? meals.slice(0, maxVisible) : meals;
   const { isLocked, isMissed, editable, showSuggestions, cardClass } = useMemo(
     () => getModeBehavior(mode, date, slotLabel, meals, mealType, preferences),
     [mode, date, slotLabel, meals, mealType, preferences],
@@ -176,6 +183,15 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   const lastFeaturedTimes = useTrayStore(s => s.lastFeaturedTimes);
   const markFeatured = useTrayStore(s => s.markFeatured);
   const featuredRef = useRef<string[] | null>(null);
+
+  // Loop-aware guidance: check if this date+slot has a loop assignment
+  const loopConfig = useTrayStore(s => s.mealLoop.config);
+  const loopAssignments = useTrayStore(s => s.mealLoop.assignments);
+  const loopActive = !!loopConfig;
+  const hasLoopAssignment = useMemo(() => {
+    if (!loopActive) return false;
+    return loopAssignments.some(a => a.date === date && a.mealType === mealType);
+  }, [loopActive, loopAssignments, date, mealType]);
 
   const featured = useMemo(() => {
     if (!mergeExtraItems || meals.length <= 2) return null;
@@ -228,7 +244,6 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   );
 
   const [addDishOpen, setAddDishOpen] = useState(false);
-  const [expanded, setExpanded] = useState(false);
 
   const aggregated = useNormalizedComposition(meals);
   const setToast = useStore(s => s.setToast);
@@ -289,7 +304,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   const stableSwapCustomizeClose = useCallback(() => onSwapCustomizeClose?.(), [onSwapCustomizeClose]);
   const stableAddDishClose = useCallback(() => setAddDishOpen(false), []);
   const stableSuggestionAdd = useCallback(
-    () => onSuggestionAdd(date, mealType),
+    (meal: SuggestionMeal) => onSuggestionAdd(date, mealType)(meal),
     [onSuggestionAdd, date, mealType],
   );
 
@@ -394,11 +409,11 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {!isUserCompleted && meals.length > 0 && (
         <div className={`${cardClass} ${mergeExtraItems && meals.length > 1 ? 'space-y-0' : ''} card-section-enter`}>
 
-          {mergeExtraItems && meals.length > 1 && !expanded ? (
+          {mergeExtraItems && slotMeals.length > 1 ? (
             <>
               <div style={_ANIM_STYLE_0} className="card-enter">
                 <MealCard
-                  item={featured?.primary ?? meals[0]!}
+                  item={slotMeals[0]!}
                   date={date}
                   mealType={mealType}
                   slot={slotLabel}
@@ -408,30 +423,26 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   isLocked={isLocked}
                   isMissed={isMissed}
                   editable={editable}
-                  guestExtra={computeEffectiveServings((featured?.primary ?? meals[0]!).quantity || 1, date, guestMode).extra}
-                  swapOpen={swapOpenKey === (featured?.primary ?? meals[0]!).id}
-                  onSwapOpen={() => onSwapOpen((featured?.primary ?? meals[0]!).id)}
+                  guestExtra={computeEffectiveServings(slotMeals[0]!.quantity || 1, date, guestMode).extra}
+                  swapOpen={swapOpenKey === slotMeals[0]!.id}
+                  onSwapOpen={() => onSwapOpen(slotMeals[0]!.id)}
                   onSwapClose={onSwapClose}
-                  onSwapSelect={onSwapSelect(date, mealType, (featured?.primary ?? meals[0]!).id)}
-                  onUpdateInline={onUpdateInline(date, mealType, (featured?.primary ?? meals[0]!).id)}
-                  onRemove={onRemove(date, mealType, (featured?.primary ?? meals[0]!).id)}
-                  swapCustomizeOpen={swapCustomizeOpenKey === (featured?.primary ?? meals[0]!).id}
-                  onSwapCustomizeOpen={() => onSwapCustomizeOpen?.((featured?.primary ?? meals[0]!).id)}
+                  onSwapSelect={onSwapSelect(date, mealType, slotMeals[0]!.id)}
+                  onUpdateInline={onUpdateInline(date, mealType, slotMeals[0]!.id)}
+                  onRemove={onRemove(date, mealType, slotMeals[0]!.id)}
+                  swapCustomizeOpen={swapCustomizeOpenKey === slotMeals[0]!.id}
+                  onSwapCustomizeOpen={() => onSwapCustomizeOpen?.(slotMeals[0]!.id)}
                   onSwapCustomizeClose={stableSwapCustomizeClose}
                 />
               </div>
-              {(featured?.secondary || (meals.length === 2 ? meals[1] : undefined)) && (
-                <div className="px-5 pb-4 -mt-2 space-y-1.5">
-                  {(() => {
-                    const extra = featured?.secondary ?? (meals.length === 2 ? meals[1]! : null);
-                    if (!extra) return null;
-                    return (
+              <div className="px-5 pb-4 -mt-2 space-y-1.5">
+                {(slotMeals.slice(1) as TrayItem[]).map(extra => (
                   <div key={extra.id} style={_ANIM_STYLE_1} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100 extra-card-enter">
                     <DishImage name={extra.name} slot={slotLabel} size="sm" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-bold text-gray-700 truncate">
-                          {extra.title || extra.name}
+                          {extra.name}
                         </span>
                         {extra.quantity > 1 && (
                           <span className="text-[8px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0">
@@ -464,18 +475,9 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                       </div>
                     )}
                   </div>
-                    );
-                  })()}
-                </div>
-              )}
-              {meals.length > 2 && (
-                <button
-                  onClick={() => setExpanded(true)}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
-                >
-                  See all {meals.length} dishes
-                </button>
-              )}
+                ))}
+              </div>
+
             </>
           ) : (
             <>
@@ -505,14 +507,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 />
               </div>
             ))}
-            {expanded && meals.length > 2 && (
-              <button
-                onClick={() => setExpanded(false)}
-                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
-              >
-                Show less
-              </button>
-            )}
+
             </>
           )}
         </div>

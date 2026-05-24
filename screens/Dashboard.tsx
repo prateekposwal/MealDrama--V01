@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
+import { useStore } from '../store/useStore';
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
@@ -104,6 +105,122 @@ const categorizeSlots = (
 
     return result;
 };
+
+// ─── Reactive slot wrapper — subscribes to the exact slot path ───
+interface DashboardSlotSectionProps {
+  date: string;
+  mealType: MealType;
+  slot: { key: string; label: string; mealType: MealType };
+  section: string;
+  sectionColors: Record<string, string>;
+  sectionLabels: Record<string, string>;
+  onOpenSearchAction: (slotLabel: string) => void;
+  onCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
+  onUndoCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
+  onSkipSlotAction: ((date: string, mealType: MealType) => void) | undefined;
+  onUndoSkipAction: ((date: string, mealType: MealType) => void) | undefined;
+  swapOpenKey: string | null;
+  stableSwapOpen: (itemId: string) => void;
+  stableSwapClose: () => void;
+  handleSwapSelect: ReturnType<typeof useCallback>;
+  handleUpdateInline: ReturnType<typeof useCallback>;
+  handleRemove: ReturnType<typeof useCallback>;
+  handleSuggestionAdd: ReturnType<typeof useCallback>;
+  swapCustomizeOpenKey: string | null;
+  stableSwapCustomizeOpen: (id: string) => void;
+  stableSwapCustomizeClose: () => void;
+  handleSwapCustomizeApply: ReturnType<typeof useCallback>;
+  handleAddAnother: ReturnType<typeof useCallback>;
+  preferences: Record<string, { start: string; end: string }> | undefined;
+  today: string;
+  dishes: Dish[];
+  user: any;
+  pantryStaples: string[];
+  stableGuestMode: GuestMode;
+  completions: Record<string, number>;
+  skipped: Record<string, number>;
+  undoSlot: { date: string; mealType: MealType; type: 'complete' | 'skip' } | null;
+  handleCompleteSlot: ReturnType<typeof useCallback>;
+  handleUndoComplete: ReturnType<typeof useCallback>;
+  handleSkipSlot: ReturnType<typeof useCallback>;
+  handleUndoSkip: ReturnType<typeof useCallback>;
+}
+
+const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
+  date, mealType, slot, section, sectionColors, sectionLabels,
+  onOpenSearchAction, onCompleteAction, onUndoCompleteAction, onSkipSlotAction, onUndoSkipAction,
+  swapOpenKey, stableSwapOpen, stableSwapClose,
+  handleSwapSelect, handleUpdateInline, handleRemove, handleSuggestionAdd,
+  swapCustomizeOpenKey, stableSwapCustomizeOpen, stableSwapCustomizeClose, handleSwapCustomizeApply,
+  handleAddAnother, preferences, today, dishes, user, pantryStaples, stableGuestMode,
+  completions, skipped, undoSlot, handleCompleteSlot, handleUndoComplete, handleSkipSlot, handleUndoSkip,
+}) => {
+  const slotMeals = useTrayStore(state => state.plan.days[date]?.[mealType] || []) as TrayItem[];
+  const prefs = preferences;
+  const completionKey = `${today}::${mealType}`;
+  const isUserCompleted = completions[completionKey] != null;
+  const isSkipped = skipped[completionKey] != null;
+  const isUndoing = undoSlot?.date === today && undoSlot?.mealType === mealType;
+  const isUndoSkipWindowActive = isSkipped && Date.now() < getSkipUndoWindowExpiry(mealType, preferences);
+  const tomorrowDate = getISODate(new Date(new Date(date).getTime() + 86400000));
+  const tomorrowMeals = (useTrayStore.getState().plan.days[tomorrowDate]?.[mealType] || []) as TrayItem[];
+  const styleWarnings = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
+
+  return (
+    <div key={slot.key} className={`border-l-2 pl-3 ${sectionColors[section]}`}>
+      <LoopAutoFillSlot date={today} mealType={mealType} />
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">
+          {slot.label}
+        </span>
+        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${
+          section === 'active'
+            ? 'bg-[#FF385C]/10 text-[#FF385C]'
+            : section === 'upcoming'
+              ? 'bg-gray-100 text-gray-500'
+              : 'bg-gray-100 text-gray-400'
+        }`}>
+          {sectionLabels[section]}
+        </span>
+      </div>
+      <DashboardSlotRow
+        date={date}
+        mealType={mealType}
+        slotLabel={slot.label}
+                                meals={slotMeals}
+                                mergeExtraItems
+                                mode={section as SlotMode}
+        dishes={dishes}
+        userRegion={user?.region ?? 'India'}
+        userDiet={user?.diet ?? 'veg'}
+        pantryStaples={pantryStaples}
+        guestMode={stableGuestMode}
+        swapOpenKey={swapOpenKey}
+        onSwapOpen={stableSwapOpen}
+        onSwapClose={stableSwapClose}
+        onSwapSelect={handleSwapSelect}
+        onUpdateInline={handleUpdateInline}
+        onRemove={handleRemove}
+        onSuggestionAdd={handleSuggestionAdd}
+        swapCustomizeOpenKey={swapCustomizeOpenKey}
+        onSwapCustomizeOpen={stableSwapCustomizeOpen}
+        onSwapCustomizeClose={stableSwapCustomizeClose}
+        onSwapCustomizeApply={handleSwapCustomizeApply}
+        onAddAnother={handleAddAnother}
+        isUserCompleted={isUserCompleted && !isUndoing}
+        tomorrowDate={tomorrowDate}
+        tomorrowMeals={tomorrowMeals}
+        styleWarnings={styleWarnings}
+        preferences={prefs}
+        onOpenSearchAction={onOpenSearchAction}
+        onCompleteAction={onCompleteAction}
+        onUndoCompleteAction={onUndoCompleteAction}
+        onSkipSlotAction={!isUserCompleted && !isSkipped ? onSkipSlotAction : undefined}
+        onUndoSkipAction={isUndoSkipWindowActive ? onUndoSkipAction : undefined}
+      />
+    </div>
+  );
+});
 
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
 interface DashboardSlotRowProps extends
@@ -207,8 +324,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         quickAddTrigger.current = { slot: slotLabel as 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner' };
         handleOpenSearchStable();
     }, [handleOpenSearchStable]);
+    const setToast = useStore(s => s.setToast);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
-    const [addAnotherToast, setAddAnotherToast] = useState<string | null>(null);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
     const [showTrayScreen, setShowTrayScreen] = useState(false);
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
@@ -361,17 +478,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 variantId: variant?.id || existingItem.variantId,
                 addon: variant?.addOn || existingItem.addon,
             });
-            setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)}`);
+            setToast({ message: `${dish.name} already in ${mealType} — quantity increased`, type: 'info' });
         } else {
             addMealToSlot(date, mealType, meal, {
                 variant: variant?.name,
                 variantId: variant?.id,
                 addon: variant?.addOn,
             });
-            setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)}`);
+            setToast({ message: `${dish.name} added to ${mealType}`, type: 'success' });
         }
-        setTimeout(() => setAddAnotherToast(null), 3000);
-    }, [addMealToSlot, getMeals, updateItemInline, dishToMeal]);
+    }, [getMeals, addMealToSlot, updateItemInline, dishToMeal, setToast]);
 
     const buildPrepMessage = useCallback((lang: ShareLanguage) => {
         const copy = getShareStrings(lang);
@@ -737,17 +853,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         </div>
                     ) : (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).length > 0 ? (
                         (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).map(({ section, slot }) => {
-                        const slotDate = today;
-                        const slotMeals = getMeals(slotDate, slot.mealType);
-                        const prefs = preferences;
-                        const completionKey = `${today}::${slot.mealType}`;
-                        const isUserCompleted = completions[completionKey] != null;
-                        const isSkipped = skipped[completionKey] != null;
-                        const isUndoing = undoSlot?.date === today && undoSlot?.mealType === slot.mealType;
-                        const isUndoSkipWindowActive = isSkipped && Date.now() < getSkipUndoWindowExpiry(slot.mealType, preferences);
-                        const tomorrowDate = getTodayISO(new Date(new Date(slotDate).getTime() + 86400000));
-                        const tomorrowMeals = getMeals(tomorrowDate, slot.mealType);
-                        const styleWarnings = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
                         const sectionColors: Record<string, string> = {
                             active: 'border-l-[#FF385C]',
                             upcoming: 'border-l-gray-300',
@@ -761,58 +866,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             skipped: 'Skipped',
                         };
                         return (
-                            <div key={slot.key} className={`border-l-2 pl-3 ${sectionColors[section]}`}>
-                                <LoopAutoFillSlot date={today} mealType={slot.mealType} />
-                                <div className="flex items-center gap-2 mb-1.5">
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">
-                                        {slot.label}
-                                    </span>
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${
-                                        section === 'active'
-                                            ? 'bg-[#FF385C]/10 text-[#FF385C]'
-                                            : section === 'upcoming'
-                                                ? 'bg-gray-100 text-gray-500'
-                                                : 'bg-gray-100 text-gray-400'
-                                    }`}>
-                                        {sectionLabels[section]}
-                                    </span>
-                                </div>
-                                <DashboardSlotRow
-                                    date={slotDate}
-                                    mealType={slot.mealType}
-                                    slotLabel={slot.label}
-                                    meals={slotMeals}
-                                    mergeExtraItems
-                                    mode={section as SlotMode}
-                                    dishes={dishes}
-                                    userRegion={user?.region ?? 'India'}
-                                    userDiet={user?.diet ?? 'veg'}
-                                    pantryStaples={pantryStaples}
-                                    guestMode={stableGuestMode}
-                                    swapOpenKey={swapOpenKey}
-                                    onSwapOpen={stableSwapOpen}
-                                    onSwapClose={stableSwapClose}
-                                    onSwapSelect={handleSwapSelect}
-                                    onUpdateInline={handleUpdateInline}
-                                    onRemove={handleRemove}
-                                    onSuggestionAdd={handleSuggestionAdd}
-                                    swapCustomizeOpenKey={swapCustomizeOpenKey}
-                                    onSwapCustomizeOpen={stableSwapCustomizeOpen}
-                                    onSwapCustomizeClose={stableSwapCustomizeClose}
-                                    onSwapCustomizeApply={handleSwapCustomizeApply}
-                                    onAddAnother={handleAddAnother}
-                                    isUserCompleted={isUserCompleted && !isUndoing}
-                                    tomorrowDate={tomorrowDate}
-                                    tomorrowMeals={tomorrowMeals}
-                                    styleWarnings={styleWarnings}
-                                    preferences={prefs}
-                                    onOpenSearchAction={openSearchAction}
-                                    onCompleteAction={handleCompleteSlot}
-                                    onUndoCompleteAction={handleUndoComplete}
-                                    onSkipSlotAction={!isUserCompleted && !isSkipped ? handleSkipSlot : undefined}
-                                    onUndoSkipAction={isUndoSkipWindowActive ? handleUndoSkip : undefined}
-                                />
-                            </div>
+                            <DashboardSlotSection
+                                key={slot.key}
+                                date={today}
+                                mealType={slot.mealType}
+                                slot={slot}
+                                section={section}
+                                sectionColors={sectionColors}
+                                sectionLabels={sectionLabels}
+                                onOpenSearchAction={openSearchAction}
+                                onCompleteAction={handleCompleteSlot}
+                                onUndoCompleteAction={handleUndoComplete}
+                                onSkipSlotAction={handleSkipSlot}
+                                onUndoSkipAction={handleUndoSkip}
+                                swapOpenKey={swapOpenKey}
+                                stableSwapOpen={stableSwapOpen}
+                                stableSwapClose={stableSwapClose}
+                                handleSwapSelect={handleSwapSelect}
+                                handleUpdateInline={handleUpdateInline}
+                                handleRemove={handleRemove}
+                                handleSuggestionAdd={handleSuggestionAdd}
+                                swapCustomizeOpenKey={swapCustomizeOpenKey}
+                                stableSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                stableSwapCustomizeClose={stableSwapCustomizeClose}
+                                handleSwapCustomizeApply={handleSwapCustomizeApply}
+                                handleAddAnother={handleAddAnother}
+                                preferences={preferences}
+                                today={today}
+                                dishes={dishes}
+                                user={user}
+                                pantryStaples={pantryStaples}
+                                stableGuestMode={stableGuestMode}
+                                completions={completions}
+                                skipped={skipped}
+                                undoSlot={undoSlot}
+                                handleCompleteSlot={handleCompleteSlot}
+                                handleUndoComplete={handleUndoComplete}
+                                handleSkipSlot={handleSkipSlot}
+                                handleUndoSkip={handleUndoSkip}
+                            />
                         );
                     })) : null}
                 </div>
@@ -880,24 +972,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             className="text-emerald-400 font-bold text-sm active:opacity-60"
                         >
                             Undo
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* Add Another toast */}
-            {addAnotherToast && (
-                <div className="fixed top-4 left-4 right-4 z-[100] mx-auto max-w-lg animate-in slide-in-from-top-2 fade-in duration-200">
-                    <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <span className="text-lg">✓</span>
-                            <span className="font-medium text-sm">{addAnotherToast}</span>
-                        </div>
-                        <button
-                            onClick={() => setAddAnotherToast(null)}
-                            className="ml-2 p-1 hover:bg-white/20 rounded-lg"
-                        >
-                            <X size={16} />
                         </button>
                     </div>
                 </div>

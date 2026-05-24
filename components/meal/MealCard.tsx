@@ -143,11 +143,11 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                     <button
                         onClick={onSwapCustomizeOpen}
                         className="group h-8 rounded-xl border border-dashed border-emerald-400 text-emerald-600 active:scale-90 transition-all flex items-center gap-1 px-2.5"
-                        aria-label={`Build Your Plate ${item.name}`}
-                        title="Build Your Plate"
+                        aria-label={`Build Plate ${item.name}`}
+                        title="Build Plate"
                     >
                         <Sparkles size={13} className="transition-transform duration-200 group-hover:scale-110" />
-                        <span className="text-[10px] font-bold">Build Your Plate</span>
+                        <span className="text-[10px] font-bold">Build Plate</span>
                     </button>
                     {!isLocked && !isMissed && editable && (
                         <button
@@ -165,7 +165,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                 <DishImage name={item.name} slot={slot} size="lg" />
                 <div className="flex-1 min-w-0">
                     <h4 className="font-extrabold text-xl tracking-tight leading-tight flex items-center flex-wrap gap-1.5 text-gray-900">
-                        <span className="truncate">{item.name}</span>
+                        <span className="truncate">{item.title || item.name}</span>
                         {item.quantity > 1 && (
                             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
                                 x{item.quantity}

@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nativeStorage } from '../utils/nativeStorage';
 import { Dish } from '../constants/dishLibrary';
-import api from '../lib/api';
+import api, { setAuthReady } from '../lib/api';
 import { RequestTracker, requestDedupCache } from '../utils/asyncGuard';
+import { removeDishFromLoopState } from './useTrayStore';
 import { onConnectivityChange } from '../utils/connectivity';
 
 // ─── Roommate Types ──────────────────────────────────────────────────────────
@@ -58,14 +59,15 @@ function _getDrainState(): DrainState {
   if (typeof window === 'undefined') {
     return { timer: null, isRetrying: false, tracker: new RequestTracker() };
   }
-  if (!(window as Record<string, unknown>).__mdDrainState) {
-    (window as Record<string, unknown>).__mdDrainState = {
+  const w = window as unknown as Record<string, unknown>;
+  if (!w.__mdDrainState) {
+    w.__mdDrainState = {
       timer: null,
       isRetrying: false,
       tracker: new RequestTracker(),
     };
   }
-  return (window as Record<string, unknown>).__mdDrainState as DrainState;
+  return w.__mdDrainState as DrainState;
 }
 
 function _scheduleDrain() {
@@ -351,16 +353,29 @@ const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[])
   return { name: match?.name || meal.variant, addOn: match?.addOn };
 };
 
+// Device identity — generated ONCE per install, persisted via Zustand
+function generateDeviceId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
 interface StoreState {
   isLoggedIn: boolean;
   user: User | null;
+  token: string | null;
+  deviceId: string;
+  setToken: (token: string) => void;
+  clearToken: () => void;
   trayLibrary: TrayLibrary;
   swaps: Record<string, Record<string, MealOption>>;
   notifications: SwapNotification[];
   trayEditSession: TrayEditSession | null;
   dishes: Dish[];
-  toast: { message: string; type: 'error' | 'success' | 'info' } | null;
-  setToast: (toast: { message: string; type: 'error' | 'success' | 'info' } | null) => void;
+  toast: { message: string; type: 'error' | 'success' | 'info'; action?: { label: string; onClick: () => void } } | null;
+  setToast: (toast: { message: string; type: 'error' | 'success' | 'info'; action?: { label: string; onClick: () => void } } | null) => void;
   setLoggedIn: (value: boolean) => void;
   login: (userId: string, primaryId: string) => void;
   updateProfile: (updates: Partial<User>) => void;
@@ -369,7 +384,6 @@ interface StoreState {
   logout: () => void;
   addToTray: (slot: string, meal: MealOption) => void;
   removeFromTray: (slot: string, mealId: string) => void;
-  replaceTrayLibrary: (newTray: TrayLibrary) => void;
   setSwap: (date: string, slot: string, meal: MealOption, silent?: boolean) => void;
   clearSwap: (date: string, slot: string) => void;
   updateMealQuantity: (date: string, slot: string, delta: number) => void;
@@ -421,6 +435,8 @@ export const useStore = create<StoreState>()(
   persist(
     (set, get) => ({
       isLoggedIn: false,
+      token: null,
+      deviceId: generateDeviceId(),
       user: null,
       trayLibrary: { breakfast: [], lunch: [], dinner: [], snacks: [] },
       swaps: {},
@@ -479,6 +495,10 @@ export const useStore = create<StoreState>()(
 
       setUser: (user: User) => set({ user, isLoggedIn: true }),
 
+      setToken: (token: string) => set({ token }),
+
+      clearToken: () => set({ token: null, isLoggedIn: false }),
+
       addToPantry: (items: string[]) => set((state) => {
         const existingStaples = state.user?.pantryStaples ?? [];
         const existing = new Set(existingStaples);
@@ -509,6 +529,7 @@ export const useStore = create<StoreState>()(
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('store:logout'));
         set({
           isLoggedIn: false,
+          token: null,
           user: null,
           swaps: {},
           notifications: [],
@@ -548,19 +569,13 @@ export const useStore = create<StoreState>()(
           const key = slot.toLowerCase() as keyof TrayLibrary;
           invalidateMealResolutionCache();
           if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
+          removeDishFromLoopState(mealId);
           return {
             trayLibrary: {
               ...state.trayLibrary,
               [key]: (state.trayLibrary[key] || []).filter(m => m.id !== mealId),
             },
           };
-        }),
-
-      replaceTrayLibrary: (newTray: TrayLibrary) =>
-        set((state) => {
-          invalidateMealResolutionCache();
-          if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
-          return { trayLibrary: newTray };
         }),
 
       setSwap: (date: string, slot: string, meal: MealOption, silent = false) =>
@@ -924,12 +939,16 @@ export const useStore = create<StoreState>()(
     }),
     {
       name: 'mealdrama-store',
-      version: 9,
+      // ⛔ FREEZE: Do NOT bump this version unless you are adding/removing persisted fields.
+      // Bumping triggers migrate() which can drop auth state and force users through onboarding again.
+      version: 10,
       storage: nativeStorage,
       // FIX: Explicit partialize to ensure ALL critical fields are saved
       partialize: (state) => ({
         isLoggedIn: state.isLoggedIn,
         user: state.user,
+        token: state.token,
+        deviceId: state.deviceId,
         trayLibrary: state.trayLibrary,
         // dishes NOT persisted — always loaded fresh from DISH_LIBRARY module
         swaps: state.swaps,
@@ -938,16 +957,8 @@ export const useStore = create<StoreState>()(
         customDishes: state.customDishes,
         roommateLink: state.roommateLink,
         roommateSuggestions: state.roommateSuggestions,
-        lastFeaturedTimes: state.lastFeaturedTimes,
         // Don't persist: toast, notifications, pendingMutations, deadLetterMutations, trayEditSession
       }),
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          console.error('[Store] Hydration failed:', error);
-        } else if (state) {
-          console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'trayBuilt=', state.trayBuilt, 'user.region=', state.user?.region);
-        }
-      },
       migrate: (persistedState: unknown, fromVersion: number) => {
         console.log('[Store] Migrating from version', fromVersion);
         const state = persistedState as Record<string, unknown>;
@@ -956,6 +967,20 @@ export const useStore = create<StoreState>()(
           console.warn('[Store] Invalid persisted state, resetting');
           return persistedState;
         }
+
+        // APK downgrade guard: if persisted state is newer than code, skip migration
+        if (fromVersion > 10) {
+          console.warn('[Store] Persisted state (v' + fromVersion + ') is newer than code — ignoring migration to prevent crash');
+          return persistedState;
+        }
+
+        // Preserve critical auth/session fields through ANY migration
+        const savedAuth = {
+          isLoggedIn: state.isLoggedIn,
+          user: state.user,
+          deviceId: state.deviceId,
+          token: state.token,
+        };
 
         if (fromVersion < 1) {
           const swaps = state.swaps as Record<string, Record<string, unknown>> | undefined;
@@ -1011,6 +1036,31 @@ export const useStore = create<StoreState>()(
           state.dishes = Array.isArray(DISH_LIBRARY) ? DISH_LIBRARY : [];
           console.log('[Store] v9 migration: loaded dishes from DISH_LIBRARY, count=', state.dishes.length);
         }
+        if (fromVersion < 10) {
+          // v9 → v10: migrate JWT token from localStorage to Zustand store
+          try {
+            const stored = localStorage.getItem('mealdrama-token');
+            if (stored) {
+              state.token = stored;
+              console.log('[Store] v10 migration: migrated token from localStorage');
+            }
+          } catch {
+            // localStorage unavailable, ignore
+          }
+        }
+
+        // Restore critical auth/session fields that must survive any migration
+        // Prevents accidental logout/onboarding-reset from version bumps
+        if (savedAuth.isLoggedIn !== undefined) state.isLoggedIn = savedAuth.isLoggedIn;
+        if (savedAuth.user !== undefined) {
+          state.user = savedAuth.user;
+        } else if (state.user) {
+          // Ensure onboardingComplete is explicitly preserved
+          const u = state.user as Record<string, unknown> | null;
+          if (u && u.onboardingComplete === undefined) u.onboardingComplete = true;
+        }
+        if (savedAuth.deviceId !== undefined) state.deviceId = savedAuth.deviceId;
+        if (savedAuth.token !== undefined) state.token = savedAuth.token;
 
         console.log('[Store] Migration complete, isLoggedIn:', state.isLoggedIn, 'trayLibrary items:', Object.values((state.trayLibrary as any) || {}).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0));
         return persistedState as Parameters<typeof persist>[0] extends (s: infer S) => unknown ? S : never;
@@ -1022,6 +1072,7 @@ export const useStore = create<StoreState>()(
           const trayLib = state.trayLibrary || {};
           const trayTotal = Object.values(trayLib).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0);
           console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'user.id=', state.user?.id, 'trayLibrary=', trayTotal, 'dishes=', state.dishes?.length);
+          setAuthReady(true);
         }
       },
     }

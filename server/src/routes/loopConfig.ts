@@ -29,7 +29,6 @@ router.post('/', async (req: Request, res: Response) => {
       startDate: config.startDate,
       skipDays: config.skipDays,
       repeatPattern: config.repeatPattern,
-      insertStrategy: config.insertStrategy,
       sourceDishIds: sourceDishIds || [],
     };
 

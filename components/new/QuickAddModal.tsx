@@ -10,6 +10,7 @@ import { rankDishes, getRegionKey, getDishVariants, DIET_FILTER } from '../../ut
 import { useDebounce } from '../../hooks/useDebounce';
 import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
 import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
+import { VirtualList } from './VirtualList';
 
 const CUSTOM_STYLES = ['Gravy', 'Dry', 'Fried', 'Roasted', 'Raw', 'Steamed', 'Grilled', 'Curry', 'Soup', 'Bread'];
 const CUSTOM_TAGS = ['healthy', 'high-protein', 'fiber', 'low-calorie', 'indulgent', 'probiotic', 'antioxidant', 'vitamins', 'iron', 'calcium'];
@@ -237,6 +238,13 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                     }
                 }
             }
+            const ml = useTrayStore.getState().mealLoop;
+            useTrayStore.setState({
+                mealLoop: {
+                    ...ml,
+                    rotationQueue: ml.rotationQueue.filter(item => item.dishId !== dish.id),
+                }
+            });
             window.dispatchEvent(new Event('pantry:invalidate'));
         }
     };
@@ -316,11 +324,11 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto px-6 py-4">
+                <div className="flex-1 flex flex-col min-h-0 px-6 py-4">
                     {!selectedDish ? (
                         <>
                             {/* Health filters */}
-                            <div className="mb-4">
+                            <div className="mb-4 flex-shrink-0">
                                 <HealthFilterBar
                                     activePreset={healthPreset}
                                     activeSort={healthSort}
@@ -330,7 +338,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                             </div>
 
                             {/* Region toggle */}
-                            <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center justify-between mb-4 flex-shrink-0">
                                 <button
                                     onClick={() => setShowGlobal(!showGlobal)}
                                     className="text-xs font-bold text-[#FF385C]"
@@ -342,70 +350,75 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                 </span>
                             </div>
 
-                            {/* Dish List */}
-                            <div className="space-y-2">
-                                {rankedDishes.slice(0, 20).map(({ dish, healthScore }) => {
-                                    const isRegional = dish.region.toLowerCase().includes(regionKey);
-                                    const isCustom = dish.tags?.includes('user_created');
-                                    return (
-                                        <div
-                                            key={dish.id}
-                                            className="w-full flex items-center gap-0 p-0 rounded-xl border transition-all bg-gray-50 border-gray-100"
-                                        >
-                                            <button
-                                                onClick={() => handleSelectDish(dish)}
-                                                className="flex-1 flex items-center gap-3 p-3 text-left"
+                            {/* Dish List — virtualized */}
+                            <div className="flex-1 min-h-0">
+                                <VirtualList
+                                    items={rankedDishes.slice(0, 20)}
+                                    estimateSize={80}
+                                    overscan={3}
+                                    outerClassName="h-full"
+                                    renderItem={({ dish, healthScore }) => {
+                                        const isRegional = dish.region.toLowerCase().includes(regionKey);
+                                        const isCustom = dish.tags?.includes('user_created');
+                                        return (
+                                            <div
+                                                className="w-full flex items-center gap-0 p-0 rounded-xl border transition-all bg-gray-50 border-gray-100"
                                             >
-                                                <DishImage name={dish.name} slot={slot} size="sm" customImageUrl={isCustom && dish.icon?.startsWith('data:') ? dish.icon : undefined} />
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-bold block leading-tight truncate text-gray-800">
-                                                            {dish.name}
-                                                        </span>
-                                                        <HealthScoreBadge score={healthScore ?? 0} size="sm" />
-                                                        {isCustom && (
-                                                            <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">
-                                                                Custom
+                                                <button
+                                                    onClick={() => handleSelectDish(dish)}
+                                                    className="flex-1 flex items-center gap-3 p-3 text-left"
+                                                >
+                                                    <DishImage name={dish.name} slot={slot} size="sm" customImageUrl={isCustom && dish.icon?.startsWith('data:') ? dish.icon : undefined} />
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-sm font-bold block leading-tight truncate text-gray-800">
+                                                                {dish.name}
                                                             </span>
-                                                        )}
+                                                            <HealthScoreBadge score={healthScore ?? 0} size="sm" />
+                                                            {isCustom && (
+                                                                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">
+                                                                    Custom
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-2 mt-0.5">
+                                                            <span className="text-[9px] font-medium capitalize text-gray-400">
+                                                                {dish.region}
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2 mt-0.5">
-                                                        <span className="text-[9px] font-medium capitalize text-gray-400">
-                                                            {dish.region}
+                                                    {isRegional && (
+                                                        <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">
+                                                            Local
                                                         </span>
-                                                    </div>
+                                                    )}
+                                                </button>
+                                                <div className="flex items-center gap-1 pr-2 shrink-0">
+                                                    {isCustom ? (
+                                                        <>
+                                                            <button
+                                                                onClick={() => handleEditCustom(dish)}
+                                                                className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 active:scale-90"
+                                                                title="Edit custom dish"
+                                                            >
+                                                                <Edit3 size={12} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteCustom(dish)}
+                                                                className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 active:scale-90"
+                                                                title="Delete custom dish"
+                                                            >
+                                                                <Trash2 size={12} />
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <Plus size={14} className="text-gray-400" />
+                                                    )}
                                                 </div>
-                                                {isRegional && (
-                                                    <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                                        Local
-                                                    </span>
-                                                )}
-                                            </button>
-                                            <div className="flex items-center gap-1 pr-2 shrink-0">
-                                                {isCustom ? (
-                                                    <>
-                                                        <button
-                                                            onClick={() => handleEditCustom(dish)}
-                                                            className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 active:scale-90"
-                                                            title="Edit custom dish"
-                                                        >
-                                                            <Edit3 size={12} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDeleteCustom(dish)}
-                                                            className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 active:scale-90"
-                                                            title="Delete custom dish"
-                                                        >
-                                                            <Trash2 size={12} />
-                                                        </button>
-                                                    </>
-                                                ) : (
-                                                    <Plus size={14} className="text-gray-400" />
-                                                )}
                                             </div>
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    }}
+                                />
                             </div>
 
                             {rankedDishes.length === 0 && !showCustomForm && (

@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useDebounce } from '../../hooks/useDebounce';
 import { useAsyncGuard, ModalLifecycleGuard, DeferredSync } from '../../utils/asyncGuard';
 import type { MealType, TrayItem } from '../../store/useTrayStore';
-import { applySmartDefaults } from '../../store/useTrayStore';
+import { applySmartDefaults, useTrayStore } from '../../store/useTrayStore';
 import type { Meal } from '../../types/tray';
 import type { Dish, DishVariant, Region, Category } from '../../constants/dishLibrary';
 import { dishToMeal } from '../../utils/dishToMeal';
@@ -142,6 +142,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   initialAddMode,
   onChange,
 }) => {
+  const slotMeals = useTrayStore(state => state.plan.days[date]?.[mealType] || []);
   const [dish, setDish] = useState<Dish | null>(null);
   const [meal, setMeal] = useState<Meal | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Record<IndianMealCategory, string[]>>({
@@ -598,7 +599,9 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     const allowedTypes = DIET_FILTER[userDiet?.toLowerCase() || 'veg'] || ['veg'];
 
     const dishPool = [...dishes, ...customDishes];
+    const slotDishIds = new Set(slotMeals.map(m => m.meal_id));
     let filtered = dishPool.filter(d => {
+      if (slotDishIds.has(d.id)) return false;
       if (!d.category.some(c => c.includes(category))) {
         if (!q) return false;
       }
@@ -635,7 +638,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     const regional = scored.filter(s => s.dish.region.toLowerCase().includes(regionKey));
     const global_ = scored.filter(s => !s.dish.region.toLowerCase().includes(regionKey));
     return showGlobal ? [...global_, ...regional] : [...regional, ...global_];
-  }, [showSwapSearch, dishes, customDishes, mealType, userDiet, userRegion, debouncedSearchQuery, showGlobal, healthPreset, healthSort]);
+  }, [showSwapSearch, dishes, customDishes, mealType, userDiet, userRegion, debouncedSearchQuery, showGlobal, healthPreset, healthSort, slotMeals]);
 
   const dishVariants = useMemo(() => {
     if (!selectedSwapDish) return [];
@@ -649,12 +652,12 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   }, [selectedSwapDish, mealType, userDiet]);
 
   const mergedOptions = useMemo((): Record<IndianMealCategory, string[]> => ({
-    bread: mergeCategoryOptions(undefined, indian_meal_categories.bread),
-    rice: mergeCategoryOptions(undefined, indian_meal_categories.rice),
-    side: mergeCategoryOptions(meal?.sideOptions, indian_meal_categories.side),
-    beverage: mergeCategoryOptions(meal?.beverageOptions, indian_meal_categories.beverage),
-    dessert: mergeCategoryOptions(undefined, indian_meal_categories.dessert),
-  }), [meal]);
+    bread: mergeCategoryOptions(item.roti ? [item.roti] : undefined, indian_meal_categories.bread),
+    rice: mergeCategoryOptions(item.rice ? [item.rice] : undefined, indian_meal_categories.rice),
+    side: mergeCategoryOptions([...(item.sides ?? []), ...(meal?.sideOptions ?? [])], indian_meal_categories.side),
+    beverage: mergeCategoryOptions([...(item.beverages ?? []), ...(meal?.beverageOptions ?? [])], indian_meal_categories.beverage),
+    dessert: mergeCategoryOptions(item.dessert?.length ? item.dessert : undefined, indian_meal_categories.dessert),
+  }), [item.roti, item.rice, item.sides, item.beverages, item.dessert, meal?.sideOptions, meal?.beverageOptions]);
 
   const recommendedCats = useMemo((): IndianMealCategory[] => {
     if (!dish || isStreetFood(dish.id)) return [];
@@ -672,7 +675,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-black/40" onClick={handleClose} aria-hidden="true" />
       {/* Added confirmation toast */}
       {justAddedDish && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] animate-in slide-in-from-top-2 fade-in duration-200">
@@ -914,7 +917,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                       className="space-y-1.5"
                       renderItem={({ dish, healthScore }) => {
                         const isRegional = dish.region.toLowerCase().includes(regionKey);
-                        const hScore = healthScore ?? scoreDish(dish);
+                        const hScore = healthScore;
                         const meal = dishToMeal(dish);
                         const defaults = applySmartDefaults(meal, mealType);
                         const previewChips: { key: string; label: string }[] = [];

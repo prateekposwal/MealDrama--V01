@@ -1,13 +1,14 @@
-import React, { useState, useEffect, Suspense, useMemo, useRef } from 'react';
+import React, { useState, useEffect, Suspense, useMemo, useRef, useCallback } from 'react';
 import { useStore } from './store/useStore';
 import { useTrayStore } from './store/useTrayStore';
-import api, { getToken, setAuthReady } from './lib/api';
+import api, { setAuthReady } from './lib/api';
 import LoginScreen from './components/new/LoginScreen';
 import MealTrayBuilder from './screens/MealTrayBuilder';
 import MealLoopConfigModal from './components/meal/MealLoopConfigModal';
-import { Home, Calendar, ShoppingBasket, User as UserIcon, X } from 'lucide-react';
+import { Home, Calendar, ShoppingBasket, User as UserIcon, ChevronLeft, X } from 'lucide-react';
 import { useBackendDishes } from './hooks/useBackendDishes';
 import QuickStartOnboarding from './components/new/QuickStartOnboarding';
+import FlashOnboarding from './components/new/FlashOnboarding';
 import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
 import { ErrorBoundary } from './components/new/ErrorBoundary';
@@ -17,7 +18,7 @@ import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkel
 import type { Dish } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
 import type { MealLoopConfig } from './types/tray';
-import { getISODate } from './utils/dateUTC';
+import { getISODate, addDaysISO } from './utils/dateUTC';
 
 const DashScreen = React.lazy(() => import('./screens/Dashboard'));
 const PlanScreen = React.lazy(() => import('./screens/PlanScreen'));
@@ -39,7 +40,7 @@ const TABS = [
 
 type Tab = typeof TABS[number]['key'];
 
-const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; onClose: () => void }> = ({ message, type, onClose }) => {
+const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; action?: { label: string; onClick: () => void }; onClose: () => void }> = ({ message, type, action, onClose }) => {
   const colors = {
     error: 'bg-red-500',
     success: 'bg-green-500',
@@ -53,9 +54,17 @@ const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; onC
     return () => clearTimeout(timer);
   }, []);
   return (
-    <div className={`fixed top-4 left-4 right-4 max-w-lg mx-auto ${colors[type]} text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between z-[100] animate-in slide-in-from-top-2`}>
-      <span className="font-medium text-sm">{message}</span>
-      <button onClick={onClose} className="ml-2 p-1 hover:bg-white/20 rounded-lg">
+    <div className={`fixed top-4 left-4 right-4 max-w-lg mx-auto ${colors[type]} text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-2 z-[100] animate-in slide-in-from-top-2`}>
+      <span className="font-medium text-sm flex-1">{message}</span>
+      {action && (
+        <button
+          onClick={() => { action.onClick(); onClose(); }}
+          className="px-3 py-1 rounded-lg bg-white/20 text-white text-xs font-bold active:scale-95 transition-all whitespace-nowrap hover:bg-white/30"
+        >
+          {action.label}
+        </button>
+      )}
+      <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg flex-shrink-0">
         <X size={16} />
       </button>
     </div>
@@ -72,7 +81,9 @@ const App: React.FC = () => {
   const { dishes: fetchedDishes } = useBackendDishes();
 
   // ─── ALL hooks must be before any conditional return (Rules of Hooks) ───
-  const [hydrated, setHydrated] = useState(false);
+  const [hydrated, setHydrated] = useState(
+    () => useStore.persist.hasHydrated() && useTrayStore.persist.hasHydrated()
+  );
   const _trayLibrary = useStore(s => s.trayLibrary);
   const planDays = useTrayStore(s => s.plan.days);
   const today = getISODate();
@@ -99,7 +110,28 @@ const App: React.FC = () => {
   const [manageTraySlot, setManageTraySlot] = useState<string | undefined>(undefined);
   const [showLoopConfig, setShowLoopConfig] = useState(false);
   const [loopSkipped, setLoopSkipped] = useState(false);
+  const [cycleEndNudge, setCycleEndNudge] = useState<{ lastDate: string; daysLeft: number } | null>(null);
   const mainRef = useRef<HTMLElement>(null);
+
+  // ─── Back navigation ───
+  const [navStack, setNavStack] = useState<string[]>([]);
+  const navStackRef = useRef(navStack);
+  navStackRef.current = navStack;
+  const pushNav = useCallback((tab: string) => {
+    setNavStack(prev => [...prev, tab]);
+  }, []);
+  const goBack = useCallback(() => {
+    setNavStack(prev => {
+      if (prev.length === 0) return prev;
+      const restoredTab = prev[prev.length - 1];
+      // Restore sub-view state
+      setManageTray(false);
+      setManageTraySlot(undefined);
+      setShowLoopConfig(false);
+      setActiveTab(restoredTab ?? 'dashboard');
+      return prev.slice(0, -1);
+    });
+  }, []);
 
   // Listen for navigation events from screens without direct onNavigate prop
   useEffect(() => {
@@ -113,25 +145,89 @@ const App: React.FC = () => {
     mainRef.current?.focus({ preventScroll: true });
   }, [activeTab]);
 
-  // Hydration detection — Zustand v5
+  // Hydration detection — await both stores before rendering
   useEffect(() => {
-    const unsub = useStore.persist.onFinishHydration(() => setHydrated(true));
-    if (useStore.persist.hasHydrated()) setHydrated(true);
-    const timeout = setTimeout(() => setHydrated(true), 500);
-    return () => { unsub(); clearTimeout(timeout); };
+    if (useStore.persist.hasHydrated() && useTrayStore.persist.hasHydrated()) {
+      setHydrated(true);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      useStore.persist.rehydrate(),
+      useTrayStore.persist.rehydrate(),
+    ]).then(() => {
+      if (!cancelled) {
+        setHydrated(true);
+      }
+    });
+    return () => { cancelled = true; };
   }, []);
 
-  // Clean up old localStorage data after storage migration to Capacitor Preferences
+  // Hardware back button (Capacitor Android)
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('mealdrama-store');
-      if (raw) {
-        console.log('[App] Clearing stale localStorage session data (storage migrated to Capacitor Preferences)');
-        localStorage.removeItem('mealdrama-store');
+    let cleanup: (() => void) | undefined;
+    (async () => {
+      try {
+        const { App } = await import('@capacitor/app');
+        const handler = await App.addListener('backButton', () => {
+          if (navStackRef.current.length > 0) {
+            goBack();
+          }
+        });
+        cleanup = handler.remove;
+      } catch {
+        // Not running in Capacitor (web preview), ignore
       }
-    } catch (e) {
-      console.error('[App] Failed to clear old localStorage:', e);
-    }
+    })();
+    return () => cleanup?.();
+  }, [goBack]);
+
+  // ─── Cycle-end nudge: toast when loop has ≤3 days of assignments left ───
+  useEffect(() => {
+    const check = () => {
+      const ml = useTrayStore.getState().mealLoop;
+      if (!ml.config || ml.assignments.length === 0) {
+        setCycleEndNudge(null);
+        return;
+      }
+      const lastDismiss = localStorage.getItem('cycle_end_nudge_dismiss_at');
+      if (lastDismiss && Date.now() - parseInt(lastDismiss) < 7 * 24 * 60 * 60 * 1000) return;
+      if (showLoopConfig) return;
+
+      let lastDate = '';
+      for (const a of ml.assignments) {
+        if (a.date > lastDate) lastDate = a.date;
+      }
+      if (!lastDate) return;
+
+      const diff = Math.ceil((new Date(lastDate).getTime() - new Date(getISODate()).getTime()) / (1000 * 60 * 60 * 24));
+      if (diff >= 0 && diff <= 3) {
+        setCycleEndNudge({ lastDate, daysLeft: diff });
+      } else {
+        setCycleEndNudge(null);
+      }
+    };
+    check();
+    const unsub = useTrayStore.subscribe(
+      (s) => s.mealLoop,
+      () => { check(); },
+    );
+    return unsub;
+  }, [showLoopConfig]);
+
+  const handleDismissNudge = useCallback(() => {
+    localStorage.setItem('cycle_end_nudge_dismiss_at', String(Date.now()));
+    setCycleEndNudge(null);
+  }, []);
+
+  const handleExtendNudge = useCallback(() => {
+    setCycleEndNudge(null);
+    setShowLoopConfig(true);
+  }, []);
+
+  const formatDate = useCallback((iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
   }, []);
 
   // ═══ All hooks above — early returns below ═══
@@ -154,7 +250,7 @@ const App: React.FC = () => {
   // Inline onboarding flow from Profile (Edit Mode)
   if (quickSetupOpen) {
     return (
-      <QuickStartOnboarding
+      <FlashOnboarding
         isEditMode={true}
         prefill={quickSetupPrefill as unknown as { region?: string; diet?: string; spiceLevel?: number; plannedSlots?: ("Breakfast" | "Lunch" | "Snacks" | "Dinner")[]; cookContact?: string; } | undefined}
         onComplete={(payload) => {
@@ -193,7 +289,7 @@ const App: React.FC = () => {
   const onboardingComplete = user?.onboardingComplete ?? false;
   if (!hasRegion || onboardingComplete !== true) {
     return (
-      <QuickStartOnboarding
+      <FlashOnboarding
         onComplete={async (preferences) => {
           try {
             console.log('[App] Onboarding complete, calling updateProfile');
@@ -277,6 +373,7 @@ const App: React.FC = () => {
         <MealTrayBuilder
           user={user}
           defaultSlot={manageTraySlot}
+          onBack={navStack.length > 0 ? goBack : undefined}
           onComplete={async () => {
             console.log('[App] MealTrayBuilder onComplete called');
             setTrayBuilt(true);
@@ -298,13 +395,38 @@ const App: React.FC = () => {
   return (
     <SwapCustomizeProvider>
     <div className="min-h-screen bg-white font-sans text-gray-900 max-w-lg mx-auto">
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {toast && <Toast message={toast.message} type={toast.type} action={toast.action} onClose={() => setToast(null)} />}
+      {cycleEndNudge && (
+        <div className="fixed top-20 left-4 right-4 max-w-lg mx-auto z-[100] animate-in slide-in-from-top-2 fade-in duration-200">
+          <div className="bg-white border border-orange-200 text-gray-900 px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold">Your meal plan ends {formatDate(cycleEndNudge.lastDate)}</p>
+              <p className="text-[11px] text-gray-500 mt-0.5">Extend the cycle to keep plan running.</p>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={handleExtendNudge}
+                className="px-3 py-1.5 rounded-xl bg-[#FF385C] text-white text-xs font-bold active:scale-95 transition-all whitespace-nowrap"
+              >
+                Extend
+              </button>
+              <button
+                onClick={handleDismissNudge}
+                className="p-1.5 rounded-xl hover:bg-gray-100 transition-colors"
+                aria-label="Dismiss"
+              >
+                <X size={14} className="text-gray-400" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <OfflineBanner />
       <main ref={mainRef} className="min-h-screen pb-24" tabIndex={-1} style={{ outline: 'none' }}>
         {activeTab === 'dashboard' && (
           <ErrorBoundary key="dashboard">
             <Suspense fallback={<DashboardSkeleton />}>
-              <DashScreen user={user} onNavigate={setActiveTab} onManageTray={() => setManageTray(true)} />
+              <DashScreen user={user} onNavigate={setActiveTab} onManageTray={() => { pushNav(activeTab); setManageTray(true); }} />
             </Suspense>
           </ErrorBoundary>
         )}
@@ -327,6 +449,7 @@ const App: React.FC = () => {
             <Suspense fallback={<ProfileSkeleton />}>
               <Profile onLogout={logout} onManageTray={(slot) => {
                 if (slot) setManageTraySlot(slot);
+                pushNav(activeTab);
                 setManageTray(true);
               }} />
             </Suspense>

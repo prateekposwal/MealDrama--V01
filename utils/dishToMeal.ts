@@ -59,7 +59,7 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
         }
       }
     }
-    const isSnack = dish.category.some(c => c === 'snacks');
+    const isSnack = dish.category.some(c => c === 'snacks') && !dish.category.includes('breakfast');
     if (isSnack && allSideItems.length === 0) {
       allSideItems.push('Chutney', 'Onion');
     }

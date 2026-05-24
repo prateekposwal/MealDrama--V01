@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronRight, Phone, Loader2 } from 'lucide-react';
 import { generatePrimaryId } from '../../types/identity';
+import { useStore } from '../../store/useStore';
 interface LoginScreenProps {
     onLogin: (userId: string, primaryId: string) => void;
 }
@@ -12,12 +13,10 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     const [loading, setLoading] = useState(false);
 
     const handleCreateUser = async () => {
-        const userId = crypto.randomUUID();
+        const deviceId = useStore.getState().deviceId;
         const primaryId = generatePrimaryId();
-        localStorage.setItem('mealdrama-user-id', userId);
-        localStorage.setItem('mealdrama-primary-id', primaryId);
         console.log('[LoginScreen] handleCreateUser called, calling onLogin');
-        onLogin(userId, primaryId);
+        onLogin(deviceId, primaryId);
     };
 
     const handleSendOTP = () => {

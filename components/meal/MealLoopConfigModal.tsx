@@ -1,13 +1,11 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { X, Check, RefreshCw, Calendar } from 'lucide-react';
-import type { MealType, MealLoopConfig, RepeatPattern, InsertStrategy } from '../../types/tray';
+import type { MealType, MealLoopConfig } from '../../types/tray';
 import { validateSourcePool, buildLoopAssignments, buildLoopSummary, type SourcePool } from '../../utils/mealLoopEngine';
 import { useTrayStore } from '../../store/useTrayStore';
 import { getISODate } from '../../utils/dateUTC';
 import { CycleLengthSelector } from './CycleLengthSelector';
 import { SkipDaysPicker } from './SkipDaysPicker';
-import { RepeatPatternSelector } from './RepeatPatternSelector';
-import { InsertStrategySelector } from './InsertStrategySelector';
 
 const SLOT_LABELS: Record<MealType, string> = {
   breakfast: 'Breakfast',
@@ -17,13 +15,6 @@ const SLOT_LABELS: Record<MealType, string> = {
 };
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-const STRATEGY_LABELS: Record<string, string> = {
-  append: 'Append',
-  'smart-shuffle': 'Smart Shuffle',
-  immediate: 'Immediate',
-  'next-cycle': 'Next Cycle',
-};
 
 interface MealLoopConfigModalProps {
   isOpen: boolean;
@@ -46,8 +37,6 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
   const [cycleLength, setCycleLength] = useState(savedConfig?.cycleLength ?? 7);
   const [startDate, setStartDate] = useState(savedConfig?.startDate ?? getISODate(new Date()));
   const [skipDays, setSkipDays] = useState<number[]>(savedConfig?.skipDays ?? [0, 6]);
-  const [repeatPattern, setRepeatPattern] = useState<RepeatPattern>(savedConfig?.repeatPattern ?? 'random');
-  const [insertStrategy, setInsertStrategy] = useState<InsertStrategy>(savedConfig?.insertStrategy ?? 'append');
 
   const pool = sourcePool;
 
@@ -59,8 +48,6 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
     cycleLength: savedConfig?.cycleLength ?? 7,
     startDate: savedConfig?.startDate ?? getISODate(new Date()),
     skipDays: savedConfig?.skipDays ?? [0, 6],
-    repeatPattern: savedConfig?.repeatPattern ?? 'random',
-    insertStrategy: savedConfig?.insertStrategy ?? 'append',
   });
 
   const hasChanges = useMemo(() => {
@@ -68,11 +55,9 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
     return (
       cycleLength !== initialConfig.current.cycleLength ||
       startDate !== initialConfig.current.startDate ||
-      JSON.stringify([...skipDays].sort()) !== JSON.stringify([...initialConfig.current.skipDays].sort()) ||
-      repeatPattern !== initialConfig.current.repeatPattern ||
-      insertStrategy !== initialConfig.current.insertStrategy
+      JSON.stringify([...skipDays].sort()) !== JSON.stringify([...initialConfig.current.skipDays].sort())
     );
-  }, [cycleLength, startDate, skipDays, repeatPattern, insertStrategy, isFirstTimeSetup]);
+  }, [cycleLength, startDate, skipDays, isFirstTimeSetup]);
 
   const canSave = validation.valid && (isFirstTimeSetup || hasChanges);
 
@@ -81,26 +66,13 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
       prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day],
     );
   };
-  const currentDishIds = useMemo(
-    () => Object.values(pool).flat().map(d => d.id),
-    [pool],
-  );
-  const trayPoolChanged = useMemo(() => {
-    if (isFirstTimeSetup) return false;
-    const oldSet = new Set(savedDishIds);
-    return currentDishIds.some(id => !oldSet.has(id));
-  }, [currentDishIds, savedDishIds, isFirstTimeSetup]);
-  const showIntegrationOptions = !isFirstTimeSetup && trayPoolChanged;
-  // ────────────────────────────────────────────────────────────────────────
 
   const previewConfig = useMemo((): MealLoopConfig => ({
     cycleLength,
     startDate,
     skipDays,
-    repeatPattern,
-    // When integration options are hidden, silently default to 'append'
-    insertStrategy: showIntegrationOptions ? insertStrategy : 'append',
-  }), [cycleLength, startDate, skipDays, repeatPattern, insertStrategy, showIntegrationOptions]);
+    repeatPattern: 'random',
+  }), [cycleLength, startDate, skipDays]);
 
   const { assignments: previewAssignments } = useMemo(
     () => buildLoopAssignments(pool, previewConfig),
@@ -297,14 +269,6 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           {/* Skip Days */}
           <SkipDaysPicker skipDays={skipDays} onToggle={toggleSkipDay} />
 
-          {/* Repeat Pattern */}
-          <RepeatPatternSelector value={repeatPattern} onChange={setRepeatPattern} />
-
-          {/* Insert Strategy — only shown when a loop exists AND new dishes were added */}
-          {showIntegrationOptions && (
-            <InsertStrategySelector value={insertStrategy} onChange={setInsertStrategy} />
-          )}
-
           {/* Your Preferences */}
           {validation.valid && (
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 space-y-2">
@@ -317,19 +281,9 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
                   <span className="font-bold text-gray-800 ml-1">{cycleLength} {skipDays.length ? 'Active' : 'Calendar'} Day{cycleLength !== 1 ? 's' : ''}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Pattern:</span>
-                  <span className="font-bold text-gray-800 capitalize ml-1">{repeatPattern}</span>
-                </div>
-                <div>
                   <span className="text-gray-500">Skip:</span>
                   <span className="font-bold text-gray-800 ml-1">{skipDays.length ? skipDays.map(d => DAY_NAMES[d]).join(', ') : 'None'}</span>
                 </div>
-                {showIntegrationOptions && (
-                  <div>
-                    <span className="text-gray-500">New Dishes:</span>
-                    <span className="font-bold text-gray-800 ml-1">{STRATEGY_LABELS[insertStrategy] ?? insertStrategy}</span>
-                  </div>
-                )}
               </div>
             </div>
           )}

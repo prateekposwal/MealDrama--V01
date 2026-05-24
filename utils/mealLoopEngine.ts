@@ -1,4 +1,4 @@
-import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, InsertStrategy, RotationSlotPointer } from '../types/tray';
+import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, RotationSlotPointer } from '../types/tray';
 import type { Dish } from '../constants/dishLibrary';
 import { getDishStyle } from '../constants/dishStyles';
 import { getISODate } from './dateUTC';
@@ -196,43 +196,14 @@ export function detectNewItems(
 }
 
 /**
- * Merge new items into the rotation queue based on the selected strategy.
+ * Merge new items into the rotation queue (always appends at end).
  */
 export function mergeIntoQueue(
   queue: RotationQueueItem[],
   newItems: RotationQueueItem[],
-  strategy: InsertStrategy,
-  dishes?: Dish[],
 ): RotationQueueItem[] {
   if (newItems.length === 0) return queue;
-
-  switch (strategy) {
-    case 'append':
-      return [...queue, ...newItems];
-
-    case 'immediate': {
-      const nextIdx = queue.length > 0 ? queue.length : 0;
-      const result = [...queue];
-      result.splice(nextIdx, 0, ...newItems);
-      return result;
-    }
-
-    case 'smart-shuffle': {
-      const result = [...queue];
-      const windowStart = Math.min(7, result.length);
-      for (let i = 0; i < newItems.length; i++) {
-        const insertAt = Math.min(windowStart + i, result.length);
-        result.splice(insertAt, 0, newItems[i]!);
-      }
-      return result;
-    }
-
-    case 'next-cycle':
-      return [...queue, ...newItems.map(n => ({ ...n, style: n.style ?? undefined }))];
-
-    default:
-      return [...queue, ...newItems];
-  }
+  return [...queue, ...newItems.map(n => ({ ...n, style: n.style ?? undefined }))];
 }
 
 export interface ImbalanceResult {
@@ -306,20 +277,17 @@ export function handleMidCycleAdd(
   currentIndex: number,
   currentAssignments: MealLoopAssignment[],
   dishes?: Dish[],
-): { queue: RotationQueueItem[]; pendingMerge: RotationQueueItem[]; assignments: MealLoopAssignment[]; pool_version: number } {
+): { queue: RotationQueueItem[]; assignments: MealLoopAssignment[]; pool_version: number } {
   const newItems = detectNewItems(oldPoolIds, newPoolIds, pool, dishes);
   if (newItems.length === 0) {
-    return { queue: currentQueue, pendingMerge: [], assignments: currentAssignments, pool_version: 1 };
+    return { queue: currentQueue, assignments: currentAssignments, pool_version: 1 };
   }
 
-  const strategy = config.insertStrategy;
-  const updatedQueue = mergeIntoQueue(currentQueue, newItems, strategy, dishes);
+  const updatedQueue = mergeIntoQueue(currentQueue, newItems);
   const newAssignments = assignFromQueue(updatedQueue, config, currentIndex, currentAssignments);
-  const pending = strategy === 'next-cycle' ? newItems : [];
 
   return {
     queue: updatedQueue,
-    pendingMerge: pending,
     assignments: [...currentAssignments, ...newAssignments],
     pool_version: 2,
   };
@@ -512,47 +480,11 @@ export function buildRotationState(
   return result;
 }
 
-/**
- * FIX 2: Merge pending items into existing rotation state.
- * Processes items that were added mid-cycle and queued in pendingMerge.
- */
-export function buildRotationStateWithMerge(
-  current: {
-    breakfast: RotationSlotPointer;
-    lunch: RotationSlotPointer;
-    snacks: RotationSlotPointer;
-    dinner: RotationSlotPointer;
-  },
-  pendingMerge: RotationQueueItem[],
-): {
-  breakfast: RotationSlotPointer;
-  lunch: RotationSlotPointer;
-  snacks: RotationSlotPointer;
-  dinner: RotationSlotPointer;
-} {
-  const merged = {
-    breakfast: { ...current.breakfast, queue: [...current.breakfast.queue] },
-    lunch: { ...current.lunch, queue: [...current.lunch.queue] },
-    snacks: { ...current.snacks, queue: [...current.snacks.queue] },
-    dinner: { ...current.dinner, queue: [...current.dinner.queue] },
-  };
-
-  for (const item of pendingMerge) {
-    const slot = item.mealType;
-    if (merged[slot] && !merged[slot].queue.includes(item.dishId)) {
-      merged[slot].queue.push(item.dishId);
-    }
-  }
-
-  return merged;
-}
-
 export interface LoopSummary {
   cycleLength: number;
   startDate: string;
   skipDays: string[];
   repeatPattern: string;
-  insertStrategy: string;
   totalAssignments: number;
   uniqueDishCount: number;
   slotBreakdown: Record<MealType, number>;
@@ -576,19 +508,11 @@ export function buildLoopSummary(
     dishSet.add(a.dishId);
   }
 
-  const strategyLabels: Record<InsertStrategy, string> = {
-    'append': 'Append to Cycle',
-    'smart-shuffle': 'Smart Shuffle',
-    'immediate': 'Immediate Priority',
-    'next-cycle': 'Next Cycle Only',
-  };
-
   return {
     cycleLength: config.cycleLength,
     startDate: formatDate(config.startDate),
     skipDays: skipDayNames,
     repeatPattern: config.repeatPattern,
-    insertStrategy: strategyLabels[config.insertStrategy],
     totalAssignments: assignments.length,
     uniqueDishCount: dishSet.size,
     slotBreakdown,

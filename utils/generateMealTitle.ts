@@ -10,12 +10,14 @@ export function generateMealTitle(
     parts.push(embeddedCarb);
   }
 
-  if (sides.length > 0) {
-    parts.push(sides.slice(0, 2).join(', '));
+  const uniqueSides = sides.filter((s, i) => sides.indexOf(s) === i && s !== embeddedCarb);
+  if (uniqueSides.length > 0) {
+    parts.push(uniqueSides.slice(0, 2).join(', '));
   }
 
-  if (beverages.length > 0) {
-    const firstBev = beverages[0];
+  const uniqueBeverages = beverages.filter((s, i) => beverages.indexOf(s) === i);
+  if (uniqueBeverages.length > 0) {
+    const firstBev = uniqueBeverages[0];
     if (firstBev) parts.push(firstBev);
   }
 

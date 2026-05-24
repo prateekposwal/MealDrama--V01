@@ -7,13 +7,17 @@
  * This adapter handles serialization/deserialization to/from JSON itself.
  */
 
-const isNative = (): boolean => {
-  if (typeof window === 'undefined') return false;
+let isNativeEnv: boolean | undefined;
+
+function getIsNative(): boolean {
+  if (isNativeEnv !== undefined) return isNativeEnv;
+  if (typeof window === 'undefined') { isNativeEnv = false; return false; }
   const cap = (window as any).Capacitor;
-  if (!cap) return false;
-  if (typeof cap.isNativePlatform === 'function') return cap.isNativePlatform();
-  return !!cap.isNative;
-};
+  if (!cap) { isNativeEnv = false; return false; }
+  if (typeof cap.isNativePlatform === 'function') { isNativeEnv = cap.isNativePlatform() ?? false; return isNativeEnv; }
+  isNativeEnv = !!cap.isNative;
+  return isNativeEnv;
+}
 
 /**
  * Web storage — synchronous localStorage
@@ -110,8 +114,8 @@ async function getNative(): Promise<typeof nativeImpl extends null ? never : typ
 }
 
 // Pre-load native storage if running on native
-const isNativeEnv = isNative();
-if (isNativeEnv) {
+export const cachedIsNative = getIsNative();
+if (cachedIsNative) {
   getNative();
 }
 
@@ -120,22 +124,22 @@ if (isNativeEnv) {
  */
 export const nativeStorage = {
   getItem: (key: string): Record<string, any> | null | Promise<Record<string, any> | null> => {
-    if (isNativeEnv) {
-      return getNative().then(ns => ns.getItem(key));
+    if (cachedIsNative) {
+      return getNative().then(ns => ns!.getItem(key));
     }
     return webStorage.getItem(key);
   },
 
   setItem: (key: string, value: Record<string, any>): void | Promise<void> => {
-    if (isNativeEnv) {
-      return getNative().then(ns => ns.setItem(key, value));
+    if (cachedIsNative) {
+      return getNative().then(ns => ns!.setItem(key, value));
     }
     webStorage.setItem(key, value);
   },
 
   removeItem: (key: string): void | Promise<void> => {
-    if (isNativeEnv) {
-      return getNative().then(ns => ns.removeItem(key));
+    if (cachedIsNative) {
+      return getNative().then(ns => ns!.removeItem(key));
     }
     webStorage.removeItem(key);
   },

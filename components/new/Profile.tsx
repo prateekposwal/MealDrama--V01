@@ -6,7 +6,7 @@ import type { SourcePool } from '../../utils/mealLoopEngine';
 import type { Category } from '../../constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
-import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Cloud } from 'lucide-react';
+import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X } from 'lucide-react';
 import { getISODate } from '../../utils/dateUTC';
 
 
@@ -29,17 +29,7 @@ const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType
         setNameDraft(user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : ''));
     }, [user?.name, user?.primaryId]);
 
-    // Cleanup hold-timer on unmount
-    useEffect(() => {
-        return () => {
-            if (clearHoldTimer.current) {
-                clearInterval(clearHoldTimer.current);
-                clearHoldTimer.current = null;
-            }
-        };
-    }, []);
-    
-    // FIX 4: Track online status for offline visual feedback
+    // Track online status for offline visual feedback
     const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
     useEffect(() => {
         const handleOnline = () => setIsOnline(true);
@@ -59,9 +49,6 @@ const [editingSpice, setEditingSpice] = useState(false);
 const [cookInput, setCookInput] = useState(user?.cookContact || '');
 const [notifications, setNotifications] = useState(true);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
-const [showClearLoopConfirm, setShowClearLoopConfirm] = useState(false);
-const [clearHoldProgress, setClearHoldProgress] = useState(0);
-const clearHoldTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
 const { customDishes, addCustomDish, updateCustomDish, removeCustomDish } = useStore();
 const [showCustomForm, setShowCustomForm] = useState(false);
@@ -80,9 +67,8 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
     const dishes = useStore(s => s.dishes);
     const plan = useTrayStore(s => s.plan);
     const getMeals = useTrayStore(s => s.getMeals);
-    const { applyLoopConfig, refreshLoop, undoLoopChange, clearMealLoop } = useTrayStore();
+    const { applyLoopConfig, undoLoopChange } = useTrayStore();
     const mealLoop = useTrayStore(s => s.mealLoop);
-    const pendingMerge = mealLoop.pendingMerge;
     const hasLoopUndo = mealLoop.undoStack.length > 0;
 
     // FIX 6: Live status indicator — refreshes on loop_updated events from background sync
@@ -95,15 +81,13 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
 
     const loopStatus = useMemo(() => {
         if (!mealLoop.config) return null;
-        const totalDishes = mealLoop.sourceDishIds.length;
-        if (totalDishes === 0) return { label: 'Empty', color: 'text-gray-400', dot: 'bg-gray-300' };
-        const today = getISODate(new Date());
-        const nextAssignment = mealLoop.assignments.find(a => a.date >= today);
-        const nextLabel = nextAssignment
-            ? `${nextAssignment.dishName} · ${nextAssignment.mealType.charAt(0).toUpperCase() + nextAssignment.mealType.slice(1)}`
-            : '—';
-        return { label: `Active · ${totalDishes} dishes · Next: ${nextLabel}`, color: 'text-emerald-600', dot: 'bg-emerald-500' };
-    }, [mealLoop.config, mealLoop.sourceDishIds, mealLoop.assignments, refreshKey]);
+        const skipDays = mealLoop.config.skipDays;
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const skipBadge = skipDays.length > 0
+            ? `⏸️ Skips ${skipDays.map(d => dayNames[d]).filter(Boolean).join(' & ')}`
+            : null;
+        return { label: `Active · ${mealLoop.config.cycleLength}-week cycle`, color: 'text-emerald-600', dot: 'bg-emerald-500', skipBadge };
+    }, [mealLoop.config, refreshKey]);
 
     const trayCounts = useMemo(() => {
         const today = getISODate(new Date());
@@ -272,7 +256,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
             }
         }
 
-        // FIX 2: Clean loop state — remove dish from rotationQueue, pendingMerge, assignments, sourceDishIds
+        // FIX 2: Clean loop state — remove dish from rotationQueue, assignments, sourceDishIds
         trayStore.setMealLoop(
             trayStore.mealLoop.config,
             trayStore.mealLoop.sourceDishIds.filter(id => id !== dish.id),
@@ -283,7 +267,6 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
             mealLoop: {
                 ...ml,
                 rotationQueue: ml.rotationQueue.filter(item => item.dishId !== dish.id),
-                pendingMerge: ml.pendingMerge.filter(item => item.dishId !== dish.id),
             }
         });
 
@@ -392,7 +375,8 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                             <div className="flex items-start justify-between gap-4">
                                 <div>
                                     <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">Your Tray</p>
-                                    <p className="text-base font-bold text-gray-900 mt-1">Your go-to meals.</p>
+                                    <p className="text-base font-bold text-gray-900 mt-1">Saved defaults — Plan pulls from here.</p>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">Tray = Favorites &bull; Plan = Scheduled meals you build</p>
                                 </div>
                                 <button
                                     onClick={() => { startTrayEdit({ returnTab: 'profile', slot: 'Lunch' }); onManageTray?.(); }}
@@ -554,9 +538,14 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                 <div>
                                     <p className="text-xs font-black text-gray-900">Meal Loop</p>
                                     {loopStatus ? (
-                                        <div className="flex items-center gap-1.5 mt-0.5">
-                                            <span className={`w-1.5 h-1.5 rounded-full ${loopStatus.dot}`} />
-                                            <p className={`text-[10px] ${loopStatus.color}`}>{loopStatus.label}</p>
+                                        <div className="flex flex-col gap-0.5 mt-0.5">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className={`w-1.5 h-1.5 rounded-full ${loopStatus.dot}`} />
+                                                <p className={`text-[10px] ${loopStatus.color}`}>{loopStatus.label}</p>
+                                            </div>
+                                            {loopStatus.skipBadge && (
+                                                <p className="text-[9px] text-amber-600 ml-3">{loopStatus.skipBadge}</p>
+                                            )}
                                         </div>
                                     ) : (
                                         <p className="text-[11px] text-gray-400">Auto-rotate dishes across your plan</p>
@@ -581,36 +570,6 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                 </button>
                             </div>
                         </div>
-
-                        {/* Pending merge badge — shows dishes waiting for "Next Cycle Only" */}
-                        {pendingMerge.length > 0 && (
-                            <div className="w-full p-5 rounded-[22px] bg-amber-50 border border-amber-200">
-                                <div className="flex items-center gap-3 mb-2">
-                                    <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                                        <span className="text-sm">⏳</span>
-                                    </div>
-                                    <div>
-                                        <p className="text-xs font-black text-amber-800">Waiting for Next Cycle</p>
-                                        <p className="text-[10px] text-amber-600">{pendingMerge.length} dish{pendingMerge.length > 1 ? 'es' : ''} queued</p>
-                                    </div>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5 mt-2">
-                                    {pendingMerge.slice(0, 5).map(item => {
-                                        const dish = dishes.find(d => d.id === item.dishId);
-                                        return (
-                                            <span key={item.dishId} className="px-2 py-1 rounded-lg bg-white text-[10px] font-bold text-amber-700 border border-amber-200">
-                                                {dish?.name ?? item.dishId}
-                                            </span>
-                                        );
-                                    })}
-                                    {pendingMerge.length > 5 && (
-                                        <span className="px-2 py-1 rounded-lg bg-amber-100 text-[10px] font-bold text-amber-600">
-                                            +{pendingMerge.length - 5} more
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        )}
 
                         {/* FIX 9: Loop analytics — shows user progress */}
                         {mealLoop.config && mealLoop.analytics.mealsAutoFilled > 0 && (
@@ -659,73 +618,6 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                     </div>
                 </section>
 
-                {mealLoop.config && (
-                <section>
-                    <details className="group">
-                        <summary className="flex items-center justify-between cursor-pointer mb-3">
-                            <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Advanced</h4>
-                            <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center group-open:rotate-180 transition-transform">
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-gray-400"><path d="m6 9 6 6 6-6"/></svg>
-                            </div>
-                        </summary>
-                        <div className="space-y-3">
-                            <div className="w-full p-5 rounded-[22px] bg-gray-50 border border-gray-100">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
-                                            <RefreshCw size={18} className="text-gray-500" />
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-black text-gray-900">Refresh Loop</p>
-                                            <p className="text-[11px] text-gray-400">Flush pending dishes & rebuild assignments</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => refreshLoop(dishes)}
-                                        disabled={mealLoop.refreshing}
-                                        className={`px-4 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all flex items-center gap-1.5 ${
-                                            mealLoop.refreshing
-                                                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
-                                                : 'bg-white border-gray-100 text-gray-500'
-                                        }`}
-                                        title={mealLoop.refreshing ? (isOnline ? 'Refreshing...' : 'Queued for sync') : 'Flush pending & rebuild'}
-                                    >
-                                        {mealLoop.refreshing ? (
-                                            isOnline ? (
-                                                <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
-                                            ) : (
-                                                <Cloud size={14} className="text-gray-400" />
-                                            )
-                                        ) : (
-                                            'Refresh'
-                                        )}
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="w-full p-5 rounded-[22px] bg-red-50/50 border border-red-100">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
-                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-black text-gray-900">Reset Loop</p>
-                                            <p className="text-[11px] text-gray-400">Remove all loop assignments & config</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => setShowClearLoopConfirm(true)}
-                                        className="px-4 py-2 rounded-2xl bg-white border border-red-100 text-[10px] font-black uppercase tracking-widest text-red-500 active:scale-95 transition-all"
-                                    >
-                                        Reset
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </details>
-                </section>
-                )}
-
                 <section>
                     <button onClick={onLogout}
                         className="w-full p-5 rounded-[22px] bg-red-50 text-red-500 flex items-center justify-center gap-3 font-bold active:scale-95 transition-all">
@@ -745,90 +637,6 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                 }}
             />
 
-            {/* FIX 5: Clear loop confirmation modal */}
-            {showClearLoopConfirm && (
-                <div
-                    className="fixed inset-0 z-[70] flex items-center justify-center"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label="Confirm clear loop"
-                    onKeyDown={(e) => {
-                        if (e.key === 'Escape') setShowClearLoopConfirm(false);
-                        if (e.key === 'Tab') {
-                            const focusable = e.currentTarget.querySelectorAll('button');
-                            const first = focusable[0];
-                            const last = focusable[focusable.length - 1];
-                            if (e.shiftKey && document.activeElement === first) {
-                                e.preventDefault();
-                                (last as HTMLElement).focus();
-                            } else if (!e.shiftKey && document.activeElement === last) {
-                                e.preventDefault();
-                                (first as HTMLElement).focus();
-                            }
-                        }
-                    }}
-                >
-                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowClearLoopConfirm(false)} />
-                    <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6 animate-in zoom-in-95 duration-200" autoFocus>
-                        <h3 className="text-lg font-bold text-gray-900 mb-2">Clear Meal Loop?</h3>
-                        <p className="text-sm text-gray-600 mb-4">
-                            This will remove all loop assignments and reset your configuration. This action cannot be undone.
-                        </p>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => { setShowClearLoopConfirm(false); setClearHoldProgress(0); }}
-                                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onPointerDown={() => {
-                                    setClearHoldProgress(0);
-                                    clearHoldTimer.current = setInterval(() => {
-                                        setClearHoldProgress(prev => {
-                                            const next = prev + 1;
-                                            if (next >= 100) {
-                                                if (clearHoldTimer.current) {
-                                                    clearInterval(clearHoldTimer.current);
-                                                    clearHoldTimer.current = null;
-                                                }
-                                                clearMealLoop();
-                                                setShowClearLoopConfirm(false);
-                                                return 0;
-                                            }
-                                            return next;
-                                        });
-                                    }, 30);
-                                }}
-                                onPointerUp={() => {
-                                    if (clearHoldTimer.current) {
-                                        clearInterval(clearHoldTimer.current);
-                                        clearHoldTimer.current = null;
-                                    }
-                                    setClearHoldProgress(0);
-                                }}
-                                onPointerLeave={() => {
-                                    if (clearHoldTimer.current) {
-                                        clearInterval(clearHoldTimer.current);
-                                        clearHoldTimer.current = null;
-                                    }
-                                    setClearHoldProgress(0);
-                                }}
-                                className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold text-sm shadow-lg shadow-red-500/30 overflow-hidden relative select-none"
-                                style={{ touchAction: 'none' }}
-                            >
-                                <div
-                                    className="absolute inset-0 bg-red-600 transition-none"
-                                    style={{ width: `${clearHoldProgress}%` }}
-                                />
-                                <span className="relative z-10">
-                                    {clearHoldProgress > 0 ? `Hold ${Math.ceil((100 - clearHoldProgress) / 33)}s` : 'Hold 3s to clear'}
-                                </span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

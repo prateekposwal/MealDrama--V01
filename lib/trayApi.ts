@@ -85,7 +85,7 @@ const QUEUE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export interface QueuedAction {
   id: string;
-  type: 'add' | 'swap' | 'update' | 'remove';
+  type: 'add' | 'swap' | 'update' | 'remove' | 'loop_save';
   payload: Record<string, unknown>;
   timestamp: number;
   retryCount: number;

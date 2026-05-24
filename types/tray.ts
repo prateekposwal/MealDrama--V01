@@ -101,7 +101,7 @@ export interface TrayItem {
   start_time?: string;
   end_time?: string;
   /** Origin of this meal — controls gap-fill behavior */
-  source?: 'user' | 'loop' | 'suggestion';
+  source?: 'user' | 'loop' | 'suggestion' | 'onboarding';
 }
 
 /** Day's meal structure */
@@ -115,7 +115,7 @@ export interface DayMeals {
 /** Offline action types */
 export interface OfflineAction {
   id: string;
-  type: 'add' | 'swap' | 'update' | 'remove';
+  type: 'add' | 'swap' | 'update' | 'remove' | 'loop_save';
   payload: Record<string, unknown>;
   timestamp: number;
   retryCount: number;
@@ -161,16 +161,13 @@ export interface SavedTemplate {
 
 // ─── Meal Loop (Post-Tray Auto-Rotation) ────────────────────────────────────
 
-export type RepeatPattern = 'sequential' | 'random';
-
-export type InsertStrategy = 'append' | 'smart-shuffle' | 'immediate' | 'next-cycle';
+export type RepeatPattern = 'random';
 
 export interface MealLoopConfig {
   cycleLength: number;
   startDate: string;
   skipDays: number[];
   repeatPattern: RepeatPattern;
-  insertStrategy: InsertStrategy;
 }
 
 export interface RotationQueueItem {
@@ -201,7 +198,6 @@ export interface MealLoopState {
   pool_version: number;
   rotationQueue: RotationQueueItem[];
   next_index: number;
-  pendingMerge: RotationQueueItem[];
   assignments: MealLoopAssignment[];
   overrides: Record<string, string>;
   /** Persistent per-slot rotation state — resumes where loop left off */
@@ -248,7 +244,6 @@ export const EMPTY_LOOP_STATE: MealLoopState = {
   pool_version: 1,
   rotationQueue: [],
   next_index: 0,
-  pendingMerge: [],
   assignments: [],
   overrides: {},
   rotationState: {

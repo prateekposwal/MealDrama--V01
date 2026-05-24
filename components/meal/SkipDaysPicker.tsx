@@ -15,18 +15,18 @@ export const SkipDaysPicker: React.FC<SkipDaysPickerProps> = ({ skipDays, onTogg
       <SkipForward size={12} className="inline mr-1" />
       Skip Days
     </label>
-    <div className="flex gap-2">
+    <div className="flex gap-1.5">
       {ALL_DAYS.map(day => (
         <button
           key={day}
           onClick={() => onToggle(day)}
-          className={`w-10 h-10 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-0.5 ${
+          className={`flex-1 py-3 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1 ${
             skipDays.includes(day)
               ? 'bg-red-500 text-white border-red-500 shadow-sm'
               : 'bg-gray-50 text-gray-600 border-gray-200'
           }`}
         >
-          {skipDays.includes(day) && <Check size={10} className="shrink-0" />}
+          {skipDays.includes(day) && <Check size={12} className="shrink-0" />}
           {DAY_NAMES[day]}
         </button>
       ))}

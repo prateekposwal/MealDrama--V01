@@ -20,9 +20,14 @@ const HEALTH_CATEGORY_SCORES: Record<string, number> = {
   'processed-meat': -10,
 };
 
+const scoreCache = new Map<string, number>();
+
 export function scoreDish(dish: Dish): number {
+  const cached = scoreCache.get(dish.id);
+  if (cached !== undefined) return cached;
+
   const meta = DISH_HEALTH_MAP[dish.id];
-  if (!meta) return 0;
+  if (!meta) { scoreCache.set(dish.id, 0); return 0; }
 
   let score = 0;
   for (const cat of meta.healthCategories) {
@@ -60,7 +65,9 @@ export function scoreDish(dish: Dish): number {
     score += tagPenalties[tag] ?? 0;
   }
 
-  return Math.max(-20, Math.min(20, score));
+  score = Math.max(-20, Math.min(20, score));
+  scoreCache.set(dish.id, score);
+  return score;
 }
 
 export function scoreDishByCategories(healthCategories: string[], tags: string[]): number {

@@ -10,13 +10,13 @@ import { trayApi, offlineQueue } from '../lib/trayApi';
 import { applySmartDefaults } from './helpers/applySmartDefaults';
 import { EMPTY_LOOP_STATE, SLOT_TIME_DEFAULTS, getSlotDefaultTimes } from '../types/tray';
 import type { Meal, MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, SavedTemplate, MealLoopState, MealLoopConfig, MealLoopAssignment, RotationQueueItem } from '../types/tray';
-import { buildLoopAssignments as buildAssignments, handleMidCycleAdd, buildRotationState, buildRotationStateWithMerge, autoFillLoop as autoFillLoopEngine } from '../utils/mealLoopEngine';
+import { buildLoopAssignments as buildAssignments, buildRotationQueue, assignFromQueue, handleMidCycleAdd, buildRotationState, autoFillLoop as autoFillLoopEngine } from '../utils/mealLoopEngine';
 import { dishToMeal } from '../utils/dishToMeal';
 import { generateMealTitle } from '../utils/generateMealTitle';
 import { getDishStyle } from '../constants/dishStyles';
 import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../constants/dishLibrary';
-import { useStore } from './useStore';
+import { useStore, type TrayLibrary } from './useStore';
 import { getISODate, addDaysISO, daysBetweenISO } from '../utils/dateUTC';
 import { onConnectivityChange } from '../utils/connectivity';
 import { nativeStorage } from '../utils/nativeStorage';
@@ -208,13 +208,105 @@ export function buildPoolFromStore(): SourcePool {
   const seen = { breakfast: new Set<string>(), lunch: new Set<string>(), snacks: new Set<string>(), dinner: new Set<string>() };
   for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
     for (const item of tray[mt] || []) {
-      if (!seen[mt].has(item.id)) {
-        seen[mt].add(item.id);
-        pool[mt].push(item as unknown as Dish);
+      const dishId = item.dishId;
+      if (dishId && !seen[mt].has(dishId)) {
+        seen[mt].add(dishId);
+        pool[mt].push({ id: dishId, name: item.name } as Dish);
       }
     }
   }
   return pool;
+}
+
+// Standalone cleanup for use from other stores (avoid circular dep issues)
+export function removeDishFromLoopState(dishId: string) {
+  const state = useTrayStore.getState();
+  const ml = state.mealLoop;
+  useTrayStore.setState({
+    mealLoop: {
+      ...ml,
+      rotationQueue: ml.rotationQueue.filter(item => item.dishId !== dishId),
+      sourceDishIds: ml.sourceDishIds.filter(id => id !== dishId),
+      assignments: ml.assignments.filter(a => a.dishId !== dishId),
+    },
+  });
+}
+
+// Guard: only reconcile once per cold start (idempotent even if called twice by strict mode)
+let _reconciled = false;
+
+// Post-hydration reconciliation — scrubs stale dish IDs from all 4 loop arrays
+function trayLibraryHash(trayLibrary: TrayLibrary): string {
+  const parts: string[] = [];
+  for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+    for (const item of trayLibrary[slot] || []) {
+      if (item.dishId) parts.push(item.dishId);
+    }
+  }
+  return parts.sort().join(',');
+}
+
+let _lastTrayHash = '';
+
+export function reconcileLoopStateWithTray() {
+  if (_reconciled) return;
+  const trayState = useStore.getState();
+  const trayLibrary = trayState.trayLibrary;
+  // Guard: cross-store shape safety — if useStore hasn't hydrated or trayLibrary is wrong shape, skip
+  if (!trayLibrary?.breakfast) return;
+  const currentHash = trayLibraryHash(trayLibrary);
+  if (!currentHash || currentHash === _lastTrayHash) {
+    _reconciled = true;
+    return;
+  }
+  _lastTrayHash = currentHash;
+  const trayStore = useTrayStore.getState();
+  const ml = trayStore.mealLoop;
+  if (!ml.config) return;
+
+  const validIds = new Set<string>();
+  for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+    for (const item of trayLibrary[slot] || []) {
+      if (item.dishId) validIds.add(item.dishId);
+    }
+  }
+
+  const sourceDishIds = ml.sourceDishIds.filter(id => validIds.has(id));
+  const rotationQueue = ml.rotationQueue.filter(item => validIds.has(item.dishId));
+  const assignments = ml.assignments.filter(a => validIds.has(a.dishId));
+  const next_index = Math.min(ml.next_index, rotationQueue.length);
+
+  const buildPerSlot = (queue: typeof ml.rotationQueue) => {
+    const r: Record<string, string[]> = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+    for (const item of queue) r[item.mealType]?.push(item.dishId);
+    return r;
+  };
+  const q = buildPerSlot(rotationQueue);
+  const clampPointer = (ptr: number, len: number) => len === 0 ? 0 : Math.min(ptr, len - 1);
+  const rotationState = {
+    breakfast: { queue: q.breakfast ?? [], pointer: clampPointer(ml.rotationState.breakfast.pointer, (q.breakfast ?? []).length) },
+    lunch: { queue: q.lunch ?? [], pointer: clampPointer(ml.rotationState.lunch.pointer, (q.lunch ?? []).length) },
+    snacks: { queue: q.snacks ?? [], pointer: clampPointer(ml.rotationState.snacks.pointer, (q.snacks ?? []).length) },
+    dinner: { queue: q.dinner ?? [], pointer: clampPointer(ml.rotationState.dinner.pointer, (q.dinner ?? []).length) },
+  };
+
+  const changed =
+    sourceDishIds.length !== ml.sourceDishIds.length ||
+    rotationQueue.length !== ml.rotationQueue.length ||
+    assignments.length !== ml.assignments.length ||
+    next_index !== ml.next_index;
+
+  if (changed) {
+    console.log('[TrayStore] Reconciling loop state — removed stale dishes:', {
+      sourceDishIds: `${ml.sourceDishIds.length}→${sourceDishIds.length}`,
+      rotationQueue: `${ml.rotationQueue.length}→${rotationQueue.length}`,
+      assignments: `${ml.assignments.length}→${assignments.length}`,
+    });
+    useTrayStore.setState({
+      mealLoop: { ...ml, sourceDishIds, rotationQueue, assignments, next_index, rotationState },
+    });
+  }
+  _reconciled = true;
 }
 
 // FIX 9: Debug visibility — call from console: getLoopDebugInfo()
@@ -223,7 +315,6 @@ export interface LoopDebugInfo {
   cycleLength: number | null;
   queueSize: number;
   nextIndex: number;
-  pendingMergeCount: number;
   assignmentsCount: number;
   rotationState: {
     breakfast: { queue: number; pointer: number };
@@ -244,7 +335,6 @@ export function getLoopDebugInfo(): LoopDebugInfo | null {
     cycleLength: ml.config.cycleLength,
     queueSize: ml.rotationQueue.length,
     nextIndex: ml.next_index,
-    pendingMergeCount: ml.pendingMerge.length,
     assignmentsCount: ml.assignments.length,
     rotationState: {
       breakfast: { queue: ml.rotationState.breakfast.queue.length, pointer: ml.rotationState.breakfast.pointer },
@@ -394,7 +484,7 @@ export const useTrayStore = create<TrayStore>()(
           start_time: overrides?.start_time || timeDef.start,
           end_time: overrides?.end_time || timeDef.end,
           // Mark as user-added so autoFillLoop won't overwrite it
-          source: 'user',
+          source: overrides?.source || 'user',
         };
 
         // Optimistic update (with dedup: same meal_id → increment quantity + merge sides)
@@ -474,42 +564,7 @@ export const useTrayStore = create<TrayStore>()(
           }
         });
 
-        // Sync to tray library so Profile summary is accurate
-        // Guard: only sync if useStore has hydrated (user exists)
-        const storeState = useStore.getState();
-        if (storeState.user) {
-          storeState.addToTray(mealType, {
-            id: meal.id,
-            dishId: meal.id,
-            name: meal.name,
-            icon: meal.icon,
-            sourceRegion: meal.region,
-          });
-        }
-
         window.dispatchEvent(new Event('pantry:invalidate'));
-
-        // FIX: Notify meal loop of new dish — respects insertStrategy in real time
-        const loopCfg = get().mealLoop.config;
-        if (loopCfg && !get().mealLoop.sourceDishIds.includes(meal.id)) {
-          if (loopCfg.insertStrategy === 'next-cycle') {
-            set((s) => {
-              if (!s.mealLoop.config) return s;
-              return {
-                mealLoop: {
-                  ...s.mealLoop,
-                  sourceDishIds: [...s.mealLoop.sourceDishIds, meal.id],
-                  pendingMerge: [
-                    ...s.mealLoop.pendingMerge,
-                    { dishId: meal.id, dishName: meal.name, mealType: mealType as MealType, style: getDishStyle(meal.id) },
-                  ],
-                },
-              };
-            });
-          } else {
-            scheduleLoopPoolChange(buildPoolFromStore(), useStore.getState().dishes || undefined);
-          }
-        }
       },
 
       // ─── Swap Meal (Inline) ─────────────────────────────────────────────
@@ -845,10 +900,7 @@ export const useTrayStore = create<TrayStore>()(
           const removedItem = items.find(i => i.id === itemId);
           const removedDishId = removedItem?.meal_id;
 
-          // FIX 2: Clean up pendingMerge and rotationQueue if dish was deleted
-          const cleanPending = removedDishId
-            ? s.mealLoop.pendingMerge.filter(item => item.dishId !== removedDishId)
-            : s.mealLoop.pendingMerge;
+          // Clean up rotationQueue if dish was deleted
           const cleanQueue = removedDishId
             ? s.mealLoop.rotationQueue.filter(item => item.dishId !== removedDishId)
             : s.mealLoop.rotationQueue;
@@ -906,8 +958,13 @@ export const useTrayStore = create<TrayStore>()(
             saveStatus: { ...s.saveStatus, [itemId]: 'saving' },
             mealLoop: {
               ...s.mealLoop,
-              pendingMerge: cleanPending,
               rotationQueue: cleanQueue,
+              sourceDishIds: removedDishId
+                ? s.mealLoop.sourceDishIds.filter(id => id !== removedDishId)
+                : s.mealLoop.sourceDishIds,
+              assignments: removedDishId
+                ? s.mealLoop.assignments.filter(a => a.dishId !== removedDishId)
+                : s.mealLoop.assignments,
               next_index: newNextIndex,
               rotationState: newRotationState,
             },
@@ -1145,12 +1202,8 @@ export const useTrayStore = create<TrayStore>()(
       },
 
       applyLoopConfig: (config, pool, dishes) => {
-        // FIX: When loop exists and new dishes are present, use incremental merge
-        // to respect insertStrategy setting — new dishes follow Append/Smart Shuffle/
-        // Immediate/Next Cycle Only instead of being assigned immediately.
         let queue: RotationQueueItem[];
         let loopAssignments: MealLoopAssignment[];
-        let pendingMerge: RotationQueueItem[];
         let hasNewDishes = false;
 
         const cur = get();
@@ -1166,25 +1219,26 @@ export const useTrayStore = create<TrayStore>()(
             );
             queue = result.queue;
             loopAssignments = result.assignments;
-            pendingMerge = result.pendingMerge;
           } else {
-            const full = buildAssignments(pool, config, dishes);
-            queue = full.queue;
-            loopAssignments = full.assignments;
-            pendingMerge = [];
+            // No new dishes — rebuild queue from pool (catches tray changes like added snacks that the stale queue missed)
+            queue = buildRotationQueue(pool, dishes);
+            const gapFill = assignFromQueue(queue, config, cur.mealLoop.next_index, cur.mealLoop.assignments);
+            loopAssignments = [...cur.mealLoop.assignments, ...gapFill];
           }
         } else {
           const full = buildAssignments(pool, config, dishes);
           queue = full.queue;
           loopAssignments = full.assignments;
-          pendingMerge = [];
         }
 
         const rotationState = buildRotationState(pool, dishes);
 
         // Build plan days from loop assignments
+        // Skip today — loop never auto-assigns to today; user adds manually
+        const _today = getISODate(new Date());
+        const nonTodayAssignments = loopAssignments.filter(a => a.date === _today ? false : true);
         const newDays: Record<string, DayMeals> = {};
-        for (const a of loopAssignments) {
+        for (const a of nonTodayAssignments) {
           const date = a.date;
           const mealType = a.mealType;
           if (!newDays[date]) {
@@ -1239,9 +1293,12 @@ export const useTrayStore = create<TrayStore>()(
                 if (item.source === 'user') return true;
                 // Keep suggestion-source meals
                 if (item.source === 'suggestion') return true;
+                // Never keep loop or legacy meals on today — today is never loop-assigned, so any are debris
+                if (date === _today && (item.source === 'loop' || !item.source)) return false;
                 // Remove loop-source meals only if they're from old loop dates being replaced
                 if (item.source === 'loop' && oldLoopDates.has(date)) return false;
-                // Keep everything else (undefined source = legacy, treat as user)
+                // Remove legacy undefined-source meals on loop-refilled dates (same as loop-source)
+                if (oldLoopDates.has(date)) return false;
                 return true;
               });
               newDay[mt] = keptItems;
@@ -1260,9 +1317,8 @@ export const useTrayStore = create<TrayStore>()(
               sourceDishIds: Object.values(pool).flat().map((d: Dish) => d.id),
               pool_version: 1,
               rotationQueue: queue,
-              next_index: Math.min(loopAssignments.length, queue.length),
-              pendingMerge,
-              assignments: loopAssignments,
+              next_index: Math.min(nonTodayAssignments.length, queue.length),
+              assignments: nonTodayAssignments,
               overrides: s.mealLoop.overrides,
               rotationState,
               // FIX 3: Push current state to undo stack (max 5 levels)
@@ -1276,21 +1332,47 @@ export const useTrayStore = create<TrayStore>()(
                     analytics: s.mealLoop.analytics,
                   }, ...s.mealLoop.undoStack].slice(0, 5)
                 : s.mealLoop.undoStack,
-              // FIX: For incremental merge, preserve analytics (no cycle completion)
-              analytics: hasNewDishes
-                ? s.mealLoop.analytics
-                : {
-                    ...s.mealLoop.analytics,
-                    cyclesCompleted: s.mealLoop.analytics.cyclesCompleted + 1,
-                    mealsAutoFilled: s.mealLoop.analytics.mealsAutoFilled + loopAssignments.length,
-                  },
+              // Only count meals that are genuinely new (not already in plan.days)
+              analytics: {
+                ...s.mealLoop.analytics,
+                cyclesCompleted: hasNewDishes
+                  ? s.mealLoop.analytics.cyclesCompleted
+                  : s.mealLoop.analytics.cyclesCompleted + 1,
+                mealsAutoFilled: s.mealLoop.analytics.mealsAutoFilled + (() => {
+                  if (!hasNewDishes) return 0;
+                  const keys = new Set<string>();
+                  for (const [d, dm] of Object.entries(s.plan.days)) {
+                    for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+                      for (const item of dm[mt]) keys.add(`${d}|${item.meal_id}`);
+                    }
+                  }
+                  return nonTodayAssignments.filter(a => !keys.has(`${a.date}|${a.dishId}`)).length;
+                })(),
+              },
               // Preserve rate limit flags
               refreshing: s.mealLoop.refreshing,
               lastRefreshStart: s.mealLoop.lastRefreshStart,
             },
             plan: {
               ...s.plan,
-              days: { ...cleanedDays, ...newDays },
+              days: (() => {
+                const merged: Record<string, DayMeals> = {};
+                const allDates = new Set([...Object.keys(cleanedDays), ...Object.keys(newDays)]);
+                for (const date of allDates) {
+                  const clean = cleanedDays[date];
+                  const next = newDays[date];
+                  if (!clean) { merged[date] = next ?? emptyDayMeals(); continue; }
+                  if (!next) { merged[date] = clean; continue; }
+                  const day: DayMeals = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+                  for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+                    const existingIds = new Set(clean[mt].map(m => m.meal_id));
+                    const uniqueNew = next[mt].filter(m => !existingIds.has(m.meal_id));
+                    day[mt] = [...clean[mt], ...uniqueNew];
+                  }
+                  merged[date] = day;
+                }
+                return merged;
+              })(),
             },
           };
         });
@@ -1301,7 +1383,7 @@ export const useTrayStore = create<TrayStore>()(
         const sourceDishIds = Object.values(pool).flat().map((d: Dish) => d.id);
         offlineQueue.add({
           type: 'loop_save',
-          payload: { config, sourceDishIds, assignments: loopAssignments },
+          payload: { config, sourceDishIds, assignments: nonTodayAssignments },
         });
       },
 
@@ -1324,17 +1406,10 @@ export const useTrayStore = create<TrayStore>()(
             s.mealLoop.assignments, dishes,
           );
 
-          // FIX 1: Toast — tell user what happened with new dishes + when they'll appear
+          // FIX 1: Toast — tell user what happened with new dishes
           const addedIds = newIds.filter(id => !oldSet.has(id));
           if (addedIds.length > 0 && dishes) {
             const addedNames = addedIds.map(id => dishes.find(d => d.id === id)?.name ?? id).join(', ');
-            const strategyLabels: Record<string, string> = {
-              append: 'end of line',
-              'smart-shuffle': 'soon',
-              immediate: 'next up',
-              'next-cycle': 'next cycle',
-            };
-            const where = strategyLabels[cfg.insertStrategy] ?? 'soon';
 
             // Find the next assignment date for the first added dish
             const firstAdded = addedIds[0];
@@ -1343,19 +1418,14 @@ export const useTrayStore = create<TrayStore>()(
               ? ` on ${new Date(nextAssignment.date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}`
               : '';
 
-            get().setToast({ message: `🍽️ ${addedNames} added — will appear ${where}${dateHint}`, type: 'success' });
+            useStore.getState().setToast({ message: `🍽️ ${addedNames} added — will appear in upcoming slots${dateHint}`, type: 'success' });
           }
 
           // FIX 3: Clamp rotationState pointers to new queue lengths (prevent drift)
           const buildPerSlotQueues = (queue: typeof s.mealLoop.rotationQueue) => {
             const perSlot: Record<MealType, string[]> = { breakfast: [], lunch: [], snacks: [], dinner: [] };
             for (const item of queue) {
-              const dish = dishes?.find(d => d.id === item.dishId);
-              if (dish) {
-                const meal = dishToMeal(dish);
-                const mt = meal.slot as MealType;
-                if (perSlot[mt]) perSlot[mt].push(item.dishId);
-              }
+              perSlot[item.mealType].push(item.dishId);
             }
             return perSlot;
           };
@@ -1374,7 +1444,6 @@ export const useTrayStore = create<TrayStore>()(
               sourceDishIds: newIds,
               pool_version: result.pool_version,
               rotationQueue: result.queue,
-              pendingMerge: result.pendingMerge,
               assignments: result.assignments,
               next_index: Math.min(result.assignments.length, result.queue.length),
               rotationState: clampedRotationState,
@@ -1401,7 +1470,7 @@ export const useTrayStore = create<TrayStore>()(
           // FIX 6: Regenerate assignments from restored config + rotationState
           const cfg = prev.config;
           if (!cfg) {
-            get().setToast({ message: '↩️ Loop settings restored.', type: 'info' });
+            useStore.getState().setToast({ message: '↩️ Loop settings restored.', type: 'info' });
             return {
               mealLoop: {
                 ...s.mealLoop,
@@ -1435,11 +1504,11 @@ export const useTrayStore = create<TrayStore>()(
 
           // FIX 5: Handle regeneration failure — fallback to previous assignments
           if (result.assignments.length === 0 && s.mealLoop.assignments.length > 0) {
-            get().setToast({ message: '⚠️ Could not regenerate loop assignments. Keeping current state.', type: 'error' });
+            useStore.getState().setToast({ message: '⚠️ Could not regenerate loop assignments. Keeping current state.', type: 'error' });
             return s;
           }
 
-          get().setToast({ message: '↩️ Loop settings restored to previous version.', type: 'info' });
+          useStore.getState().setToast({ message: '↩️ Loop settings restored to previous version.', type: 'info' });
 
           return {
             mealLoop: {
@@ -1465,28 +1534,21 @@ export const useTrayStore = create<TrayStore>()(
         set((s) => {
           // FIX 4: Rate limit — prevent spam during rebuild
           if (s.mealLoop.refreshing) {
-            get().setToast({ message: '⏳ Loop is already refreshing. Please wait.', type: 'info' });
+            useStore.getState().setToast({ message: '⏳ Loop is already refreshing. Please wait.', type: 'info' });
             return s;
           }
 
           const cfg = s.mealLoop.config;
           if (!cfg) return s;
 
-          // FIX 2: Process pendingMerge — items added mid-cycle are merged into rotation queue on refresh
-          let mergedRotationState = s.mealLoop.rotationState;
-          if (s.mealLoop.pendingMerge.length > 0) {
-            const mergedResult = buildRotationStateWithMerge(s.mealLoop.rotationState, s.mealLoop.pendingMerge);
-            mergedRotationState = mergedResult;
-          }
-
           // FIX 10: Detect empty rotationState queues and bail gracefully
           const totalQueueSize =
-            mergedRotationState.breakfast.queue.length +
-            mergedRotationState.lunch.queue.length +
-            mergedRotationState.snacks.queue.length +
-            mergedRotationState.dinner.queue.length;
+            s.mealLoop.rotationState.breakfast.queue.length +
+            s.mealLoop.rotationState.lunch.queue.length +
+            s.mealLoop.rotationState.snacks.queue.length +
+            s.mealLoop.rotationState.dinner.queue.length;
           if (totalQueueSize === 0) {
-            get().setToast({ message: '⚠️ Loop queue is empty. Add dishes to Tray first, then configure loop.', type: 'error' });
+            useStore.getState().setToast({ message: '⚠️ Loop queue is empty. Add dishes to Tray first, then configure loop.', type: 'error' });
             return s;
           }
 
@@ -1507,11 +1569,11 @@ export const useTrayStore = create<TrayStore>()(
             }
           }
 
-          const result = autoFillLoopEngine(cfg, mergedRotationState, existingItems);
+          const result = autoFillLoopEngine(cfg, s.mealLoop.rotationState, existingItems);
 
           // FIX 13: Surface errors if assignment fails silently
           if (result.assignments.length === 0 && totalQueueSize > 0) {
-            get().setToast({ message: '⚠️ Loop assignment failed. No meals could be scheduled.', type: 'error' });
+            useStore.getState().setToast({ message: '⚠️ Loop assignment failed. No meals could be scheduled.', type: 'error' });
             return {
               ...s,
               mealLoop: {
@@ -1566,14 +1628,13 @@ export const useTrayStore = create<TrayStore>()(
             }
           }
 
-          get().setToast({ message: '🔄 Loop refreshed! Future days updated.', type: 'success' });
+          useStore.getState().setToast({ message: '🔄 Loop refreshed! Future days updated.', type: 'success' });
 
           return {
             mealLoop: {
               ...s.mealLoop,
               rotationState: result.rotationState,
               assignments: [...s.mealLoop.assignments, ...dedupedNew],
-              pendingMerge: [], // FIX 2: Clear after processing
               refreshing: false, // Reset rate limit flag
               lastRefreshStart: undefined, // Clear loading state
             },
@@ -1590,20 +1651,14 @@ export const useTrayStore = create<TrayStore>()(
           const cfg = s.mealLoop.config;
           if (!cfg) return s;
 
-          // FIX 2: Process pendingMerge — items added mid-cycle are merged into rotation queue
-          let mergedRotationState = s.mealLoop.rotationState;
-          if (s.mealLoop.pendingMerge.length > 0) {
-            mergedRotationState = buildRotationStateWithMerge(s.mealLoop.rotationState, s.mealLoop.pendingMerge);
-          }
-
           // FIX 10: Detect empty rotationState queues and bail gracefully
           const totalQueueSize =
-            mergedRotationState.breakfast.queue.length +
-            mergedRotationState.lunch.queue.length +
-            mergedRotationState.snacks.queue.length +
-            mergedRotationState.dinner.queue.length;
+            s.mealLoop.rotationState.breakfast.queue.length +
+            s.mealLoop.rotationState.lunch.queue.length +
+            s.mealLoop.rotationState.snacks.queue.length +
+            s.mealLoop.rotationState.dinner.queue.length;
           if (totalQueueSize === 0) {
-            get().setToast({ message: '⚠️ Loop queue is empty. Add dishes to Tray first, then configure loop.', type: 'error' });
+            useStore.getState().setToast({ message: '⚠️ Loop queue is empty. Add dishes to Tray first, then configure loop.', type: 'error' });
             return s;
           }
 
@@ -1623,11 +1678,11 @@ export const useTrayStore = create<TrayStore>()(
             }
           }
 
-          const result = autoFillLoopEngine(cfg, mergedRotationState, existingItems);
+          const result = autoFillLoopEngine(cfg, s.mealLoop.rotationState, existingItems);
 
           // FIX 13: Surface errors if assignment fails silently
           if (result.assignments.length === 0 && totalQueueSize > 0) {
-            get().setToast({ message: '⚠️ Loop assignment failed. No meals could be scheduled.', type: 'error' });
+            useStore.getState().setToast({ message: '⚠️ Loop assignment failed. No meals could be scheduled.', type: 'error' });
             return s;
           }
 
@@ -1680,7 +1735,6 @@ export const useTrayStore = create<TrayStore>()(
               ...s.mealLoop,
               rotationState: result.rotationState,
               assignments: [...s.mealLoop.assignments, ...dedupedNew],
-              pendingMerge: [], // FIX 2: Clear after processing
             },
             plan: {
               ...s.plan,
@@ -1769,15 +1823,10 @@ export const useTrayStore = create<TrayStore>()(
     }),
     {
       name: 'mealdrama-tray-store',
-      version: 4,
+      // ⛔ FREEZE: Do NOT bump this version unless you are adding/removing persisted fields.
+      // Bumping triggers migrate() which can clear plan.days and force users through onboarding again.
+      version: 7,
       storage: nativeStorage,
-      onRehydrateStorage: () => (state, error) => {
-        if (error) {
-          console.error('[TrayStore] Hydration failed:', error);
-        } else if (state) {
-          console.log('[TrayStore] Hydrated: plan.days=', Object.keys(state.plan.days).length, 'mealLoop.config=', !!state.mealLoop.config);
-        }
-      },
       migrate: (persistedState: unknown, fromVersion: number) => {
         console.log('[TrayStore] Migrating from version', fromVersion);
         const state = persistedState as Record<string, unknown>;
@@ -1787,6 +1836,15 @@ export const useTrayStore = create<TrayStore>()(
           console.warn('[TrayStore] Invalid persisted state, resetting');
           return persistedState;
         }
+
+        // APK downgrade guard: if persisted state is newer than code, skip migration
+        if (fromVersion > 7) {
+          console.warn('[TrayStore] Persisted state (v' + fromVersion + ') is newer than code — ignoring migration to prevent crash');
+          return persistedState;
+        }
+
+        // Preserve plan.days through any migration — prevents accidental wipe from version bumps
+        const savedPlan = state.plan as Record<string, unknown> | undefined;
 
         if (fromVersion < 1) {
           state.plan = { period: 'week', days: {} };
@@ -1806,7 +1864,7 @@ export const useTrayStore = create<TrayStore>()(
           if (!loop) {
             state.mealLoop = EMPTY_LOOP_STATE;
           } else {
-            state.mealLoop = deepMergeLoopState(loop, EMPTY_LOOP_STATE);
+            state.mealLoop = deepMergeLoopState(loop as Record<string, unknown>, EMPTY_LOOP_STATE as Record<string, unknown>);
           }
         }
         if (fromVersion < 4) {
@@ -1815,6 +1873,24 @@ export const useTrayStore = create<TrayStore>()(
             const today = getISODate(new Date());
             loop.assignments = loop.assignments.filter((a) => a.date >= today);
           }
+        }
+        if (fromVersion < 5) {
+          // v5 migration — insertStrategy normalization removed (field no longer exists)
+        }
+
+        if (fromVersion < 6) {
+          // v5→v6: No-op — actual reconciliation runs post-hydration in App.tsx
+          console.log('[TrayStore] v6 migration: no-op (reconciliation runs post-hydration)');
+        }
+        if (fromVersion < 7) {
+          // v6→v7: Strip dead pendingMerge field
+          const ml = (persistedState as Record<string, unknown>).mealLoop as Record<string, unknown> | undefined;
+          if (ml) delete ml.pendingMerge;
+        }
+
+        // Restore plan if a migration accidentally dropped it
+        if (savedPlan && (!state.plan || (typeof state.plan === 'object' && !(state.plan as Record<string, unknown>).days))) {
+          state.plan = savedPlan;
         }
 
         console.log('[TrayStore] Migration complete, plan.days keys:', Object.keys((state.plan as any)?.days || {}).length);
@@ -1829,7 +1905,7 @@ export const useTrayStore = create<TrayStore>()(
             if (!record || typeof record !== 'object') return {};
             const cutoff = new Date();
             cutoff.setDate(cutoff.getDate() - maxAgeDays);
-            const cutoffStr = cutoff.toISOString().split('T')[0];
+            const cutoffStr = cutoff.toISOString().split('T')[0]!;
             const pruned: Record<string, number> = {};
             for (const [date, value] of Object.entries(record)) {
               if (date >= cutoffStr) pruned[date] = value;
@@ -1877,6 +1953,16 @@ export const useTrayStore = create<TrayStore>()(
           console.error('[TrayStore] Hydration failed:', error);
         } else if (state) {
           console.log('[TrayStore] Hydrated successfully, plan.days:', Object.keys(state.plan.days).length, 'mealLoop.config:', !!state.mealLoop.config);
+          // Delay reconciliation until both stores are hydrated
+          if (useStore.persist.hasHydrated()) {
+            reconcileLoopStateWithTray();
+          } else {
+            // Subscribe to useStore hydration and reconcile once
+            const unsub = useStore.persist.onFinishHydration(() => {
+              reconcileLoopStateWithTray();
+              unsub();
+            });
+          }
         }
       },
     }

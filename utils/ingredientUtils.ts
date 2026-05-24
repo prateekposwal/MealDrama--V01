@@ -316,14 +316,31 @@ function aggregateIngredients(
 ): Map<string, AggregatedIngredient> {
     const map = new Map<string, AggregatedIngredient>();
 
+    const singularize = (n: string): string => {
+        const lower = n.toLowerCase();
+        if (lower.endsWith('es')) {
+            const root = lower.slice(0, -2);
+            if (root.length >= 2) return root;
+        }
+        if (lower.endsWith('s') && !lower.endsWith('ss')) {
+            const root = lower.slice(0, -1);
+            if (root.length >= 2) return root;
+        }
+        return lower;
+    };
+
     for (const { ing, source } of allIngredients) {
-        const key = toStableId(ing.name, ing.category);
+        const normalizedName = singularize(ing.name);
+        const key = toStableId(normalizedName, ing.category);
         const existing = map.get(key);
 
         if (existing) {
             existing.totalQuantity += ing.quantity;
             if (!existing.sources.includes(source)) {
                 existing.sources.push(source);
+            }
+            if (ing.name.length < existing.name.length) {
+                existing.name = ing.name;
             }
         } else {
             map.set(key, {
@@ -930,6 +947,51 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Wheat Flour', quantity: 150, unit: 'g', category: 'grains', inStock: false });
         result.push({ name: 'Bottle Gourd', quantity: 100, unit: 'g', category: 'produce', inStock: false });
     }
+    // INF-61: Hot chocolate beverages
+    if (idLower.includes('hot-chocolate')) {
+        result.push({ name: 'Cocoa Powder', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+        result.push({ name: 'Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
+        result.push({ name: 'Sugar', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+    }
+    // INF-62: Fruit-based milk beverages
+    if (idLower.includes('peach-milk')) {
+        result.push({ name: 'Peach', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
+        result.push({ name: 'Sugar', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+    }
+    if (idLower.includes('vegan-strawberry-milk')) {
+        result.push({ name: 'Strawberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        result.push({ name: 'Almond Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
+        result.push({ name: 'Sugar', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+    }
+    // INF-63: Shake beverages
+    if (idLower.includes('shake')) {
+        result.push({ name: 'Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
+        if (idLower.includes('tender-coconut') || idLower.includes('coconut-shake')) {
+            result.push({ name: 'Coconut', quantity: 100, unit: 'g', category: 'produce', inStock: false });
+        }
+        if (idLower.includes('chikoo')) {
+            result.push({ name: 'Chikoo', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
+        }
+    }
+    // INF-64: Eggless brownies
+    if (idLower.includes('eggless-brownies')) {
+        result.push({ name: 'Cocoa Powder', quantity: 4, unit: 'tbsp', category: 'pantry', inStock: false });
+        result.push({ name: 'Maida', quantity: 100, unit: 'g', category: 'grains', inStock: false });
+        result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
+        result.push({ name: 'Butter', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
+    }
+    // INF-65: Strawberry juice
+    if (idLower.includes('strawberry-juice')) {
+        result.push({ name: 'Strawberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        result.push({ name: 'Sugar', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+    }
+    // INF-66: Noodle dishes (hakka, chow-mein, etc.) — add Noodles as a grain
+    if (idLower.includes('noodles') || idLower.includes('noodle')) {
+        if (!result.find(i => i.name.toLowerCase() === 'noodles')) {
+            result.push({ name: 'Noodles', quantity: 200, unit: 'g', category: 'grains', inStock: false });
+        }
+    }
 
     // CATEGORY_INGREDIENTS fallback: match dish ID tokens against known ingredient sets
     // Catches Northeast/regional dishes that don't have specific INF patterns
@@ -937,9 +999,17 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         const idTokens = idLower.split('-').filter(t => t.length > 3);
         const catKey = Object.keys(CATEGORY_INGREDIENTS).find(k => {
             if (idLower === k) return true;
-            if (idLower.includes(k)) return true;
+            // Word-boundary substring match: k must appear as a standalone token
+            const idx = idLower.indexOf(k);
+            if (idx !== -1) {
+                const beforeBound = idx === 0 || idLower[idx - 1] === '-' || idLower[idx - 1] === ' ';
+                const afterBound = idx + k.length >= idLower.length || idLower[idx + k.length] === '-' || idLower[idx + k.length] === ' ';
+                if (beforeBound && afterBound) return true;
+            }
+            // Require at least 2 shared tokens to prevent single generic token matches
             const kTokens = k.split('-').filter(t => t.length > 3);
-            return kTokens.some(kt => idTokens.includes(kt));
+            const sharedCount = kTokens.filter(kt => idTokens.includes(kt)).length;
+            return sharedCount >= 2;
         });
         if (catKey) {
             for (const ing of CATEGORY_INGREDIENTS[catKey]) {
@@ -951,10 +1021,12 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
     }
 
     // INF-04: Ghee/Butter (common in Indian cooking) — skip for drinks, sweets, salads, soups
-    const _isDrink = /lassi|chai|sharbat|juice|milkshake|buttermilk|sherbet|lemonade|nimbu|panna|thandai|smoothie|coconut-water|soda|sharbat|milk-tea/.test(idLower);
-    const _isSweet = /kheer|halwa|jalebi|gulab.*jamun|barfi|laddu|pudding|cake|cookie|brownie|muffin|dessert|ice-cream|payasam|custard|cupcake|donut|cheesecake|mysore-pak|haalbai|basundi|doodhpak/.test(idLower);
-    const _isSalad = /salad/.test(idLower);
-    const _isSoup = /soup|shorba|rasam|saar|charu|stew|broth/.test(idLower);
+    // Normalize to hyphenated form so patterns with hyphens also match space-separated names
+    const _idClassify = idLower.replace(/ /g, '-');
+    const _isDrink = /lassi|chai|sharbat|juice|milkshake|shake|buttermilk|sherbet|lemonade|nimbu|panna|thandai|smoothie|coconut-water|soda|sharbat|milk-tea|milk$|hot-chocolate/.test(_idClassify);
+    const _isSweet = /kheer|halwa|jalebi|gulab.*jamun|barfi|laddu|pudding|cake|cookie|brownie|muffin|dessert|ice-cream|payasam|payesh|custard|cupcake|donut|cheesecake|mysore-pak|haalbai|basundi|doodhpak/.test(_idClassify);
+    const _isSalad = /salad/.test(_idClassify);
+    const _isSoup = /soup|shorba|rasam|saar|charu|stew|broth/.test(_idClassify);
     if (!_isDrink && !_isSweet && !_isSalad && !_isSoup) {
         result.push({ name: 'Ghee', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
         result.push({ name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
@@ -1078,6 +1150,7 @@ const GRAIN_ALIASES: Record<string, string> = {
     'roti': 'Roti', 'phulka': 'Phulka',
     'steamed-rice': 'Steamed Rice', 'jeera-rice': 'Jeera Rice', 'rice': 'Rice',
     'bajra-roti': 'Bajra Roti', 'makki-di-roti': 'Makki di Roti', 'missi-roti': 'Missi Roti',
+    'noodles': 'Noodles', 'hakka-noodles': 'Noodles', 'chow-mein': 'Noodles',
 };
 
 const DAIRY_ALIASES: Record<string, string> = {

@@ -47,12 +47,14 @@ export function useNormalizedComposition(meals: TrayItem[]): NormalizedCompositi
     }
 
     const entries = Array.from(seen.values());
+    const rotiNames = new Set(entries.filter(e => e.category === 'roti').map(e => e.name.toLowerCase()));
+    const riceNames = new Set(entries.filter(e => e.category === 'rice').map(e => e.name.toLowerCase()));
 
     return {
       gravy: entries.filter(e => e.category === 'gravy').map(e => ({ name: e.name, totalQty: e.totalQty, unit: 'servings' })),
       roti: entries.filter(e => e.category === 'roti').map(e => ({ name: e.name, totalQty: e.totalQty, unit: 'pcs' })),
       rice: entries.filter(e => e.category === 'rice').map(e => ({ name: e.name, totalQty: e.totalQty, unit: 'bowls' })),
-      sides: entries.filter(e => e.category === 'sides').map(e => ({ name: e.name, totalQty: e.totalQty, unit: 'servings' })),
+      sides: entries.filter(e => e.category === 'sides' && !rotiNames.has(e.name.toLowerCase()) && !riceNames.has(e.name.toLowerCase())).map(e => ({ name: e.name, totalQty: e.totalQty, unit: 'servings' })),
       beverages: entries.filter(e => e.category === 'beverages').map(e => ({ name: e.name, totalQty: e.totalQty, unit: 'glasses' })),
       dessert: entries.filter(e => e.category === 'dessert').map(e => ({ name: e.name, totalQty: e.totalQty, unit: 'pcs' })),
     };
