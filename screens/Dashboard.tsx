@@ -742,11 +742,55 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
           }
         }
 
+        // ─── Component role detection for completeness scoring ─────────────
+        const hasCarbBase = meals.some(m =>
+          m.roti || m.rice ||
+          m.name.toLowerCase().includes('roti') ||
+          m.name.toLowerCase().includes('rice') ||
+          m.name.toLowerCase().includes('bread') ||
+          m.name.toLowerCase().includes('dosa') ||
+          m.name.toLowerCase().includes('idli') ||
+          m.name.toLowerCase().includes('paratha')
+        );
+        const hasProteinCore = meals.some(m =>
+          categories.some(c => c === 'lean-protein' || c === 'legume') ||
+          m.name.toLowerCase().includes('dal') ||
+          m.name.toLowerCase().includes('paneer') ||
+          m.name.toLowerCase().includes('chicken') ||
+          m.name.toLowerCase().includes('egg') ||
+          m.name.toLowerCase().includes('fish') ||
+          m.name.toLowerCase().includes('mutton') ||
+          m.name.toLowerCase().includes('chole') ||
+          m.name.toLowerCase().includes('rajma') ||
+          m.name.toLowerCase().includes('sambar')
+        );
+        const hasFiberSide = meals.some(m =>
+          (m.sides?.length ?? 0) > 0 ||
+          m.name.toLowerCase().includes('salad') ||
+          m.name.toLowerCase().includes('raita') ||
+          m.name.toLowerCase().includes('chutney') ||
+          m.name.toLowerCase().includes('pickle') ||
+          m.name.toLowerCase().includes('veg')
+        );
+        const hasHydration = meals.some(m =>
+          (m.beverages?.length ?? 0) > 0 ||
+          m.name.toLowerCase().includes('water') ||
+          m.name.toLowerCase().includes('chaas') ||
+          m.name.toLowerCase().includes('lassi') ||
+          m.name.toLowerCase().includes('tea') ||
+          m.name.toLowerCase().includes('coffee') ||
+          m.name.toLowerCase().includes('juice')
+        );
+
         return [{
           name: mealType,
           healthCategories: categories,
           tags,
           quantity: 1,
+          hasCarbBase,
+          hasProteinCore,
+          hasFiberSide,
+          hasHydration,
         }];
       });
 
