@@ -81,6 +81,105 @@ export function buildRotationQueue(pool: SourcePool, dishes?: Dish[]): RotationQ
   return result;
 }
 
+// ─── DP-based rotation optimization ─────────────────────────────────────────
+// Uses DP with bitmask to find optimal dish ordering that minimizes consecutive
+// style repetition. Limited to ≤15 dishes for performance (O(n² * 2^n)).
+
+const STYLE_PENALTY = {
+  same: 10,       // same style consecutively
+  similar: 3,     // related styles (gravy↔creamy, dry↔crispy)
+  different: 0,   // unrelated styles
+} as const;
+
+const STYLE_GROUPS: Record<string, string[]> = {
+  gravy: ['creamy', 'dal'],
+  dry: ['crispy', 'light'],
+  creamy: ['gravy', 'sweet'],
+  spicy: ['tangy'],
+  tangy: ['spicy', 'fresh'],
+  smoky: ['gravy', 'dry'],
+  light: ['fresh', 'dry'],
+  starchy: ['gravy', 'creamy'],
+  crispy: ['dry', 'fresh'],
+  fresh: ['light', 'tangy'],
+  dal: ['gravy'],
+  sweet: ['creamy'],
+};
+
+function styleDistance(a: string, b: string): number {
+  if (a === b) return STYLE_PENALTY.same;
+  const similar = STYLE_GROUPS[a] ?? [];
+  return similar.includes(b) ? STYLE_PENALTY.similar : STYLE_PENALTY.different;
+}
+
+export function optimizeRotationQueue(queue: RotationQueueItem[]): RotationQueueItem[] {
+  const n = queue.length;
+  if (n <= 2 || n > 15) return queue; // DP only for 3-15 items
+
+  const styles = queue.map(q => q.style ?? 'unknown');
+
+  // dp[mask][last] = min penalty to arrange items in mask, ending with item 'last'
+  const dp: number[][] = [];
+  const parent: number[][] = [];
+  const fullMask = (1 << n) - 1;
+
+  for (let mask = 0; mask <= fullMask; mask++) {
+    dp[mask] = new Array(n).fill(Infinity);
+    parent[mask] = new Array(n).fill(-1);
+  }
+
+  // Base case: single items
+  for (let i = 0; i < n; i++) {
+    dp[1 << i]![i] = 0;
+  }
+
+  // Fill DP
+  for (let mask = 1; mask < fullMask; mask++) {
+    for (let last = 0; last < n; last++) {
+      if (!(mask & (1 << last))) continue;
+      const currentCost = dp[mask]?.[last];
+      if (currentCost === undefined || currentCost === Infinity) continue;
+
+      for (let next = 0; next < n; next++) {
+        if (mask & (1 << next)) continue;
+        const newMask = mask | (1 << next);
+        const penalty = styleDistance(styles[last]!, styles[next]!);
+        const newCost = currentCost + penalty;
+        const existingCost = dp[newMask]?.[next];
+        if (existingCost === undefined || newCost < existingCost) {
+          dp[newMask]![next] = newCost;
+          parent[newMask]![next] = last;
+        }
+      }
+    }
+  }
+
+  // Find best ending item
+  let bestLast = 0;
+  let bestCost = dp[fullMask]?.[0] ?? Infinity;
+  for (let i = 1; i < n; i++) {
+    const cost = dp[fullMask]?.[i];
+    if (cost !== undefined && cost < bestCost) {
+      bestCost = cost;
+      bestLast = i;
+    }
+  }
+
+  // Reconstruct path
+  const order: number[] = [];
+  let mask = fullMask;
+  let curr = bestLast;
+  while (curr !== -1) {
+    order.push(curr);
+    const prev = parent[mask]?.[curr] ?? -1;
+    mask ^= (1 << curr);
+    curr = prev;
+  }
+  order.reverse();
+
+  return order.map(i => queue[i]!);
+}
+
 /**
  * Assign dishes across exactly cycleLength active (non-skipped) days.
  * Per-slot sub-queues cycle independently — each day gets one dish per meal type.
@@ -277,13 +376,26 @@ export function checkImbalance(
 /**
  * Build full loop assignments for first-time creation.
  * Creates queue then assigns all items to dates.
+ * Uses DP optimization to minimize consecutive style repetition.
  */
 export function buildLoopAssignments(
   pool: SourcePool,
   config: MealLoopConfig,
   dishes?: Dish[],
 ): { queue: RotationQueueItem[]; assignments: MealLoopAssignment[] } {
-  const queue = buildRotationQueue(pool, dishes);
+  let queue = buildRotationQueue(pool, dishes);
+
+  // Apply DP optimization per slot type for better variety
+  if (config.repeatPattern !== 'random') {
+    const slotOrder: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
+    const optimized: RotationQueueItem[] = [];
+    for (const slot of slotOrder) {
+      const slotItems = queue.filter(q => q.mealType === slot);
+      optimized.push(...optimizeRotationQueue(slotItems));
+    }
+    queue = optimized;
+  }
+
   const assignments = assignFromQueue(queue, config, 0, []);
   return { queue, assignments };
 }

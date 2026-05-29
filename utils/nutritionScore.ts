@@ -208,3 +208,130 @@ export function getScoreEmoji(score: number, max: number): string {
   if (pct >= 0.2) return '😬';
   return '😟';
 }
+
+// ─── DP-based plate balance optimization ────────────────────────────────────
+// Uses knapsack DP to find optimal dish combination that maximizes plate balance
+// score within calorie constraints.
+
+export interface PlateOptimizationCandidate {
+  id: string;
+  name: string;
+  healthCategories: string[];
+  tags: string[];
+  estimatedCalories: number;
+}
+
+export interface PlateOptimizationResult {
+  selected: PlateOptimizationCandidate[];
+  totalScore: number;
+  totalCalories: number;
+  balanceScore: PlateBalanceScore;
+}
+
+const plateOptCache = new Map<string, PlateOptimizationResult>();
+
+export function optimizePlateBalance(
+  candidates: PlateOptimizationCandidate[],
+  maxCalories: number,
+  minItems: number,
+  maxItems: number,
+): PlateOptimizationResult {
+  const key = `${candidates.map(c => c.id).join(',')}::${maxCalories}::${minItems}::${maxItems}`;
+  const cached = plateOptCache.get(key);
+  if (cached) return cached;
+
+  const n = candidates.length;
+  if (n === 0) {
+    const result = { selected: [], totalScore: 0, totalCalories: 0, balanceScore: scorePlateBalance([]) };
+    return result;
+  }
+
+  // Cap for DP performance
+  const maxN = Math.min(n, 20);
+  const limited = candidates.slice(0, maxN);
+
+  // DP: dp[i][cal] = max score using subset of first i items with exactly cal calories
+  // We use a Map for sparse calorie values
+  const dp: Map<number, { score: number; items: number[] }>[] = [];
+  dp.push(new Map([[0, { score: 0, items: [] }]]));
+
+  for (let i = 0; i < maxN; i++) {
+    const item = limited[i]!;
+    const prev = dp[i]!;
+    const curr = new Map(prev);
+
+    for (const [cal, state] of prev) {
+      const newCal = cal + item.estimatedCalories;
+      if (newCal > maxCalories) continue;
+
+      const itemScore = scoreDishByCategories(item.healthCategories, item.tags);
+      const newScore = state.score + itemScore;
+
+      const existing = curr.get(newCal);
+      if (!existing || newScore > existing.score) {
+        curr.set(newCal, { score: newScore, items: [...state.items, i] });
+      }
+    }
+
+    dp.push(curr);
+  }
+
+  // Find best valid solution (minItems to maxItems)
+  let bestScore = -Infinity;
+  let bestItems: number[] = [];
+  let bestCal = 0;
+
+  const final = dp[maxN]!;
+  for (const [cal, state] of final) {
+    if (state.items.length < minItems || state.items.length > maxItems) continue;
+    if (state.score > bestScore) {
+      bestScore = state.score;
+      bestItems = state.items;
+      bestCal = cal;
+    }
+  }
+
+  // Fallback: if no valid combo found, pick best single item
+  if (bestItems.length === 0 && limited.length > 0) {
+    let bestSingleIdx = 0;
+    let bestSingleScore = -Infinity;
+    for (let i = 0; i < limited.length; i++) {
+      const s = scoreDishByCategories(limited[i]!.healthCategories, limited[i]!.tags);
+      if (s > bestSingleScore && limited[i]!.estimatedCalories <= maxCalories) {
+        bestSingleScore = s;
+        bestSingleIdx = i;
+      }
+    }
+    bestItems = [bestSingleIdx];
+    bestCal = limited[bestSingleIdx]!.estimatedCalories;
+    bestScore = bestSingleScore;
+  }
+
+  const selected = bestItems.map(i => limited[i]!);
+  const totalCalories = selected.reduce((sum, c) => sum + c.estimatedCalories, 0);
+  const balanceScore = scorePlateBalance(selected.map(c => ({
+    name: c.name,
+    healthCategories: c.healthCategories,
+    tags: c.tags,
+  })));
+
+  const result: PlateOptimizationResult = {
+    selected,
+    totalScore: bestScore,
+    totalCalories,
+    balanceScore,
+  };
+
+  // Cache with LRU pruning
+  if (plateOptCache.size > 100) {
+    const firstKey = plateOptCache.keys().next().value;
+    if (firstKey) plateOptCache.delete(firstKey);
+  }
+  plateOptCache.set(key, result);
+
+  return result;
+}
+
+export function clearPlateOptCache() {
+  plateOptCache.clear();
+}

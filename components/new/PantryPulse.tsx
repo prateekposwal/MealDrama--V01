@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useStore, type CategorySelection } from '../../store/useStore';
 import { useTrayStore, type MealType } from '../../store/useTrayStore';
 import { useBackendDishes } from '../../hooks/useBackendDishes';
-import { Plus, X, Share2, Check } from 'lucide-react';
+import { Plus, X, Share2, Check, ShoppingCart } from 'lucide-react';
 import { getShareStrings, ShareLanguage } from '../../utils/share';
 import {
     buildPantryGroups,
@@ -18,6 +18,7 @@ import type { Ingredient } from '../../constants/dishLibrary';
 import WhatsAppShareModal from './WhatsAppShareModal';
 import { isAfterEnd, SLOT_TIME_DEFAULTS } from '../../types/tray';
 import { getISODate } from '../../utils/dateUTC';
+import { matchPantryToRecipes, suggestShoppingList, clearPantryMatchCache } from '../../utils/pantryRecipeMatch';
 
 interface PantryItem {
     id: string;
@@ -181,6 +182,37 @@ const PantryPulse: React.FC = () => {
         );
         return [...autoItems, ...manual];
     }, [groups, manual]);
+
+    // ─── Pantry-to-Recipe Matching (DP-based) ────────────────────────────────
+    const pantryRecipes = useMemo(() => {
+        // Build recipe pool from dishes with ingredients
+        const recipes = dishes
+            .filter(d => d.variants.some(v => v.ingredients && v.ingredients.length > 0))
+            .map(d => ({
+                id: d.id,
+                name: d.name,
+                ingredients: (d.variants[0]?.ingredients ?? []).map(ing => ({
+                    name: ing.name,
+                    quantity: `${ing.quantity} ${ing.unit}`,
+                    optional: false,
+                })),
+            }));
+
+        // Use checked pantry items as available ingredients
+        const availablePantry = allItems
+            .filter(i => i.checked)
+            .map(i => i.name);
+
+        if (availablePantry.length === 0 || recipes.length === 0) {
+            return null;
+        }
+
+        clearPantryMatchCache();
+        const match = matchPantryToRecipes(availablePantry, recipes);
+        const suggestions = suggestShoppingList(availablePantry, match.partiallyMake, 5);
+
+        return { ...match, suggestions };
+    }, [allItems, dishes]);
 
     const tomorrowMeals = useMemo(() => {
         if (!dishes.length) return [];
@@ -400,6 +432,68 @@ const PantryPulse: React.FC = () => {
                     <div className="w-20 h-20 bg-gray-100 rounded-[24px] flex items-center justify-center text-4xl mb-6">🛒</div>
                     <h3 className="text-xl font-bold mb-2">Fridge looking shy?</h3>
                     <p className="text-gray-400 text-sm">Add meals to your tray and the list builds itself.</p>
+                </div>
+            )}
+
+            {/* ─── Pantry-to-Recipe Match Results ──────────────────────────── */}
+            {pantryRecipes && (
+                <div className="px-6 mb-6">
+                    <div className="flex items-center gap-2 mb-3">
+                        <ShoppingCart size={16} className="text-[#FF385C]" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                            You Can Make ({pantryRecipes.coverageScore * 100}% Coverage)
+                        </span>
+                    </div>
+
+                    {/* Can Make */}
+                    {pantryRecipes.canMake.length > 0 && (
+                        <div className="mb-3">
+                            <p className="text-[9px] font-bold text-emerald-600 uppercase mb-2">
+                                Ready to cook ({pantryRecipes.canMake.length})
+                            </p>
+                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                {pantryRecipes.canMake.slice(0, 6).map(recipe => (
+                                    <div key={recipe.id} className="flex-shrink-0 bg-emerald-50 rounded-xl p-3 border border-emerald-200 min-w-[120px]">
+                                        <p className="text-xs font-bold text-emerald-800 truncate">{recipe.name}</p>
+                                        <p className="text-[9px] text-emerald-600 mt-1">All ingredients ready</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Partially Make */}
+                    {pantryRecipes.partiallyMake.length > 0 && (
+                        <div className="mb-3">
+                            <p className="text-[9px] font-bold text-amber-600 uppercase mb-2">
+                                Almost there ({pantryRecipes.partiallyMake.length})
+                            </p>
+                            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                                {pantryRecipes.partiallyMake.slice(0, 6).map(({ recipe, missing, missingCount }) => (
+                                    <div key={recipe.id} className="flex-shrink-0 bg-amber-50 rounded-xl p-3 border border-amber-200 min-w-[140px]">
+                                        <p className="text-xs font-bold text-amber-800 truncate">{recipe.name}</p>
+                                        <p className="text-[9px] text-amber-600 mt-1">Missing {missingCount}: {missing.slice(0, 2).join(', ')}{missingCount > 2 ? '...' : ''}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Shopping List Suggestions */}
+                    {pantryRecipes.suggestions.length > 0 && (
+                        <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100">
+                            <p className="text-[9px] font-bold text-blue-700 uppercase mb-2">
+                                Buy these to unlock more recipes
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                {pantryRecipes.suggestions.map((item, idx) => (
+                                    <span key={idx} className="bg-white px-3 py-1.5 rounded-lg text-xs font-bold text-blue-800 border border-blue-200">
+                                        {item}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

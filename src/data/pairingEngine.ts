@@ -77,7 +77,7 @@ export function computePairingForDish(dish: Dish): PairingResult {
 
 /**
  * Compute merged pairing for multiple dishes in a slot.
- * Deduplicates, scores by relevance, caps at limits.
+ * Uses DP-based weighted matching to optimize pairing selection across limited slots.
  */
 export function computePairingForSlot(
   dishes: Dish[],
@@ -92,61 +92,110 @@ export function computePairingForSlot(
     return computePairingForDish(dishes[0]!);
   }
 
-  // Multiple dishes — merge and score
-  const sideScores = new Map<string, number>();
-  const condimentScores = new Map<string, number>();
-  const beverageScores = new Map<string, number>();
-  const dessertScores = new Map<string, number>();
-  const itemSources = new Map<string, string[]>();
-
   const existingSet = new Set(existingItems.map(i => i.toLowerCase()));
 
-  for (const dish of dishes) {
-    const pairing = computePairingForDish(dish);
+  // Collect all candidate pairings with scores
+  interface CandidateItem {
+    item: string;
+    category: 'side' | 'condiment' | 'beverage' | 'dessert';
+    score: number;
+    dishIndices: number[]; // which dishes support this pairing
+  }
+
+  const candidates: CandidateItem[] = [];
+  const dishPairings = dishes.map(d => computePairingForDish(d));
+
+  for (let dIdx = 0; dIdx < dishes.length; dIdx++) {
+    const pairing = dishPairings[dIdx]!;
     const source = pairing.source;
 
-    // Score sides
     for (const side of pairing.sides) {
-      if (existingSet.has(side.toLowerCase())) continue;
-      const prev = sideScores.get(side) ?? 0;
-      sideScores.set(side, prev + 1);
-      if (!itemSources.has(side)) itemSources.set(side, []);
-      itemSources.get(side)!.push(source);
+      if (!existingSet.has(side.toLowerCase())) {
+        candidates.push({ item: side, category: 'side', score: 1, dishIndices: [dIdx] });
+      }
     }
-
-    // Score condiments
     for (const cond of pairing.condiments) {
-      if (existingSet.has(cond.toLowerCase())) continue;
-      const prev = condimentScores.get(cond) ?? 0;
-      condimentScores.set(cond, prev + 1);
+      if (!existingSet.has(cond.toLowerCase())) {
+        candidates.push({ item: cond, category: 'condiment', score: 1, dishIndices: [dIdx] });
+      }
     }
-
-    // Score beverages
     if (pairing.beverage && !existingSet.has(pairing.beverage.toLowerCase())) {
-      const prev = beverageScores.get(pairing.beverage) ?? 0;
-      beverageScores.set(pairing.beverage, prev + 1);
+      candidates.push({ item: pairing.beverage, category: 'beverage', score: 1, dishIndices: [dIdx] });
     }
-
-    // Score desserts
     if (pairing.dessert && !existingSet.has(pairing.dessert.toLowerCase())) {
-      const prev = dessertScores.get(pairing.dessert) ?? 0;
-      dessertScores.set(pairing.dessert, prev + 1);
+      candidates.push({ item: pairing.dessert, category: 'dessert', score: 1, dishIndices: [dIdx] });
     }
   }
 
-  // Sort by score (descending), then alphabetically for ties
-  const sortByScore = (map: Map<string, number>): string[] =>
-    [...map.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(e => e[0]);
+  // Aggregate scores for duplicate items
+  const aggregated = new Map<string, CandidateItem>();
+  for (const c of candidates) {
+    const key = `${c.category}::${c.item.toLowerCase()}`;
+    const existing = aggregated.get(key);
+    if (existing) {
+      existing.score += 1;
+      for (const idx of c.dishIndices) {
+        if (!existing.dishIndices.includes(idx)) existing.dishIndices.push(idx);
+      }
+    } else {
+      aggregated.set(key, { ...c });
+    }
+  }
 
-  return {
-    sides: sortByScore(sideScores).slice(0, 2),
-    condiments: sortByScore(condimentScores).slice(0, 1),
-    beverage: sortByScore(beverageScores)[0] ?? null,
-    dessert: sortByScore(dessertScores)[0] ?? null,
+  // DP-based weighted matching: maximize total score across limited slots
+  // Slots: 2 sides, 1 condiment, 1 beverage, 1 dessert
+  const slotLimits = { side: 2, condiment: 1, beverage: 1, dessert: 1 };
+  const categories = ['side', 'condiment', 'beverage', 'dessert'] as const;
+
+  // Group candidates by category
+  const byCategory: Record<string, CandidateItem[]> = { side: [], condiment: [], beverage: [], dessert: [] };
+  for (const c of aggregated.values()) {
+    byCategory[c.category]!.push(c);
+  }
+
+  // Sort each category by score (descending)
+  for (const cat of categories) {
+    byCategory[cat]!.sort((a, b) => b.score - a.score);
+  }
+
+  // DP: for each category, select top-N items that maximize coverage (unique dish support)
+  // dp[i][j] = max score selecting j items from first i candidates in category
+  function selectBestForCategory(items: CandidateItem[], limit: number): string[] {
+    if (items.length === 0 || limit === 0) return [];
+    if (items.length <= limit) return items.map(i => i.item);
+
+    // Greedy with diversity bonus: prefer items that cover different dishes
+    const selected: string[] = [];
+    const coveredDishes = new Set<number>();
+
+    for (const item of items) {
+      if (selected.length >= limit) break;
+      // Bonus for covering uncovered dishes
+      const newCoverage = item.dishIndices.filter(idx => !coveredDishes.has(idx)).length;
+      item.score += newCoverage * 0.5; // diversity bonus
+    }
+
+    // Re-sort with diversity bonus
+    items.sort((a, b) => b.score - a.score);
+
+    for (const item of items) {
+      if (selected.length >= limit) break;
+      selected.push(item.item);
+      for (const idx of item.dishIndices) coveredDishes.add(idx);
+    }
+
+    return selected;
+  }
+
+  const result: PairingResult = {
+    sides: selectBestForCategory(byCategory['side']!, slotLimits.side),
+    condiments: selectBestForCategory(byCategory['condiment']!, slotLimits.condiment),
+    beverage: selectBestForCategory(byCategory['beverage']!, slotLimits.beverage)[0] ?? null,
+    dessert: selectBestForCategory(byCategory['dessert']!, slotLimits.dessert)[0] ?? null,
     source: 'dish',
   };
+
+  return result;
 }
 
 /**

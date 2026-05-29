@@ -19,6 +19,28 @@ export interface ScoringContext {
 
 type FlavorProfile = 'gravy' | 'dry' | 'dal' | 'creamy' | 'spicy' | 'tangy' | 'smoky' | 'sweet' | 'light' | 'starchy' | 'crispy' | 'fresh';
 
+// ─── DP/Memoization caches ──────────────────────────────────────────────────
+const flavorScoreCache = new Map<string, { score: number; reasons: string[] }>();
+const dietScoreCache = new Map<string, { score: number; reasons: string[] }>();
+const pantryScoreCache = new Map<string, { score: number; reasons: string[] }>();
+const regionScoreCache = new Map<string, { score: number; reasons: string[] }>();
+const varietyScoreCache = new Map<string, { score: number; reasons: string[] }>();
+const scoreItemCache = new Map<string, ScoredItem>();
+
+const MAX_CACHE_SIZE = 500;
+
+function pruneCache(cache: Map<string, unknown>, maxSize = MAX_CACHE_SIZE) {
+  if (cache.size > maxSize) {
+    const toDelete = cache.size - maxSize;
+    const keysToDelete = [...cache.keys()].slice(0, toDelete);
+    for (const key of keysToDelete) cache.delete(key);
+  }
+}
+
+function makeCacheKey(...parts: (string | number | undefined)[]): string {
+  return parts.filter(Boolean).join('::');
+}
+
 const DISH_FLAVOR: Record<string, FlavorProfile[]> = {
   gravy: ['gravy', 'creamy'],
   'slow-cooked': ['gravy', 'spicy'],
@@ -140,6 +162,10 @@ function getCandidateFlavors(candidate: string, category: string): FlavorProfile
 }
 
 function computeFlavorScore(dishFlavors: FlavorProfile[], candidateFlavors: FlavorProfile[]): { score: number; reasons: string[] } {
+  const key = makeCacheKey(dishFlavors.join(','), candidateFlavors.join(','));
+  const cached = flavorScoreCache.get(key);
+  if (cached) return cached;
+
   let totalScore = 0;
   let count = 0;
   const reasons: string[] = [];
@@ -158,10 +184,18 @@ function computeFlavorScore(dishFlavors: FlavorProfile[], candidateFlavors: Flav
 
   const avg = count > 0 ? totalScore / count : 0.3;
   const uniqueReasons = [...new Set(reasons)];
-  return { score: avg, reasons: uniqueReasons.slice(0, 2) };
+  const result = { score: avg, reasons: uniqueReasons.slice(0, 2) };
+
+  flavorScoreCache.set(key, result);
+  pruneCache(flavorScoreCache);
+  return result;
 }
 
 function computeDietScore(candidate: string, userDiet: string): { score: number; reasons: string[] } {
+  const key = makeCacheKey(candidate, userDiet);
+  const cached = dietScoreCache.get(key);
+  if (cached) return cached;
+
   const dietOk = DIET_OK[userDiet] ?? ['veg', 'non-veg', 'vegan', 'eggitarian'];
   const reasons: string[] = [];
 
@@ -173,50 +207,54 @@ function computeDietScore(candidate: string, userDiet: string): { score: number;
   );
   const isEggItem = candidate.toLowerCase().includes('egg');
 
+  let result: { score: number; reasons: string[] };
   if (userDiet === 'vegan') {
-    if (isVeganItem) {
-      reasons.push('100% plant-based');
-      return { score: 1.0, reasons };
-    }
-    reasons.push('may contain dairy');
-    return { score: 0.1, reasons };
+    result = isVeganItem
+      ? { score: 1.0, reasons: ['100% plant-based'] }
+      : { score: 0.1, reasons: ['may contain dairy'] };
+  } else if (userDiet === 'veg') {
+    result = isVegItem
+      ? { score: 1.0, reasons: ['vegetarian-friendly'] }
+      : { score: 0.0, reasons: ['not vegetarian'] };
+  } else if (userDiet === 'eggitarian') {
+    result = (isVegItem || isEggItem)
+      ? { score: 1.0, reasons: [isEggItem ? 'egg option' : 'vegetarian-friendly'] }
+      : { score: 0.2, reasons: ['contains meat'] };
+  } else {
+    result = { score: 1.0, reasons: ['no dietary restrictions'] };
   }
 
-  if (userDiet === 'veg') {
-    if (isVegItem) {
-      reasons.push('vegetarian-friendly');
-      return { score: 1.0, reasons };
-    }
-    reasons.push('not vegetarian');
-    return { score: 0.0, reasons };
-  }
-
-  if (userDiet === 'eggitarian') {
-    if (isVegItem || isEggItem) {
-      reasons.push(isEggItem ? 'egg option' : 'vegetarian-friendly');
-      return { score: 1.0, reasons };
-    }
-    reasons.push('contains meat');
-    return { score: 0.2, reasons };
-  }
-
-  reasons.push('no dietary restrictions');
-  return { score: 1.0, reasons };
+  dietScoreCache.set(key, result);
+  pruneCache(dietScoreCache);
+  return result;
 }
 
 function computePantryScore(candidate: string, pantryStaples: string[]): { score: number; reasons: string[] } {
-  if (pantryStaples.length === 0) return { score: 0.5, reasons: ['pantry unknown'] };
+  const key = makeCacheKey(candidate, pantryStaples.join(','));
+  const cached = pantryScoreCache.get(key);
+  if (cached) return cached;
 
-  const candidateLower = candidate.toLowerCase();
-  const match = pantryStaples.some(s => candidateLower.includes(s.toLowerCase()) || s.toLowerCase().includes(candidateLower));
-  if (match) {
-    return { score: 1.0, reasons: ['in your pantry'] };
+  let result: { score: number; reasons: string[] };
+  if (pantryStaples.length === 0) {
+    result = { score: 0.5, reasons: ['pantry unknown'] };
+  } else {
+    const candidateLower = candidate.toLowerCase();
+    const match = pantryStaples.some(s => candidateLower.includes(s.toLowerCase()) || s.toLowerCase().includes(candidateLower));
+    result = match
+      ? { score: 1.0, reasons: ['in your pantry'] }
+      : { score: 0.3, reasons: ['add to shopping list'] };
   }
 
-  return { score: 0.3, reasons: ['add to shopping list'] };
+  pantryScoreCache.set(key, result);
+  pruneCache(pantryScoreCache);
+  return result;
 }
 
 function computeRegionScore(candidate: string, region: string, dish: Meal): { score: number; reasons: string[] } {
+  const key = makeCacheKey(candidate, region, dish.id);
+  const cached = regionScoreCache.get(key);
+  if (cached) return cached;
+
   const regionLower = region.toLowerCase();
   const reasons: string[] = [];
 
@@ -240,30 +278,41 @@ function computeRegionScore(candidate: string, region: string, dish: Meal): { sc
   if (isWest && (southItems.some(i => candidateLower.includes(i)) || northItems.some(i => candidateLower.includes(i)))) regional = false;
   if (isEast && northItems.some(i => candidateLower.includes(i)) && !eastItems.some(i => candidateLower.includes(i))) regional = false;
 
-  if (regional) {
-    reasons.push('regional match');
-    return { score: 1.0, reasons };
-  }
-  reasons.push('non-regional option');
-  return { score: 0.5, reasons };
+  const result = regional
+    ? { score: 1.0, reasons: ['regional match'] }
+    : { score: 0.5, reasons: ['non-regional option'] };
+
+  regionScoreCache.set(key, result);
+  pruneCache(regionScoreCache);
+  return result;
 }
 
 function computeVarietyScore(candidate: string, existingSelections: string[]): { score: number; reasons: string[] } {
-  if (existingSelections.length === 0) return { score: 1.0, reasons: ['first choice'] };
+  const key = makeCacheKey(candidate, existingSelections.join(','));
+  const cached = varietyScoreCache.get(key);
+  if (cached) return cached;
 
-  const alreadySelected = existingSelections.some(s => s.toLowerCase() === candidate.toLowerCase());
-  if (alreadySelected) {
-    const similarItems = existingSelections.filter(s => {
-      const cat = candidate.split(' ')[0];
-      return cat != null && s.toLowerCase().includes(cat.toLowerCase());
-    });
-    if (similarItems.length > 2) {
-      return { score: 0.2, reasons: ['already selected many times'] };
+  let result: { score: number; reasons: string[] };
+  if (existingSelections.length === 0) {
+    result = { score: 1.0, reasons: ['first choice'] };
+  } else {
+    const alreadySelected = existingSelections.some(s => s.toLowerCase() === candidate.toLowerCase());
+    if (alreadySelected) {
+      const similarItems = existingSelections.filter(s => {
+        const cat = candidate.split(' ')[0];
+        return cat != null && s.toLowerCase().includes(cat.toLowerCase());
+      });
+      result = similarItems.length > 2
+        ? { score: 0.2, reasons: ['already selected many times'] }
+        : { score: 0.4, reasons: ['already selected'] };
+    } else {
+      result = { score: 1.0, reasons: ['adds variety'] };
     }
-    return { score: 0.4, reasons: ['already selected'] };
   }
 
-  return { score: 1.0, reasons: ['adds variety'] };
+  varietyScoreCache.set(key, result);
+  pruneCache(varietyScoreCache);
+  return result;
 }
 
 export function scoreItem(
@@ -271,6 +320,10 @@ export function scoreItem(
   category: 'bread' | 'rice' | 'side' | 'beverage',
   ctx: ScoringContext,
 ): ScoredItem {
+  const key = makeCacheKey(candidate, category, ctx.dish.id, ctx.slotType, ctx.userDiet, ctx.region, ctx.pantryStaples.join(','), ctx.existingSelections.join(','));
+  const cached = scoreItemCache.get(key);
+  if (cached) return cached;
+
   const dishFlavors = getDishFlavors(ctx.dish);
   const candidateFlavors = getCandidateFlavors(candidate, category);
 
@@ -300,17 +353,41 @@ export function scoreItem(
     ...variety.reasons.map(r => r),
   ];
 
-  return {
+  const result = {
     name: candidate,
     score,
     maxScore,
     reasons: allReasons.slice(0, 3),
     percentage: Math.round(total * 100),
   };
+
+  scoreItemCache.set(key, result);
+  pruneCache(scoreItemCache);
+  return result;
 }
 
 
 export function formatRecommendation(name: string, reasons: string[]): string {
   if (reasons.length === 0) return `Recommended: ${name}`;
   return `Recommended: ${name} (${reasons.join(', ')})`;
+}
+
+export function clearScoringCache() {
+  flavorScoreCache.clear();
+  dietScoreCache.clear();
+  pantryScoreCache.clear();
+  regionScoreCache.clear();
+  varietyScoreCache.clear();
+  scoreItemCache.clear();
+}
+
+export function getScoringCacheSizes() {
+  return {
+    flavor: flavorScoreCache.size,
+    diet: dietScoreCache.size,
+    pantry: pantryScoreCache.size,
+    region: regionScoreCache.size,
+    variety: varietyScoreCache.size,
+    scoreItem: scoreItemCache.size,
+  };
 }
