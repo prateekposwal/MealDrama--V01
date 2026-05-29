@@ -81,6 +81,7 @@ export interface Dish {
     riceOptions?: string[];
     sideOptions?: string[];
     beverageOptions?: string[];
+    diet?: 'vegan' | 'veg' | 'egg' | 'non-veg';
     defaultPairings?: {
       gravy?: string | null;
       roti?: string | null;
@@ -152,6 +153,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb'],
         tags: ['instant', 'quick', 'under-15', 'hero'],
+        defaultPairings: { sides: ['Coconut Chutney', 'Lemon Wedge'], beverages: ['Coffee'] },
         variants: [
             { id: 'instant-upma-classic', name: 'Instant Upma Classic', mealContext: 'breakfast' },
             { id: 'instant-upma-veggie', name: 'Instant Upma Veggie Boost', mealContext: 'breakfast' },
@@ -168,6 +170,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb'],
         tags: ['fermented', 'steamed', 'healthy'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             ...cookingVariants('Idli', 'idli', ['Plain', 'Rava', 'Mini', 'Masala']),
             { id: 'idli-sambhar', name: 'Idli + Sambhar', addOn: 'with sambhar', mealContext: 'breakfast', ingredients: [{ name: 'Idli Rice', quantity: 1, unit: 'cup', category: 'grains' }, { name: 'Urad Dal', quantity: 0.25, unit: 'cup', category: 'proteins' }, { name: 'Salt', quantity: 0.5, unit: 'tsp', category: 'pantry' }, { name: 'Oil', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Toor Dal', quantity: 0.5, unit: 'cup', category: 'proteins' }, { name: 'Drumstick', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Tomato', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Onion', quantity: 0.5, unit: 'pc', category: 'produce' }, { name: 'Sambar Powder', quantity: 1, unit: 'tbsp', category: 'spices' }, { name: 'Mustard Seeds', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Curry Leaves', quantity: 5, unit: 'pcs', category: 'spices' }] },
@@ -185,6 +188,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb'],
         tags: ['fermented', 'crispy'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             ...cookingVariants('Dosa', 'dosa', ['Plain', 'Masala', 'Rava', 'Neer', 'Ghee Roast', 'Pesarattu']),
             { id: 'masala-dosa', name: 'Masala Dosa', addOn: 'with potato filling', mealContext: 'breakfast', ingredients: [{ name: 'Idli Rice', quantity: 1, unit: 'cup', category: 'grains' }, { name: 'Urad Dal', quantity: 0.25, unit: 'cup', category: 'proteins' }, { name: 'Potato', quantity: 2, unit: 'pcs', category: 'produce' }, { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Green Chili', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Mustard Seeds', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Turmeric', quantity: 0.25, unit: 'tsp', category: 'spices' }, { name: 'Curry Leaves', quantity: 5, unit: 'pcs', category: 'spices' }, { name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Salt', quantity: 0.5, unit: 'tsp', category: 'pantry' }] },
@@ -247,6 +251,7 @@ const southDishes: Dish[] = [
         weight: 'heavy',
         nutrition: ['protein', 'fat'],
         tags: ['fried', 'lentil', 'crispy'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: cookingVariants('Medu Vada', 'medu-vada', ['Plain', 'Sambhar Dip', 'Rasam Dip']),
     },
     // Protein-rich South Indian dishes
@@ -408,6 +413,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb', 'protein'],
         tags: ['fermented', 'toppings', 'south-indian'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'uttapam-plain', name: 'Plain Uttapam', cookingStyle: 'tadka' },
             { id: 'uttapam-onion', name: 'Onion Uttapam', baseStyle: 'toppings' },
@@ -428,6 +434,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb'],
         tags: ['fermented', 'rava', 'quick', 'south-indian'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'rava-idli-classic', name: 'Rava Idli Classic', cookingStyle: 'steamed' },
             { id: 'rava-idli-sambhar', name: 'Rava Idli + Sambhar', addOn: 'with sambhar' },
@@ -481,6 +488,7 @@ const southDishes: Dish[] = [
         weight: 'heavy',
         nutrition: ['carb', 'protein'],
         tags: ['rice', 'lentils', 'bisi-bele', 'comfort', 'one-pot'],
+        defaultPairings: { sides: ['Raita', 'Papad'], beverages: ['Buttermilk'] },
         variants: [
             { id: 'bbb-classic', name: 'Bisi Bele Bath Classic', cookingStyle: 'dum' },
             { id: 'bbb-raita', name: 'Bisi Bele Bath + Raita', addOn: 'with raita', mealContext: 'lunch' },
@@ -515,6 +523,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb'],
         tags: ['dosa', 'semolina', 'crispy', 'south-indian'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'rava-dosa-plain', name: 'Rava Dosa Classic', cookingStyle: 'tadka' },
             { id: 'rava-dosa-onion', name: 'Rava Onion Dosa', cookingStyle: 'tadka' },
@@ -533,6 +542,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb'],
         tags: ['dosa', 'soft', 'south-indian', 'set'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'set-dosa-classic', name: 'Set Dosa + Chutney', addOn: 'with chutney' },
             { id: 'set-dosa-sambhar', name: 'Set Dosa + Sambhar', addOn: 'with sambhar' },
@@ -550,6 +560,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['protein', 'carb'],
         tags: ['dosa', 'moong-dal', ' Andhra', 'green'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'pesarattu-classic', name: 'Pesarattu Classic', cookingStyle: 'tadka' },
             { id: 'pesarattu-upma', name: 'Pesarattu + Upma', addOn: 'with upma', mealContext: 'breakfast' },
@@ -568,6 +579,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb'],
         tags: ['upma', 'semolina', 'quick', 'south-indian'],
+        defaultPairings: { sides: ['Coconut Chutney', 'Lemon Wedge'], beverages: ['Coffee'] },
         variants: [
             { id: 'rava-upma-classic', name: 'Rava Upma Classic', cookingStyle: 'tadka' },
             { id: 'rava-upma-kerala', name: 'Kerala Style Upma', cookingStyle: 'tadka' },
@@ -584,6 +596,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb', 'fiber'],
         tags: ['upma', 'vegetable', 'healthy', 'south-indian'],
+        defaultPairings: { sides: ['Coconut Chutney', 'Lemon Wedge'], beverages: ['Coffee'] },
         variants: [
             { id: 'veg-upma-classic', name: 'Vegetable Upma Classic', cookingStyle: 'tadka' },
             { id: 'veg-upma-coconut', name: 'Vegetable Upma Coconut', cookingStyle: 'tadka' },
@@ -1098,6 +1111,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb', 'protein', 'fiber'],
         tags: ['kerala', 'puttu', 'kadala', 'breakfast', 'rice-cake', 'coconut', 'traditional'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'pk-breakfast', name: 'Puttu + Kadala Curry', mealContext: 'breakfast' },
         ],
@@ -1113,6 +1127,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb'],
         tags: ['kerala', 'appam', 'rice-pancake', 'breakfast', 'fermented'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'appam-plain', name: 'Appam', baseStyle: 'fermented' },
             { id: 'appam-egg', name: 'Appam + Egg', addOn: 'with egg', mealContext: 'breakfast' },
@@ -1378,6 +1393,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb'],
         tags: ['kerala', 'dosa', 'thattu', 'street-food', 'crispy'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'td-classic', name: 'Thattu Dosa + Chutney', addOn: 'with chutney', mealContext: 'breakfast' },
             { id: 'td-sambar', name: 'Thattu Dosa + Sambar', addOn: 'with sambar', mealContext: 'breakfast' },
@@ -1571,6 +1587,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb'],
         tags: ['karnataka', 'mysore', 'bonda', 'fried', 'snacks', 'crispy'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'mbonda-classic', name: 'Mysore Bonda', baseStyle: 'fried' },
             { id: 'mbonda-chutney', name: 'Mysore Bonda + Chutney', addOn: 'with coconut chutney', mealContext: 'snacks' },
@@ -1619,6 +1636,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb', 'protein'],
         tags: ['karnataka', 'maddur', 'vada', 'onion', 'crispy', 'snacks', 'street-food'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'mvada-classic', name: 'Maddur Vada', baseStyle: 'fried' },
             { id: 'mvada-chutney', name: 'Maddur Vada + Chutney', addOn: 'with coconut chutney', mealContext: 'snacks' },
@@ -1650,6 +1668,7 @@ const southDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb'],
         tags: ['karnataka', 'idli', 'tatte', 'plate-idli', 'steamed', 'soft'],
+        defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] },
         variants: [
             { id: 'ti-classic', name: 'Tatte Idli + Chutney', addOn: 'with chutney', mealContext: 'breakfast' },
             { id: 'ti-sambar', name: 'Tatte Idli + Sambar', addOn: 'with sambar', mealContext: 'breakfast' },
@@ -1698,6 +1717,7 @@ const southDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['fiber', 'calcium', 'iron', 'carb'],
         tags: ['karnataka', 'ragi', 'millet', 'mudde', 'healthy', 'staple', 'traditional'],
+        defaultPairings: { sides: ['Saaru', 'Curry'], beverages: [] },
         variants: [
             { id: 'rm-sambar', name: 'Ragi Mudde + Sambar', addOn: 'with sambar', mealContext: 'lunch' },
             { id: 'rm-saaru', name: 'Ragi Mudde + Saaru', addOn: 'with saaru', mealContext: 'lunch' },
@@ -2224,6 +2244,7 @@ const westDishes: Dish[] = [
         weight: 'light',
         nutrition: ['carb', 'protein'],
         tags: ['steamed', 'fermented', 'healthy'],
+        defaultPairings: { sides: ['Green Chutney', 'Sweet Chutney'], beverages: ['Chai'] },
         variants: cookingVariants('Dhokla', 'dhokla', ['Khaman', 'Nylon', 'Rava', 'Sandwich']),
     },
     {
@@ -2556,6 +2577,7 @@ variants: [
         weight: 'light',
         nutrition: ['carb', 'protein'],
         tags: ['gujarati', 'steamed', 'healthy', 'tangy'],
+        defaultPairings: { sides: ['Green Chutney', 'Sweet Chutney'], beverages: ['Chai'] },
         variants: [
             { id: 'khandvi-classic', name: 'Classic Khandvi', baseStyle: 'steamed' },
             { id: 'khandvi-coconut', name: 'Khandvi + Coconut', addOn: 'with coconut' },
@@ -3189,6 +3211,7 @@ variants: [
         weight: 'light',
         nutrition: ['fiber', 'protein'],
         tags: ['gujarat', 'muthiya', 'steamed', 'pan-fried', 'healthy', 'tea-time', 'traditional'],
+        defaultPairings: { sides: ['Green Chutney', 'Sweet Chutney'], beverages: ['Chai'] },
         description: 'Fist-shaped dumplings made from chickpea flour, bottle gourd and spices. Steamed then pan-fried and seasoned. Juicy and fluffy inside, golden and crispy outside. Other varieties include spinach, fenugreek, amaranth or bitter gourd. Best with mint-coriander chutney or ketchup.',
         variants: [
             { id: 'muthiya-steamed', name: 'Steamed Muthiya', baseStyle: 'steamed' },
@@ -3834,6 +3857,8 @@ const eastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['protein'],
         tags: ['fish', 'ilish', 'hilsa', 'bengali', 'steamed'],
+        diet: 'non-veg',
+        defaultPairings: { sides: ['Steamed Rice', 'Cucumber Salad'], beverages: ['Lemon Water'] },
         variants: [
             { id: 'bhapa-rice', name: 'Bhapa Ilish + Rice', addOn: 'with rice', mealContext: 'lunch' },
             { id: 'bhapa-plain', name: 'Bhapa Ilish Plain', cookingStyle: 'steamed' },
@@ -3868,6 +3893,8 @@ const eastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['protein'],
         tags: ['prawn', 'bengali', 'coconut', 'steamed', 'special'],
+        diet: 'non-veg',
+        defaultPairings: { sides: ['Steamed Rice', 'Cucumber Raita'], beverages: ['Mint Lemonade'] },
         variants: [
             { id: 'daab-rice', name: 'Daab Chingri + Rice', addOn: 'with rice', mealContext: 'lunch' },
             { id: 'daab-plain', name: 'Daab Chingri Plain', cookingStyle: 'steamed' },
@@ -4113,6 +4140,8 @@ const eastDishes: Dish[] = [
         weight: 'light',
         nutrition: ['protein', 'minerals'],
         tags: ['east', 'jharkhand', 'mushroom', 'wild', 'monsoon', 'indigenous', 'healthy'],
+        diet: 'vegan',
+        defaultPairings: { sides: ['Steamed Rice', 'Ghost Chili Chutney'], beverages: ['Green Tea'] },
         variants: [
             { id: 'rugra-classic', name: 'Rugra', cookingStyle: 'sabzi' },
             { id: 'rugra-fry', name: 'Rugra Fry', cookingStyle: 'fried' },
@@ -4241,6 +4270,7 @@ const centralDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb'],
         tags: ['fasting', 'sago', 'light'],
+        defaultPairings: { sides: ['Roasted Peanuts', 'Lemon Wedge'], beverages: ['Chai'] },
         variants: cookingVariants('Sabudana Khichdi', 'sabudana', ['Dry', 'Wet', 'Tawa Style']),
     },
     // ─── Kofta Dishes (Central) ───────────────────────────────────────
@@ -4741,6 +4771,8 @@ const northeastDishes: Dish[] = [
         weight: 'light',
         nutrition: ['fiber'],
         tags: ['northeast', 'manipuri', 'stew', 'vegetable', 'healthy', 'traditional'],
+        diet: 'veg',
+        defaultPairings: { sides: ['Steamed Rice', 'Light Cucumber Salad'], beverages: ['Herbal Tea'] },
         variants: [
             { id: 'chamthong-classic', name: 'Chamthong', mealContext: 'lunch' },
             { id: 'chamthong-rice', name: 'Chamthong + Rice', addOn: 'with rice', mealContext: 'lunch' },
@@ -4787,6 +4819,8 @@ const northeastDishes: Dish[] = [
         weight: 'light',
         nutrition: ['protein', 'carb'],
         tags: ['northeast', 'manipuri', 'pancake', 'steamed', 'ngari', 'besan', 'snacks'],
+        diet: 'non-veg',
+        defaultPairings: { sides: ['Steamed Rice', 'Mustard Pickle'], beverages: ['Ginger Lemon Water'] },
         variants: [
             { id: 'paaknam-classic', name: 'Paaknam', baseStyle: 'steamed' },
         ],
@@ -4847,6 +4881,8 @@ const northeastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb'],
         tags: ['northeast', 'meghalaya', 'rice', 'steamed', 'staple', 'festive'],
+        diet: 'vegan',
+        defaultPairings: { sides: ['Black Sesame Chutney', 'Steamed Greens'], beverages: ['Green Tea'] },
         variants: [
             { id: 'pumaloi-classic', name: 'Pumaloi', baseStyle: 'steamed' },
         ],
@@ -4892,6 +4928,8 @@ const northeastDishes: Dish[] = [
         weight: 'heavy',
         nutrition: ['protein', 'carb'],
         tags: ['northeast', 'meghalaya', 'rice', 'pork', 'steamed', 'festive', 'special-occasion'],
+        diet: 'non-veg',
+        defaultPairings: { sides: ['Steamed Rice', 'Bamboo Shoot Pickle'], beverages: ['Herbal Tea'] },
         variants: [
             { id: 'pudoh-classic', name: 'Pudoh', baseStyle: 'steamed' },
         ],
@@ -4907,6 +4945,8 @@ const northeastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['carb'],
         tags: ['northeast', 'meghalaya', 'sticky-rice', 'garo', 'traditional'],
+        diet: 'vegan',
+        defaultPairings: { sides: ['Red Rice', 'Tomato Chutney'], beverages: ['Lemon Water'] },
         variants: [
             { id: 'msonga-classic', name: 'Minil Songa', baseStyle: 'steamed' },
         ],
@@ -4937,6 +4977,8 @@ const northeastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['sweet', 'carb'],
         tags: ['northeast', 'meghalaya', 'rice-cake', 'sesame', 'steamed', 'sweet', 'traditional'],
+        diet: 'vegan',
+        defaultPairings: { sides: ['Steamed Rice', 'Light Pickle'], beverages: ['Green Tea'] },
         variants: [
             { id: 'sg-classic', name: 'Sakin Gata', baseStyle: 'steamed' },
         ],
@@ -4984,6 +5026,8 @@ const northeastDishes: Dish[] = [
         weight: 'light',
         nutrition: ['fiber', 'vitamins'],
         tags: ['northeast', 'nagaland', 'boiled', 'vegetable', 'side', 'healthy', 'traditional'],
+        diet: 'vegan',
+        defaultPairings: { sides: ['Mustard Oil Chutney', 'Steamed Rice'], beverages: ['Herbal Tea'] },
         variants: [
             { id: 'bv-plain', name: 'Boiled Vegetables', baseStyle: 'steamed' },
             { id: 'bv-rice', name: 'Boiled Vegetables + Rice', addOn: 'with rice', mealContext: 'lunch' },
@@ -5047,6 +5091,8 @@ const northeastDishes: Dish[] = [
         weight: 'light',
         nutrition: ['fiber', 'vitamins'],
         tags: ['northeast', 'mizoram', 'steamed', 'vegetable', 'healthy', 'light', 'traditional'],
+        diet: 'vegan',
+        defaultPairings: { sides: ['Steamed Rice', 'Soy Chutney'], beverages: ['Lemon Water'] },
         variants: [
             { id: 'ch-rice', name: 'Chhum Han + Rice', addOn: 'with rice', mealContext: 'lunch' },
         ],
@@ -5174,6 +5220,8 @@ const northeastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['fiber', 'carb', 'minerals'],
         tags: ['northeast', 'sikkim', 'dhindo', 'millet', 'buckwheat', 'staple', 'healthy'],
+        diet: 'vegan',
+        defaultPairings: { sides: ['Gundruk Soup', 'Light Pickle'], beverages: ['Green Tea'] },
         variants: [
             { id: 'dhindo-dal', name: 'Dhindo + Dal', addOn: 'with lentil soup', mealContext: 'lunch' },
             { id: 'dhindo-chutney', name: 'Dhindo + Chutney', addOn: 'with chutney', mealContext: 'lunch' },
@@ -5253,6 +5301,8 @@ const northeastDishes: Dish[] = [
         weight: 'medium',
         nutrition: ['protein'],
         tags: ['northeast', 'tripura', 'pork', 'boiled', 'traditional', 'tribal'],
+        diet: 'non-veg',
+        defaultPairings: { sides: ['Steamed Rice', 'Fermented Mustard Greens'], beverages: ['Ginger Tea'] },
         description: 'A traditional Tripuri dish of boiled pork with onions, chillies, ginger and garlic. Simple, hearty and full of robust flavours.',
         variants: [
             { id: 'pjj-rice', name: 'Pork Jarpaa Jurpie + Rice', addOn: 'with rice', mealContext: 'lunch' },
@@ -5627,8 +5677,8 @@ export const DISH_LIBRARY: Dish[] = [
     { id: 'kuzhambu', name: 'Kuzhambu', icon: '🥣', region: 'south', states: ['Tamil Nadu', 'Kerala'], category: ['lunch', 'dinner'], type: 'veg', weight: 'medium', nutrition: ['fiber'], tags: ['gravy', 'tamarind', 'south-indian', 'tangy'], variants: [{ id: 'kuz-rice', name: 'Kuzhambu + Rice', addOn: 'with rice', mealContext: 'lunch' }, { id: 'kuz-idli', name: 'Kuzhambu with Idli', mealContext: 'lunch' }] },
     { id: 'parotta-kurma', name: 'Parotta with Kurma', icon: '🫓', region: 'south', states: ['Tamil Nadu', 'Kerala'], category: ['breakfast', 'lunch'], type: 'veg', weight: 'heavy', nutrition: ['carb', 'protein'], tags: ['parotta', 'kurma', 'south-indian', 'breakfast'], variants: [{ id: 'pk-classic', name: 'Parotta + Kurma', cookingStyle: 'tawa' }, { id: 'pk-egg', name: 'Parotta + Egg Kurma', addOn: 'with egg kurma', mealContext: 'breakfast' }] },
     { id: 'appam-stew', name: 'Appam + Stew', icon: '🥞', region: 'south', states: ['Kerala'], category: ['breakfast', 'lunch'], type: 'non-veg', weight: 'medium', nutrition: ['carb', 'protein'], tags: ['appam', 'stew', 'kerala', 'coconut', 'breakfast'], variants: [{ id: 'appam-stew-classic', name: 'Appam + Chicken Stew', addOn: 'with stew', mealContext: 'breakfast' }, { id: 'as-egg', name: 'Appam + Egg Stew', addOn: 'with egg stew', mealContext: 'breakfast' }] },
-    { id: 'idiyappam', name: 'Idiyappam', icon: '⚪', region: 'south', states: ['Tamil Nadu', 'Kerala'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['idiyappam', 'string-hoppers', 'steamed', 'south-indian'], variants: [{ id: 'idi-sweet', name: 'Idiyappam + Sweet', addOn: 'with coconut milk', mealContext: 'snacks' }, { id: 'idi-kurma', name: 'Idiyappam + Kurma', addOn: 'with kurma', mealContext: 'breakfast' }] },
-    { id: 'pongal', name: 'Pongal', icon: '🍚', region: 'south', states: ['Tamil Nadu'], category: ['breakfast', 'lunch'], type: 'veg', weight: 'heavy', nutrition: ['carb', 'protein'], tags: ['rice', 'pongal', 'south-indian', 'comfort'], variants: [{ id: 'pongal-ven', name: 'Ven Pongal', cookingStyle: 'boiled' }, { id: 'pongal-sweet', name: 'Sakkarai Pongal', baseStyle: 'sweet' }] },
+    { id: 'idiyappam', name: 'Idiyappam', icon: '⚪', region: 'south', states: ['Tamil Nadu', 'Kerala'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['idiyappam', 'string-hoppers', 'steamed', 'south-indian'], defaultPairings: { sides: ['Coconut Chutney', 'Kurma'], beverages: ['Coffee'] }, variants: [{ id: 'idi-sweet', name: 'Idiyappam + Sweet', addOn: 'with coconut milk', mealContext: 'snacks' }, { id: 'idi-kurma', name: 'Idiyappam + Kurma', addOn: 'with kurma', mealContext: 'breakfast' }] },
+    { id: 'pongal', name: 'Pongal', icon: '🍚', region: 'south', states: ['Tamil Nadu'], category: ['breakfast', 'lunch'], type: 'veg', weight: 'heavy', nutrition: ['carb', 'protein'], tags: ['rice', 'pongal', 'south-indian', 'comfort'], defaultPairings: { sides: ['Sambar', 'Coconut Chutney'], beverages: ['Coffee'] }, variants: [{ id: 'pongal-ven', name: 'Ven Pongal', cookingStyle: 'boiled' }, { id: 'pongal-sweet', name: 'Sakkarai Pongal', baseStyle: 'sweet' }] },
     { id: 'uttapam-pizza', name: 'Pizza Uttapam', icon: '🥞', region: 'south', states: ['Tamil Nadu', 'Karnataka'], category: ['breakfast'], type: 'veg', weight: 'medium', nutrition: ['carb'], tags: ['uttapam', 'pizza', 'toppings', 'fusion', 'south-indian'], variants: [{ id: 'up-classic', name: 'Pizza Uttapam Classic', baseStyle: 'toppings' }, { id: 'up-cheese', name: 'Cheese Uttapam', baseStyle: 'toppings' }] },
     // ─── West Extra Dishes ─────────────────────────────────────────
     { id: 'bombay-grill-sandwich', name: 'Bombay Grilled Sandwich', icon: '🥪', region: 'west', states: ['Maharashtra'], category: ['snacks', 'breakfast'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['sandwich', 'grilled', 'mumbai', 'street-food'], defaultPairings: { sides: ['Green Chutney', 'Ketchup'], beverages: ['Masala Chai'] }, variants: [{ id: 'bgs-veg', name: 'Veg Grilled Sandwich', baseStyle: 'grilled' }, { id: 'bgs-paneer', name: 'Paneer Grilled Sandwich', baseStyle: 'grilled' }, { id: 'bgs-toast', name: 'Cheese Toast Sandwich', baseStyle: 'grilled' }] },
@@ -5673,7 +5723,7 @@ export const DISH_LIBRARY: Dish[] = [
     ] },
     { id: 'shev-puri', name: 'Shev Puri', icon: '🟡', region: 'west', states: ['Maharashtra'], category: ['snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['chaat', 'sev', 'street-food', 'mumbai'], variants: [{ id: 'sp-classic', name: 'Shev Puri Classic', baseStyle: 'chaat' }, { id: 'sp-extra-sev', name: 'Shev Puri Extra Sev', baseStyle: 'chaat' }] },
     { id: 'sabudana-vada', name: 'Sabudana Vada', icon: '⚪', region: 'west', states: ['Maharashtra', 'Gujarat'], category: ['snacks', 'breakfast'], type: 'veg', weight: 'medium', nutrition: ['carb'], tags: ['sabudana', 'snacks', 'crispy', 'fasting'], variants: [{ id: 'sv-classic', name: 'Sabudana Vada Classic', baseStyle: 'fried' }, { id: 'sv-peanut', name: 'Sabudana Vada + Peanuts', baseStyle: 'fried' }] },
-    { id: 'kothimbir-vadi', name: 'Kothimbir Vadi', icon: '🥬', region: 'west', states: ['Maharashtra'], category: ['snacks'], type: 'veg', weight: 'light', nutrition: ['fiber'], tags: ['snacks', 'coriander', 'steamed', 'gujarati', 'crispy'], variants: [{ id: 'kv-classic', name: 'Kothimbir Vadi Classic', baseStyle: 'steamed' }, { id: 'kv-fried', name: 'Kothimbir Vadi Fried', baseStyle: 'fried' }] },
+    { id: 'kothimbir-vadi', name: 'Kothimbir Vadi', icon: '🥬', region: 'west', states: ['Maharashtra'], category: ['snacks'], type: 'veg', weight: 'light', nutrition: ['fiber'], tags: ['snacks', 'coriander', 'steamed', 'gujarati', 'crispy'], defaultPairings: { sides: ['Green Chutney'], beverages: ['Chai'] }, variants: [{ id: 'kv-classic', name: 'Kothimbir Vadi Classic', baseStyle: 'steamed' }, { id: 'kv-fried', name: 'Kothimbir Vadi Fried', baseStyle: 'fried' }] },
     { id: 'dalimbo', name: 'Dalimbo', icon: '🟡', region: 'west', states: ['Maharashtra'], category: ['snacks'], type: 'veg', weight: 'medium', nutrition: ['carb'], tags: ['dal', 'crispy', 'mumbai', 'street-food'], variants: [{ id: 'dalimbo-classic', name: 'Dalimbo Classic', baseStyle: 'fried' }, { id: 'dalimbo-extra', name: 'Dalimbo Extra Crispy', baseStyle: 'fried' }] },
     // ─── East Extra Dishes ──────────────────────────────────────────
     { id: 'shorshe-ilish', name: 'Shorshe Ilish', icon: '🐟', region: 'east', states: ['West Bengal'], category: ['lunch', 'dinner'], type: 'non-veg', weight: 'medium', nutrition: ['protein'], tags: ['fish', 'ilish', 'bengali', 'mustard', 'tangy'], variants: [{ id: 'si-rice', name: 'Shorshe Ilish + Rice', addOn: 'with rice', mealContext: 'lunch' }, { id: 'si-plain', name: 'Shorshe Ilish Plain', cookingStyle: 'tadka' }] },
@@ -5721,7 +5771,7 @@ export const DISH_LIBRARY: Dish[] = [
     { id: 'poha_chilla_mh', name: 'Poha Chilla', icon: '🥞', region: 'west', states: ['Maharashtra'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['breakfast', 'light', 'flattened-rice', 'veg'], variants: [{ id: 'poha-chilla-classic', name: 'Poha Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
     { id: 'mixed_veg_chilla_mh', name: 'Mixed Veg Chilla', icon: '🥞', region: 'west', states: ['Maharashtra'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein', 'fiber'], tags: ['breakfast', 'multi-grain', 'jowar', 'high-fiber', 'veg'], variants: [{ id: 'mixed-veg-chilla-classic', name: 'Mixed Veg Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
     { id: 'rice_chilla_cg', name: 'Rice Chilla (Chhattisgarh)', icon: '🥞', region: 'central', states: ['Chhattisgarh'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['carb'], tags: ['breakfast', 'staple', 'cumin-coriander', 'gluten-free', 'veg'], variants: [{ id: 'rice-chilla-cg-classic', name: 'Rice Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
-    { id: 'dal_rice_chilla_east', name: 'Dal-Rice Chilla', icon: '🥞', region: 'east', states: ['Odisha', 'West Bengal'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'medium', nutrition: ['protein', 'carb'], tags: ['breakfast', 'protein-rich', 'urad-moong', 'fermented', 'veg'], variants: [{ id: 'dal-rice-chilla-classic', name: 'Dal-Rice Chilla', cookingStyle: 'steamed', mealContext: 'breakfast' }] },
+    { id: 'dal_rice_chilla_east', name: 'Dal-Rice Chilla', icon: '🥞', region: 'east', states: ['Odisha', 'West Bengal'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'medium', nutrition: ['protein', 'carb'], tags: ['breakfast', 'protein-rich', 'urad-moong', 'fermented', 'veg'], defaultPairings: { sides: ['Green Chutney'], beverages: ['Chai'] }, variants: [{ id: 'dal-rice-chilla-classic', name: 'Dal-Rice Chilla', cookingStyle: 'steamed', mealContext: 'breakfast' }] },
     { id: 'moong_dal_chilla_south', name: 'Moong Dal Chilla (Pesarattu)', icon: '🥞', region: 'south', states: ['Andhra Pradesh', 'Telangana'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein'], tags: ['breakfast', 'high-protein', 'green-gram', 'gluten-free', 'veg'], variants: [{ id: 'moong-dal-chilla-classic', name: 'Moong Dal Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
     { id: 'mysore_dalia_dosa', name: 'Mysore Dalia Dosa', icon: '🥞', region: 'south', states: ['Karnataka'], category: ['breakfast'], type: 'veg', weight: 'light', nutrition: ['carb', 'fiber'], tags: ['breakfast', 'fiber', 'broken-wheat', 'veg'], variants: [{ id: 'mysore-dalia-dosa-classic', name: 'Mysore Dalia Dosa', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
     { id: 'oats_sprouts_chilla', name: 'Oats & Sprouts Chilla', icon: '🥞', region: 'north', states: ['Punjab', 'Delhi'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'light', nutrition: ['protein', 'fiber'], tags: ['breakfast', 'high-fiber', 'high-protein', 'modern', 'veg'], defaultPairings: { sides: ['Green Chutney', 'Onion'], beverages: ['Buttermilk'] }, variants: [{ id: 'oats-sprouts-chilla-classic', name: 'Oats & Sprouts Chilla', cookingStyle: 'tadka', mealContext: 'breakfast' }] },
@@ -5769,7 +5819,7 @@ export const DISH_LIBRARY: Dish[] = [
     { id: 'iced-coffee', name: 'Iced Coffee', icon: '🧊', region: 'west', states: ['Mumbai', 'Bangalore', 'Delhi'], category: ['snacks'], type: 'veg', weight: 'light', nutrition: ['caffeine', 'antioxidants'], tags: ['beverage', 'coffee', 'iced', 'cold', 'summer', 'veg'], defaultPairings: { sides: ['Light Cookies'], beverages: [] }, variants: [{ id: 'iced-coffee-classic', name: 'Iced Coffee', mealContext: 'snacks', ingredients: [{ name: 'Brewed Coffee', quantity: 1, unit: 'cup', category: 'pantry' }, { name: 'Ice Cubes', quantity: 6, unit: 'pcs', category: 'pantry' }, { name: 'Milk', quantity: 2, unit: 'tbsp', category: 'dairy' }, { name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry' }] }] },
     { id: 'mazagran', name: 'Mazagran', icon: '🍋', region: 'west', states: ['Mumbai', 'Goa'], category: ['snacks'], type: 'veg', weight: 'light', nutrition: ['caffeine', 'vitamin-c'], tags: ['beverage', 'coffee', 'mazagran', 'lemon', 'refreshing', 'veg'], defaultPairings: { sides: ['Light Cookies'], beverages: [] }, variants: [{ id: 'mazagran-classic', name: 'Mazagran', mealContext: 'snacks', ingredients: [{ name: 'Double Espresso', quantity: 2, unit: 'oz', category: 'pantry' }, { name: 'Lemon Juice', quantity: 1, unit: 'tbsp', category: 'produce' }, { name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Ice Cubes', quantity: 4, unit: 'pcs', category: 'pantry' }] }] },
     // ─── Vermicelli Dishes ────────────────────────────────────────────
-    { id: 'vermicelli-upma', name: 'Vermicelli Upma (Semiya Upma)', icon: '🍝', region: 'south', states: ['Tamil Nadu', 'Karnataka', 'Kerala', 'Andhra Pradesh'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'medium', nutrition: ['carb', 'fiber', 'vitamins'], tags: ['south-indian', 'breakfast', 'vermicelli', 'savory', 'quick', 'veg'], variants: [{ id: 'vermicelli-upma-classic', name: 'Vermicelli Upma', mealContext: 'breakfast', ingredients: [{ name: 'Vermicelli (Semiya)', quantity: 1, unit: 'cup', category: 'grains' }, { name: 'Water', quantity: 1.5, unit: 'cup', category: 'pantry' }, { name: 'Oil/Ghee', quantity: 1.5, unit: 'tbsp', category: 'pantry' }, { name: 'Mustard Seeds', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Urad Dal', quantity: 0.5, unit: 'tsp', category: 'pantry' }, { name: 'Chana Dal', quantity: 0.5, unit: 'tsp', category: 'pantry' }, { name: 'Cashews', quantity: 6, unit: 'pcs', category: 'pantry' }, { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Green Chilies', quantity: 2, unit: 'pcs', category: 'produce' }, { name: 'Ginger', quantity: 1, unit: 'tsp', category: 'produce' }, { name: 'Curry Leaves', quantity: 6, unit: 'pcs', category: 'spices' }, { name: 'Carrots', quantity: 0.25, unit: 'cup', category: 'produce' }, { name: 'Green Peas', quantity: 0.15, unit: 'cup', category: 'produce' }, { name: 'Beans', quantity: 0.1, unit: 'cup', category: 'produce' }, { name: 'Turmeric', quantity: 0.25, unit: 'tsp', category: 'spices' }, { name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Lemon Juice', quantity: 1, unit: 'tsp', category: 'produce' }, { name: 'Coriander Leaves', quantity: 1, unit: 'tbsp', category: 'produce' }] }] },
+    { id: 'vermicelli-upma', name: 'Vermicelli Upma (Semiya Upma)', icon: '🍝', region: 'south', states: ['Tamil Nadu', 'Karnataka', 'Kerala', 'Andhra Pradesh'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'medium', nutrition: ['carb', 'fiber', 'vitamins'], tags: ['south-indian', 'breakfast', 'vermicelli', 'savory', 'quick', 'veg'], defaultPairings: { sides: ['Coconut Chutney', 'Lemon Wedge'], beverages: ['Coffee'] }, variants: [{ id: 'vermicelli-upma-classic', name: 'Vermicelli Upma', mealContext: 'breakfast', ingredients: [{ name: 'Vermicelli (Semiya)', quantity: 1, unit: 'cup', category: 'grains' }, { name: 'Water', quantity: 1.5, unit: 'cup', category: 'pantry' }, { name: 'Oil/Ghee', quantity: 1.5, unit: 'tbsp', category: 'pantry' }, { name: 'Mustard Seeds', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Urad Dal', quantity: 0.5, unit: 'tsp', category: 'pantry' }, { name: 'Chana Dal', quantity: 0.5, unit: 'tsp', category: 'pantry' }, { name: 'Cashews', quantity: 6, unit: 'pcs', category: 'pantry' }, { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Green Chilies', quantity: 2, unit: 'pcs', category: 'produce' }, { name: 'Ginger', quantity: 1, unit: 'tsp', category: 'produce' }, { name: 'Curry Leaves', quantity: 6, unit: 'pcs', category: 'spices' }, { name: 'Carrots', quantity: 0.25, unit: 'cup', category: 'produce' }, { name: 'Green Peas', quantity: 0.15, unit: 'cup', category: 'produce' }, { name: 'Beans', quantity: 0.1, unit: 'cup', category: 'produce' }, { name: 'Turmeric', quantity: 0.25, unit: 'tsp', category: 'spices' }, { name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Lemon Juice', quantity: 1, unit: 'tsp', category: 'produce' }, { name: 'Coriander Leaves', quantity: 1, unit: 'tbsp', category: 'produce' }] }] },
     { id: 'seviyan-kheer', name: 'Seviyan Kheer (Payasam)', icon: '🍮', region: 'north', states: ['Punjab', 'Delhi', 'Uttar Pradesh', 'Rajasthan'], category: ['snacks'], type: 'veg', weight: 'medium', nutrition: ['calcium', 'carb', 'protein'], tags: ['dessert', 'sweet', 'milk', 'vermicelli', 'festival', 'veg'], variants: [{ id: 'seviyan-kheer-classic', name: 'Seviyan Kheer', mealContext: 'snacks', ingredients: [{ name: 'Whole Milk', quantity: 1, unit: 'liter', category: 'dairy' }, { name: 'Vermicelli (broken)', quantity: 0.75, unit: 'cup', category: 'grains' }, { name: 'Ghee', quantity: 2, unit: 'tbsp', category: 'dairy' }, { name: 'Sugar', quantity: 0.5, unit: 'cup', category: 'pantry' }, { name: 'Cardamom Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Almonds', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Cashews', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Pistachios', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Raisins', quantity: 1, unit: 'tbsp', category: 'pantry' }] }] },
     { id: 'sheer-khurma', name: 'Sheer Khurma', icon: '🍮', region: 'north', states: ['Hyderabad', 'Delhi', 'Lucknow', 'Hyderabad'], category: ['breakfast', 'snacks'], type: 'veg', weight: 'medium', nutrition: ['calcium', 'carb', 'protein'], tags: ['dessert', 'sweet', 'milk', 'vermicelli', 'eid-special', 'festive', 'veg'], variants: [{ id: 'sheer-khurma-classic', name: 'Sheer Khurma', mealContext: 'breakfast', ingredients: [{ name: 'Whole Milk', quantity: 1, unit: 'liter', category: 'dairy' }, { name: 'Vermicelli (roasted)', quantity: 0.75, unit: 'cup', category: 'grains' }, { name: 'Ghee', quantity: 3, unit: 'tbsp', category: 'dairy' }, { name: 'Sugar', quantity: 0.5, unit: 'cup', category: 'pantry' }, { name: 'Dates (chopped)', quantity: 4, unit: 'pcs', category: 'pantry' }, { name: 'Almonds', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Cashews', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Pistachios', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Raisins', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Saffron', quantity: 4, unit: 'strands', category: 'spices' }, { name: 'Cardamom Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Condensed Milk', quantity: 2, unit: 'tbsp', category: 'dairy' }] }] },
     { id: 'falooda', name: 'Falooda', icon: '🍨', region: 'north', states: ['Delhi', 'Mumbai', 'Hyderabad', 'Lucknow'], category: ['snacks'], type: 'veg', weight: 'medium', nutrition: ['calcium', 'sugar', 'carb'], tags: ['dessert', 'cold', 'milk', 'vermicelli', 'summer', 'veg'], variants: [{ id: 'falooda-classic', name: 'Falooda', mealContext: 'snacks', ingredients: [{ name: 'Whole Milk (chilled)', quantity: 1, unit: 'cup', category: 'dairy' }, { name: 'Cornstarch Vermicelli', quantity: 2, unit: 'tbsp', category: 'grains' }, { name: 'Rose Syrup', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Sweet Basil Seeds', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Vanilla Ice Cream', quantity: 1, unit: 'scoop', category: 'dairy' }, { name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry' }] }] },
@@ -5783,5 +5833,19 @@ export const DISH_LIBRARY: Dish[] = [
     { id: 'barfi', name: 'Barfi', icon: '🔲', region: 'north', states: ['Punjab', 'Delhi', 'Rajasthan', 'Uttar Pradesh', 'Maharashtra', 'Gujarat'], category: ['snacks'], type: 'veg', weight: 'medium', nutrition: ['calcium', 'carbs', 'fat'], tags: ['dessert', 'sweet', 'festive', 'barfi', 'milk-sweet', 'festival', 'diwali', 'traditional', 'veg'], variants: [{ id: 'barfi-milk', name: 'Milk Barfi (Kaju Katli)', baseStyle: 'sweet', mealContext: 'snacks', ingredients: [{ name: 'Khoya (Mawa)', quantity: 2, unit: 'cups', category: 'dairy' }, { name: 'Sugar', quantity: 0.75, unit: 'cup', category: 'pantry' }, { name: 'Cardamom Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Pistachios', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Water', quantity: 0.25, unit: 'cup', category: 'pantry' }, { name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'dairy' }] }, { id: 'barfi-besan', name: 'Besan Barfi', baseStyle: 'sweet', mealContext: 'snacks', ingredients: [{ name: 'Besan (Gram Flour)', quantity: 1, unit: 'cup', category: 'grains' }, { name: 'Ghee', quantity: 0.5, unit: 'cup', category: 'dairy' }, { name: 'Sugar', quantity: 0.75, unit: 'cup', category: 'pantry' }, { name: 'Cardamom Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Almonds', quantity: 10, unit: 'pcs', category: 'pantry' }] }, { id: 'barfi-coconut', name: 'Coconut Barfi', baseStyle: 'sweet', mealContext: 'snacks', ingredients: [{ name: 'Grated Coconut', quantity: 2, unit: 'cups', category: 'produce' }, { name: 'Sugar', quantity: 0.75, unit: 'cup', category: 'pantry' }, { name: 'Milk', quantity: 0.25, unit: 'cup', category: 'dairy' }, { name: 'Cardamom Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'dairy' }] }] },
 ];
 
+const DAIRY = new Set([
+  'Cucumber Raita', 'Raita', 'Curd', 'Butter', 'Ghee', 'Cheese',
+  'Paneer', 'Lassi', 'Chaas', 'Buttermilk', 'Butter Tea', 'Milk',
+  'Cream', 'Yogurt',
+]);
 
+export function getDietSafePairings(dish: Dish): Dish['defaultPairings'] {
+  const p = dish.defaultPairings;
+  if (!p || dish.diet !== 'vegan') return p;
+  return {
+    ...p,
+    sides: p.sides?.filter(s => !DAIRY.has(s)),
+    beverages: p.beverages?.filter(b => !DAIRY.has(b)),
+  };
+}
 
