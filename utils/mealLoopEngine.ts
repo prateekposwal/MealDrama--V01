@@ -2,6 +2,7 @@ import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, R
 import type { Dish } from '../constants/dishLibrary';
 import { getDishStyle } from '../constants/dishStyles';
 import { getISODate, daysBetweenISO } from './dateUTC';
+import { checkWithFallback } from './dpTimeout';
 
 export { getISODate };
 
@@ -114,70 +115,68 @@ function styleDistance(a: string, b: string): number {
 
 export function optimizeRotationQueue(queue: RotationQueueItem[]): RotationQueueItem[] {
   const n = queue.length;
-  if (n <= 2 || n > 15) return queue; // DP only for 3-15 items
+  if (n <= 2 || n > 15) return queue;
 
-  const styles = queue.map(q => q.style ?? 'unknown');
+  return checkWithFallback<RotationQueueItem[]>((isTimedOut) => {
+    const styles = queue.map(q => q.style ?? 'unknown');
 
-  // dp[mask][last] = min penalty to arrange items in mask, ending with item 'last'
-  const dp: number[][] = [];
-  const parent: number[][] = [];
-  const fullMask = (1 << n) - 1;
+    const dp: number[][] = [];
+    const parent: number[][] = [];
+    const fullMask = (1 << n) - 1;
 
-  for (let mask = 0; mask <= fullMask; mask++) {
-    dp[mask] = new Array(n).fill(Infinity);
-    parent[mask] = new Array(n).fill(-1);
-  }
+    for (let mask = 0; mask <= fullMask; mask++) {
+      dp[mask] = new Array(n).fill(Infinity);
+      parent[mask] = new Array(n).fill(-1);
+    }
 
-  // Base case: single items
-  for (let i = 0; i < n; i++) {
-    dp[1 << i]![i] = 0;
-  }
+    for (let i = 0; i < n; i++) {
+      dp[1 << i]![i] = 0;
+    }
 
-  // Fill DP
-  for (let mask = 1; mask < fullMask; mask++) {
-    for (let last = 0; last < n; last++) {
-      if (!(mask & (1 << last))) continue;
-      const currentCost = dp[mask]?.[last];
-      if (currentCost === undefined || currentCost === Infinity) continue;
+    for (let mask = 1; mask < fullMask; mask++) {
+      if (isTimedOut()) return queue;
+      for (let last = 0; last < n; last++) {
+        if (!(mask & (1 << last))) continue;
+        const currentCost = dp[mask]?.[last];
+        if (currentCost === undefined || currentCost === Infinity) continue;
 
-      for (let next = 0; next < n; next++) {
-        if (mask & (1 << next)) continue;
-        const newMask = mask | (1 << next);
-        const penalty = styleDistance(styles[last]!, styles[next]!);
-        const newCost = currentCost + penalty;
-        const existingCost = dp[newMask]?.[next];
-        if (existingCost === undefined || newCost < existingCost) {
-          dp[newMask]![next] = newCost;
-          parent[newMask]![next] = last;
+        for (let next = 0; next < n; next++) {
+          if (mask & (1 << next)) continue;
+          const newMask = mask | (1 << next);
+          const penalty = styleDistance(styles[last]!, styles[next]!);
+          const newCost = currentCost + penalty;
+          const existingCost = dp[newMask]?.[next];
+          if (existingCost === undefined || newCost < existingCost) {
+            dp[newMask]![next] = newCost;
+            parent[newMask]![next] = last;
+          }
         }
       }
     }
-  }
 
-  // Find best ending item
-  let bestLast = 0;
-  let bestCost = dp[fullMask]?.[0] ?? Infinity;
-  for (let i = 1; i < n; i++) {
-    const cost = dp[fullMask]?.[i];
-    if (cost !== undefined && cost < bestCost) {
-      bestCost = cost;
-      bestLast = i;
+    let bestLast = 0;
+    let bestCost = dp[fullMask]?.[0] ?? Infinity;
+    for (let i = 1; i < n; i++) {
+      const cost = dp[fullMask]?.[i];
+      if (cost !== undefined && cost < bestCost) {
+        bestCost = cost;
+        bestLast = i;
+      }
     }
-  }
 
-  // Reconstruct path
-  const order: number[] = [];
-  let mask = fullMask;
-  let curr = bestLast;
-  while (curr !== -1) {
-    order.push(curr);
-    const prev = parent[mask]?.[curr] ?? -1;
-    mask ^= (1 << curr);
-    curr = prev;
-  }
-  order.reverse();
+    const order: number[] = [];
+    let mask = fullMask;
+    let curr = bestLast;
+    while (curr !== -1) {
+      order.push(curr);
+      const prev = parent[mask]?.[curr] ?? -1;
+      mask ^= (1 << curr);
+      curr = prev;
+    }
+    order.reverse();
 
-  return order.map(i => queue[i]!);
+    return order.map(i => queue[i]!);
+  }, queue);
 }
 
 /**

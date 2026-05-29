@@ -50,7 +50,9 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     onAddMeal,
     selectedDishIds = [],
 }) => {
-    const { addCustomDish, updateCustomDish, removeCustomDish } = useStore();
+    const addCustomDish = useStore(s => s.addCustomDish);
+    const updateCustomDish = useStore(s => s.updateCustomDish);
+    const removeCustomDish = useStore(s => s.removeCustomDish);
     const customDishes = useStore(s => s.customDishes);
     const allDishes = useMemo(() => [...dishes, ...customDishes], [dishes, customDishes]);
 
@@ -92,20 +94,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
         return getDishVariants(selectedDish, slot, userDiet);
     }, [selectedDish, slot, userDiet]);
 
-    const handleSelectDish = (dish: Dish) => {
-        if (dishVariants.length <= 1) {
-            // Auto-add if only one variant
-            const variant = dishVariants[0] || dish.variants[0];
-            if (variant) {
-                onAddMeal(date, slot, dish, variant);
-                handleClose();
-            }
-        } else {
-            setSelectedDish(dish);
-        }
-    };
-
-    const handleClose = () => {
+    const handleClose = useCallback(() => {
         setSelectedDish(null);
         setSearch('');
         setShowGlobal(false);
@@ -118,7 +107,20 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
         setIngredientQty('');
         setIngredientUnit('g');
         onClose();
-    };
+    }, [onClose]);
+
+    const handleSelectDish = useCallback((dish: Dish) => {
+        const variants = getDishVariants(dish, slot, userDiet);
+        if (variants.length <= 1) {
+            const variant = variants[0] || dish.variants[0];
+            if (variant) {
+                onAddMeal(date, slot, dish, variant);
+                handleClose();
+            }
+        } else {
+            setSelectedDish(dish);
+        }
+    }, [onAddMeal, date, slot, userDiet, handleClose]);
 
     const handleSelectVariant = (variant: DishVariant) => {
         if (import.meta.env.DEV) {
@@ -197,7 +199,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
         handleClose();
     }, [customName, customStyle, customTags, customDiet, customIngredients, customImageDataUrl, editingDishId, userRegion, date, slot, onAddMeal, addCustomDish, updateCustomDish, handleClose]);
 
-    const handleEditCustom = (dish: Dish) => {
+    const handleEditCustom = useCallback((dish: Dish) => {
         setCustomName(dish.name);
         const cat = dish.category[0];
         setCustomStyle(cat ? cat.charAt(0).toUpperCase() + cat.slice(1) : 'Gravy');
@@ -213,9 +215,9 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
         );
         setCustomImageDataUrl(dish.icon?.startsWith('data:') ? dish.icon : '');
         setShowCustomForm(true);
-    };
+    }, []);
 
-    const handleDeleteCustom = (dish: Dish) => {
+    const handleDeleteCustom = useCallback((dish: Dish) => {
         if (window.confirm(`Delete "${dish.name}"? This removes it from your tray and meal plan.`)) {
             removeCustomDish(dish.id);
             const store = useStore.getState();
@@ -247,13 +249,53 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
             });
             window.dispatchEvent(new Event('pantry:invalidate'));
         }
-    };
+    }, [removeCustomDish]);
 
     const toggleCustomTag = (tag: string) => {
         setCustomTags(prev =>
             prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
         );
     };
+
+    // Stable items array for VirtualList + stable renderItem callback
+    const visibleItems = useMemo(() => rankedDishes.slice(0, 20), [rankedDishes]);
+    const renderDishRow = useCallback((item: { dish: Dish; healthScore: number }, index: number) => {
+        const { dish, healthScore } = item;
+        const isRegional = dish.region.toLowerCase().includes(regionKey);
+        const isCustom = dish.tags?.includes('user_created');
+        return (
+            <div className="w-full flex items-center gap-0 p-0 rounded-xl border transition-all bg-gray-50 border-gray-100">
+                <button onClick={() => handleSelectDish(dish)} className="flex-1 flex items-center gap-3 p-3 text-left">
+                    <DishImage name={dish.name} slot={slot} size="sm" customImageUrl={isCustom && dish.icon?.startsWith('data:') ? dish.icon : undefined} />
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold block leading-tight truncate text-gray-800">{dish.name}</span>
+                            <HealthScoreBadge score={healthScore ?? 0} size="sm" />
+                            {isCustom && (
+                                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">Custom</span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[9px] font-medium capitalize text-gray-400">{dish.region}</span>
+                        </div>
+                    </div>
+                    {isRegional && (
+                        <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">Local</span>
+                    )}
+                </button>
+                <div className="flex items-center gap-1 pr-2 shrink-0">
+                    {isCustom ? (
+                        <>
+                            <button onClick={() => handleEditCustom(dish)} className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 active:scale-90" title="Edit custom dish"><Edit3 size={12} /></button>
+                            <button onClick={() => handleDeleteCustom(dish)} className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 active:scale-90" title="Delete custom dish"><Trash2 size={12} /></button>
+                        </>
+                    ) : (
+                        <Plus size={14} className="text-gray-400" />
+                    )}
+                </div>
+            </div>
+        );
+    }, [handleSelectDish, handleEditCustom, handleDeleteCustom, regionKey, slot]);
 
     if (!isOpen) return null;
 
@@ -353,71 +395,11 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                             {/* Dish List — virtualized */}
                             <div className="flex-1 min-h-0">
                                 <VirtualList
-                                    items={rankedDishes.slice(0, 20)}
+                                    items={visibleItems}
                                     estimateSize={80}
                                     overscan={3}
                                     outerClassName="h-full"
-                                    renderItem={({ dish, healthScore }) => {
-                                        const isRegional = dish.region.toLowerCase().includes(regionKey);
-                                        const isCustom = dish.tags?.includes('user_created');
-                                        return (
-                                            <div
-                                                className="w-full flex items-center gap-0 p-0 rounded-xl border transition-all bg-gray-50 border-gray-100"
-                                            >
-                                                <button
-                                                    onClick={() => handleSelectDish(dish)}
-                                                    className="flex-1 flex items-center gap-3 p-3 text-left"
-                                                >
-                                                    <DishImage name={dish.name} slot={slot} size="sm" customImageUrl={isCustom && dish.icon?.startsWith('data:') ? dish.icon : undefined} />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-sm font-bold block leading-tight truncate text-gray-800">
-                                                                {dish.name}
-                                                            </span>
-                                                            <HealthScoreBadge score={healthScore ?? 0} size="sm" />
-                                                            {isCustom && (
-                                                                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">
-                                                                    Custom
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex items-center gap-2 mt-0.5">
-                                                            <span className="text-[9px] font-medium capitalize text-gray-400">
-                                                                {dish.region}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                    {isRegional && (
-                                                        <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">
-                                                            Local
-                                                        </span>
-                                                    )}
-                                                </button>
-                                                <div className="flex items-center gap-1 pr-2 shrink-0">
-                                                    {isCustom ? (
-                                                        <>
-                                                            <button
-                                                                onClick={() => handleEditCustom(dish)}
-                                                                className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 active:scale-90"
-                                                                title="Edit custom dish"
-                                                            >
-                                                                <Edit3 size={12} />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleDeleteCustom(dish)}
-                                                                className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 active:scale-90"
-                                                                title="Delete custom dish"
-                                                            >
-                                                                <Trash2 size={12} />
-                                                            </button>
-                                                        </>
-                                                    ) : (
-                                                        <Plus size={14} className="text-gray-400" />
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    }}
+                                    renderItem={renderDishRow}
                                 />
                             </div>
 

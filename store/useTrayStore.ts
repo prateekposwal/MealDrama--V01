@@ -22,6 +22,7 @@ import { getISODate, addDaysISO, daysBetweenISO } from '../utils/dateUTC';
 import { onConnectivityChange } from '../utils/connectivity';
 import { nativeStorage } from '../utils/nativeStorage';
 import { clearAutoFillCache } from '../hooks/useLoopAutoFill';
+import { invalidateOnChange } from '../utils/dpCache';
 
 // ─── FIX 6: Deep merge utility for migration — fills missing keys from template
 function deepMergeLoopState(persisted: Record<string, unknown>, template: Record<string, unknown>): Record<string, unknown> {
@@ -196,6 +197,7 @@ export function reconcileLoopStateWithTray(hydratedState?: TrayStore) {
   if (_reconciled) return;
   const trayState = useStore.getState();
   const trayLibrary = trayState.trayLibrary;
+  invalidateOnChange(trayLibrary, hydratedState?.mealLoop?.config ?? useTrayStore.getState().mealLoop.config);
   // Guard: cross-store shape safety — if useStore hasn't hydrated or trayLibrary is wrong shape, skip
   if (!trayLibrary?.breakfast) return;
   const currentHash = trayLibraryHash(trayLibrary);

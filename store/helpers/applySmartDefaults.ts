@@ -36,6 +36,27 @@ export function applySmartDefaults(
     };
   }
 
+  // ─── PRIORITY 1: Explicit defaultPairings from dishToMeal ─────
+  if (meal.defaultPairings) {
+    const dp = meal.defaultPairings;
+    const sides = dp.sides ?? [];
+    const beverages = dp.beverages ?? [];
+    const dessert = dp.dessert ?? [];
+    const itemQtys: Record<string, number> = {};
+    for (const item of [dp.roti, dp.rice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
+      itemQtys[item] = 1;
+    }
+    return {
+      gravy: dp.gravy ?? null,
+      roti: dp.roti ?? null,
+      rice: dp.rice ?? null,
+      sides,
+      beverages,
+      dessert,
+      itemQtys,
+    };
+  }
+
   const gravy = meal.baseGravy
     ?? meal.gravyOptions?.[0]
     ?? null;

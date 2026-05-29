@@ -31,6 +31,15 @@ export interface Meal {
     sides?: string[];
     beverages?: string[];
   };
+  /** Explicit default pairings from dish — bypasses all inference when set */
+  defaultPairings?: {
+    gravy?: string | null;
+    roti?: string | null;
+    rice?: string | null;
+    sides?: string[];
+    beverages?: string[];
+    dessert?: string[];
+  };
   /** Tags for light_carb detection in snacks slot */
   tags?: string[];
   /** Meal categories for slot-aware inference */

@@ -8,6 +8,7 @@ import { PAIRING_RULES } from './pairing-rules';
 import { getDishStyle } from '../../constants/dishStyles';
 import type { Dish } from '../../constants/dishLibrary';
 import type { TrayItem } from '../../store/useTrayStore';
+import { checkWithFallback } from '../../utils/dpTimeout';
 
 export interface PairingResult {
   sides: string[];
@@ -142,60 +143,53 @@ export function computePairingForSlot(
     }
   }
 
-  // DP-based weighted matching: maximize total score across limited slots
-  // Slots: 2 sides, 1 condiment, 1 beverage, 1 dessert
-  const slotLimits = { side: 2, condiment: 1, beverage: 1, dessert: 1 };
-  const categories = ['side', 'condiment', 'beverage', 'dessert'] as const;
+  return checkWithFallback<PairingResult>((isTimedOut) => {
+    const slotLimits = { side: 2, condiment: 1, beverage: 1, dessert: 1 };
+    const categories = ['side', 'condiment', 'beverage', 'dessert'] as const;
 
-  // Group candidates by category
-  const byCategory: Record<string, CandidateItem[]> = { side: [], condiment: [], beverage: [], dessert: [] };
-  for (const c of aggregated.values()) {
-    byCategory[c.category]!.push(c);
-  }
-
-  // Sort each category by score (descending)
-  for (const cat of categories) {
-    byCategory[cat]!.sort((a, b) => b.score - a.score);
-  }
-
-  // DP: for each category, select top-N items that maximize coverage (unique dish support)
-  // dp[i][j] = max score selecting j items from first i candidates in category
-  function selectBestForCategory(items: CandidateItem[], limit: number): string[] {
-    if (items.length === 0 || limit === 0) return [];
-    if (items.length <= limit) return items.map(i => i.item);
-
-    // Greedy with diversity bonus: prefer items that cover different dishes
-    const selected: string[] = [];
-    const coveredDishes = new Set<number>();
-
-    for (const item of items) {
-      if (selected.length >= limit) break;
-      // Bonus for covering uncovered dishes
-      const newCoverage = item.dishIndices.filter(idx => !coveredDishes.has(idx)).length;
-      item.score += newCoverage * 0.5; // diversity bonus
+    const byCategory: Record<string, CandidateItem[]> = { side: [], condiment: [], beverage: [], dessert: [] };
+    for (const c of aggregated.values()) {
+      byCategory[c.category]!.push(c);
     }
 
-    // Re-sort with diversity bonus
-    items.sort((a, b) => b.score - a.score);
-
-    for (const item of items) {
-      if (selected.length >= limit) break;
-      selected.push(item.item);
-      for (const idx of item.dishIndices) coveredDishes.add(idx);
+    for (const cat of categories) {
+      if (isTimedOut()) return { sides: [], condiments: [], beverage: null, dessert: null, source: 'fallback' };
+      byCategory[cat]!.sort((a, b) => b.score - a.score);
     }
 
-    return selected;
-  }
+    function selectBestForCategory(items: CandidateItem[], limit: number): string[] {
+      if (items.length === 0 || limit === 0) return [];
+      if (items.length <= limit) return items.map(i => i.item);
 
-  const result: PairingResult = {
-    sides: selectBestForCategory(byCategory['side']!, slotLimits.side),
-    condiments: selectBestForCategory(byCategory['condiment']!, slotLimits.condiment),
-    beverage: selectBestForCategory(byCategory['beverage']!, slotLimits.beverage)[0] ?? null,
-    dessert: selectBestForCategory(byCategory['dessert']!, slotLimits.dessert)[0] ?? null,
-    source: 'dish',
-  };
+      const selected: string[] = [];
+      const coveredDishes = new Set<number>();
 
-  return result;
+      for (const item of items) {
+        if (selected.length >= limit) break;
+        const newCoverage = item.dishIndices.filter(idx => !coveredDishes.has(idx)).length;
+        item.score += newCoverage * 0.5;
+      }
+
+      items.sort((a, b) => b.score - a.score);
+
+      for (const item of items) {
+        if (isTimedOut()) break;
+        if (selected.length >= limit) break;
+        selected.push(item.item);
+        for (const idx of item.dishIndices) coveredDishes.add(idx);
+      }
+
+      return selected;
+    }
+
+    return {
+      sides: selectBestForCategory(byCategory['side']!, slotLimits.side),
+      condiments: selectBestForCategory(byCategory['condiment']!, slotLimits.condiment),
+      beverage: selectBestForCategory(byCategory['beverage']!, slotLimits.beverage)[0] ?? null,
+      dessert: selectBestForCategory(byCategory['dessert']!, slotLimits.dessert)[0] ?? null,
+      source: 'dish',
+    };
+  }, { sides: [], condiments: [], beverage: null, dessert: null, source: 'fallback' });
 }
 
 /**

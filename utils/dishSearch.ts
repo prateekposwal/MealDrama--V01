@@ -2,6 +2,7 @@ import type { Dish } from '../constants/dishLibrary';
 import { scoreDish } from './nutritionScore';
 import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from './healthSortFilter';
 import type { HealthSortKey, HealthFilterPreset } from './healthSortFilter';
+import { checkWithFallback } from './dpTimeout';
 
 const DIET_FILTER: Record<string, string[]> = {
   veg: ['veg', 'vegan'],
@@ -65,7 +66,6 @@ const MAX_DIVERSITY_CACHE = 100;
 function optimizeTopNDiversity(scored: ScoredDish[], existingDishes: Dish[], topN: number): ScoredDish[] {
   if (topN <= 0 || scored.length === 0) return scored;
 
-  // Cache key: scored dish IDs + scores + existing dish IDs + topN
   const scoredKey = scored.slice(0, 30).map(s => `${s.dish.id}:${s.score}:${s.healthScore}`).join(',');
   const existingKey = existingDishes.map(d => d.id).join(',');
   const cacheKey = `${scoredKey}::${existingKey}::${topN}`;
@@ -73,81 +73,75 @@ function optimizeTopNDiversity(scored: ScoredDish[], existingDishes: Dish[], top
   const cached = diversityCache.get(cacheKey);
   if (cached) return cached;
 
-  const limit = Math.min(scored.length, 30); // Cap for DP performance
-  const candidates = scored.slice(0, limit);
+  const finalResult = checkWithFallback<ScoredDish[]>((isTimedOut) => {
+    const limit = Math.min(scored.length, 30);
+    const candidates = scored.slice(0, limit);
 
-  // dp[i][j] = max diversity score using j items from first i candidates
-  // We track both relevance score and diversity bonus
-  const dp: number[][] = [];
-  const selected: number[][] = [];
+    const dp: number[][] = [];
+    const selected: number[][] = [];
 
-  for (let i = 0; i <= limit; i++) {
-    dp[i] = new Array(topN + 1).fill(-Infinity);
-    selected[i] = new Array(topN + 1).fill(-1);
-  }
-  dp[0]![0] = 0;
+    for (let i = 0; i <= limit; i++) {
+      dp[i] = new Array(topN + 1).fill(-Infinity);
+      selected[i] = new Array(topN + 1).fill(-1);
+    }
+    dp[0]![0] = 0;
 
-  for (let i = 0; i < limit; i++) {
-    const candidate = candidates[i]!;
-    const relevanceScore = candidate.score + candidate.healthScore * 0.5;
+    for (let i = 0; i < limit; i++) {
+      if (isTimedOut()) return scored;
+      const candidate = candidates[i]!;
+      const relevanceScore = candidate.score + candidate.healthScore * 0.5;
 
-    for (let j = 0; j <= topN; j++) {
-      // Option 1: skip this candidate
-      const currentVal = dp[i]![j];
-      const nextVal = dp[i + 1]![j];
-      if (currentVal !== undefined && (nextVal === undefined || currentVal > nextVal)) {
-        dp[i + 1]![j] = currentVal;
-        selected[i + 1]![j] = selected[i]![j] ?? -1;
-      }
+      for (let j = 0; j <= topN; j++) {
+        const currentVal = dp[i]![j];
+        const nextVal = dp[i + 1]![j];
+        if (currentVal !== undefined && (nextVal === undefined || currentVal > nextVal)) {
+          dp[i + 1]![j] = currentVal;
+          selected[i + 1]![j] = selected[i]![j] ?? -1;
+        }
 
-      // Option 2: include this candidate (if we have room)
-      if (j < topN) {
-        const existing: Dish[] = [];
-        // Reconstruct which items were selected so far
-        let prevIdx = selected[i]![j] ?? -1;
-        let prevJ = j;
-        for (let k = i - 1; k >= 0 && prevIdx >= 0; k--) {
-          const selIdx = selected[k + 1]![prevJ];
-          if (selIdx !== undefined && selIdx >= 0) {
-            existing.push(candidates[selIdx]!.dish);
-            prevIdx = selIdx;
+        if (j < topN) {
+          const existing: Dish[] = [];
+          let prevIdx = selected[i]![j] ?? -1;
+          let prevJ = j;
+          for (let k = i - 1; k >= 0 && prevIdx >= 0; k--) {
+            const selIdx = selected[k + 1]![prevJ];
+            if (selIdx !== undefined && selIdx >= 0) {
+              existing.push(candidates[selIdx]!.dish);
+              prevIdx = selIdx;
+            }
+          }
+
+          const divBonus = diversityBonus(candidate.dish, existing);
+          const currentDpVal = dp[i]![j] ?? 0;
+          const nextDpIdx = dp[i + 1]![j + 1];
+          if (currentDpVal + relevanceScore + divBonus > (nextDpIdx ?? -Infinity)) {
+            dp[i + 1]![j + 1] = currentDpVal + relevanceScore + divBonus;
+            selected[i + 1]![j + 1] = i;
           }
         }
-
-        const divBonus = diversityBonus(candidate.dish, existing);
-        const currentDpVal = dp[i]![j] ?? 0;
-        const nextDpIdx = dp[i + 1]![j + 1];
-        if (currentDpVal + relevanceScore + divBonus > (nextDpIdx ?? -Infinity)) {
-          dp[i + 1]![j + 1] = currentDpVal + relevanceScore + divBonus;
-          selected[i + 1]![j + 1] = i;
-        }
       }
     }
-  }
 
-  // Reconstruct best selection
-  const result: ScoredDish[] = [];
-  let currJ = topN;
-  for (let i = limit; i > 0 && currJ > 0; i--) {
-    const selIdx = selected[i]![currJ];
-    if (selIdx !== undefined && selIdx >= 0) {
-      result.unshift(candidates[selIdx]!);
-      currJ--;
+    const result: ScoredDish[] = [];
+    let currJ = topN;
+    for (let i = limit; i > 0 && currJ > 0; i--) {
+      const selIdx = selected[i]![currJ];
+      if (selIdx !== undefined && selIdx >= 0) {
+        result.unshift(candidates[selIdx]!);
+        currJ--;
+      }
     }
-  }
 
-  // Append remaining items that weren't selected
-  const selectedIds = new Set(result.map(r => r.dish.id));
-  const remaining = scored.filter(s => !selectedIds.has(s.dish.id));
-  const finalResult = [...result, ...remaining];
+    const selectedIds = new Set(result.map(r => r.dish.id));
+    const remaining = scored.filter(s => !selectedIds.has(s.dish.id));
+    return [...result, ...remaining];
+  }, scored);
 
-  // Cache with LRU pruning
   if (diversityCache.size >= MAX_DIVERSITY_CACHE) {
     const firstKey = diversityCache.keys().next().value;
     if (firstKey) diversityCache.delete(firstKey);
   }
   diversityCache.set(cacheKey, finalResult);
-
   return finalResult;
 }
 
@@ -204,7 +198,7 @@ export function rankDishes(params: {
 
   const scored: ScoredDish[] = healthFiltered.map(d => {
     let score = 0;
-    if (d.region.toLowerCase().includes(regionKey)) score += 10;
+    if (new RegExp('\\b' + regionKey + '\\b').test(d.region.toLowerCase())) score += 10;
     if (d.tags.includes('popular') || d.tags.includes('hero')) score += 5;
     if (d.states.some(s => s.toLowerCase().includes(regionKey))) score += 3;
     return { dish: d, score, healthScore: scoreDish(d) };
@@ -222,8 +216,9 @@ export function rankDishes(params: {
     scored.sort((a, b) => b.score - a.score);
   }
 
-  const regional = finalScored.filter(s => s.dish.region.toLowerCase().includes(regionKey));
-  const global_ = finalScored.filter(s => !s.dish.region.toLowerCase().includes(regionKey));
+  const regionRegex = new RegExp('\\b' + regionKey + '\\b');
+  const regional = finalScored.filter(s => regionRegex.test(s.dish.region.toLowerCase()));
+  const global_ = finalScored.filter(s => !regionRegex.test(s.dish.region.toLowerCase()));
   return showGlobal ? [...global_, ...regional] : [...regional, ...global_];
 }
 

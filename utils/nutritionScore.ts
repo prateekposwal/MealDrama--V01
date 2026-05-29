@@ -1,6 +1,9 @@
 import type { Dish, DishVariant } from '../constants/dishLibrary';
 import type { NutritionInfo, PlateBalanceScore, HealthCategory } from '../types/nutrition';
 import { DISH_HEALTH_MAP } from '../constants/healthGuidelines';
+import { checkWithFallback } from './dpTimeout';
+import { recordMetricAndReturn, recordMetric } from './dpTelemetry';
+import { DpCache } from './dpCache';
 
 const HEALTH_CATEGORY_SCORES: Record<string, number> = {
   'whole-grain': 10,
@@ -138,7 +141,7 @@ function isOnePotCombo(meals: MealsForScoring[]): boolean {
   return meals.some(isCompleteMeal);
 }
 
-function tallyCompleteness(meals: MealsForScoring[]): { rolesFilled: number; maxRoles: number; missing: string[] } {
+export function tallyCompleteness(meals: MealsForScoring[]): { rolesFilled: number; maxRoles: number; missing: string[] } {
   const roles = { carb: false, protein: false, fiber: false, hydration: false, dessert: false };
   const missing: string[] = [];
 
@@ -302,9 +305,18 @@ export interface PlateOptimizationResult {
   totalScore: number;
   totalCalories: number;
   balanceScore: PlateBalanceScore;
+  paretoFrontier?: ParetoSolution[];
 }
 
-const plateOptCache = new Map<string, PlateOptimizationResult>();
+export interface ParetoSolution {
+  selected: PlateOptimizationCandidate[];
+  nutritionScore: number;
+  completenessRoles: number;
+  totalCalories: number;
+  itemCount: number;
+}
+
+const plateOptCache = new DpCache<PlateOptimizationResult>(100);
 
 export function optimizePlateBalance(
   candidates: PlateOptimizationCandidate[],
@@ -312,134 +324,165 @@ export function optimizePlateBalance(
   minItems: number,
   maxItems: number,
 ): PlateOptimizationResult {
+  const startTime = performance.now();
   const key = `${candidates.map(c => c.id).join(',')}::${maxCalories}::${minItems}::${maxItems}`;
   const cached = plateOptCache.get(key);
-  if (cached) return cached;
-
-  const n = candidates.length;
-  if (n === 0) {
-    const result = { selected: [], totalScore: 0, totalCalories: 0, balanceScore: scorePlateBalance([]) };
-    return result;
+  if (cached) {
+    return recordMetricAndReturn('optimizePlateBalance', startTime, true, plateOptCache.size, false, candidates.length, cached, r => r.selected.length);
   }
 
-  // Cap for DP performance
-  const maxN = Math.min(n, 20);
-  const limited = candidates.slice(0, maxN);
+  const result = checkWithFallback<PlateOptimizationResult>((isTimedOut) => {
+    const n = candidates.length;
+    if (n === 0) {
+      return { selected: [], totalScore: 0, totalCalories: 0, balanceScore: scorePlateBalance([]) };
+    }
 
-  // DP: dp[i][cal] = max score using subset of first i items with exactly cal calories
-  // We use a Map for sparse calorie values
-  const dp: Map<number, { score: number; items: number[] }>[] = [];
-  dp.push(new Map([[0, { score: 0, items: [] }]]));
+    const maxN = Math.min(n, 20);
+    const limited = candidates.slice(0, maxN);
 
-  for (let i = 0; i < maxN; i++) {
-    const item = limited[i]!;
-    const prev = dp[i]!;
-    const curr = new Map(prev);
+    const dp: Map<number, { score: number; items: number[] }>[] = [];
+    dp.push(new Map([[0, { score: 0, items: [] }]]));
 
-    for (const [cal, state] of prev) {
-      const newCal = cal + item.estimatedCalories;
-      if (newCal > maxCalories) continue;
+    for (let i = 0; i < maxN; i++) {
+      if (isTimedOut()) break;
 
-      const itemScore = scoreDishByCategories(item.healthCategories, item.tags);
+      const item = limited[i]!;
+      const prev = dp[i]!;
+      const curr = new Map(prev);
 
-      // Completeness bonus: check if this item fills missing roles
-      const existingItems = state.items.map(idx => limited[idx]!);
-      const existingMeals: MealsForScoring[] = existingItems.map(e => ({
-        name: e.name,
-        healthCategories: e.healthCategories,
-        tags: e.tags,
-        hasCarbBase: e.hasCarbBase,
-        hasProteinCore: e.hasProteinCore,
-        hasFiberSide: e.hasFiberSide,
-        hasHydration: e.hasHydration,
-        hasDessert: e.hasDessert,
+      for (const [cal, state] of prev) {
+        const newCal = cal + item.estimatedCalories;
+        if (newCal > maxCalories) continue;
+
+        const itemScore = scoreDishByCategories(item.healthCategories, item.tags);
+
+        const existingItems = state.items.map(idx => limited[idx]!);
+        const existingMeals: MealsForScoring[] = existingItems.map(e => ({
+          name: e.name, healthCategories: e.healthCategories, tags: e.tags,
+          hasCarbBase: e.hasCarbBase, hasProteinCore: e.hasProteinCore,
+          hasFiberSide: e.hasFiberSide, hasHydration: e.hasHydration, hasDessert: e.hasDessert,
+        }));
+        const newMeal: MealsForScoring = {
+          name: item.name, healthCategories: item.healthCategories, tags: item.tags,
+          hasCarbBase: item.hasCarbBase, hasProteinCore: item.hasProteinCore,
+          hasFiberSide: item.hasFiberSide, hasHydration: item.hasHydration, hasDessert: item.hasDessert,
+        };
+        const combined = [...existingMeals, newMeal];
+        const completeness = isOnePotCombo(combined) ? 4 : tallyCompleteness(combined).rolesFilled;
+        const completenessBonus = completeness * 0.5;
+
+        const newScore = state.score + itemScore + completenessBonus;
+        const existing = curr.get(newCal);
+        if (!existing || newScore > existing.score) {
+          curr.set(newCal, { score: newScore, items: [...state.items, i] });
+        }
+      }
+
+      dp.push(curr);
+    }
+
+    const final = dp[dp.length - 1]!;
+
+    // Build non-dominated Pareto frontier
+    const allSolutions: Array<{ nutritionScore: number; completenessRoles: number; totalCalories: number; itemCount: number; items: number[] }> = [];
+
+    for (const [cal, state] of final) {
+      if (state.items.length < minItems || state.items.length > maxItems) continue;
+      const items = state.items.map(i => limited[i]!);
+      const meals: MealsForScoring[] = items.map(c => ({
+        name: c.name, healthCategories: c.healthCategories, tags: c.tags,
+        hasCarbBase: c.hasCarbBase, hasProteinCore: c.hasProteinCore,
+        hasFiberSide: c.hasFiberSide, hasHydration: c.hasHydration, hasDessert: c.hasDessert,
       }));
-      const newMeal: MealsForScoring = {
-        name: item.name,
-        healthCategories: item.healthCategories,
-        tags: item.tags,
-        hasCarbBase: item.hasCarbBase,
-        hasProteinCore: item.hasProteinCore,
-        hasFiberSide: item.hasFiberSide,
-        hasHydration: item.hasHydration,
-        hasDessert: item.hasDessert,
-      };
-      const combined = [...existingMeals, newMeal];
-      const completeness = isOnePotCombo(combined) ? 4 : tallyCompleteness(combined).rolesFilled;
-      const completenessBonus = completeness * 0.5; // tie-breaker weight
+      const roles = isOnePotCombo(meals) ? 5 : tallyCompleteness(meals).rolesFilled;
+      allSolutions.push({
+        nutritionScore: state.score,
+        completenessRoles: roles,
+        totalCalories: cal,
+        itemCount: state.items.length,
+        items: state.items,
+      });
+    }
 
-      const newScore = state.score + itemScore + completenessBonus;
+    // Non-dominated sorting
+    const pareto: typeof allSolutions = [];
+    for (const sol of allSolutions) {
+      let dominated = false;
+      for (const other of allSolutions) {
+        if (sol === other) continue;
+        const otherBetter =
+          (other.nutritionScore >= sol.nutritionScore ? 1 : 0) +
+          (other.completenessRoles >= sol.completenessRoles ? 1 : 0) +
+          (Math.abs(other.totalCalories - maxCalories) <= Math.abs(sol.totalCalories - maxCalories) ? 1 : 0);
+        const solBetter =
+          (sol.nutritionScore >= other.nutritionScore ? 1 : 0) +
+          (sol.completenessRoles >= other.completenessRoles ? 1 : 0) +
+          (Math.abs(sol.totalCalories - maxCalories) <= Math.abs(other.totalCalories - maxCalories) ? 1 : 0);
+        if (otherBetter > solBetter) { dominated = true; break; }
+      }
+      if (!dominated) pareto.push(sol);
+    }
 
-      const existing = curr.get(newCal);
-      if (!existing || newScore > existing.score) {
-        curr.set(newCal, { score: newScore, items: [...state.items, i] });
+    // Find best valid solution
+    let bestScore = -Infinity;
+    let bestItems: number[] = [];
+    let bestCal = 0;
+
+    for (const [cal, state] of final) {
+      if (state.items.length < minItems || state.items.length > maxItems) continue;
+      if (state.score > bestScore) {
+        bestScore = state.score;
+        bestItems = state.items;
+        bestCal = cal;
       }
     }
 
-    dp.push(curr);
-  }
-
-  // Find best valid solution (minItems to maxItems)
-  let bestScore = -Infinity;
-  let bestItems: number[] = [];
-  let bestCal = 0;
-
-  const final = dp[maxN]!;
-  for (const [cal, state] of final) {
-    if (state.items.length < minItems || state.items.length > maxItems) continue;
-    if (state.score > bestScore) {
-      bestScore = state.score;
-      bestItems = state.items;
-      bestCal = cal;
-    }
-  }
-
-  // Fallback: if no valid combo found, pick best single item
-  if (bestItems.length === 0 && limited.length > 0) {
-    let bestSingleIdx = 0;
-    let bestSingleScore = -Infinity;
-    for (let i = 0; i < limited.length; i++) {
-      const s = scoreDishByCategories(limited[i]!.healthCategories, limited[i]!.tags);
-      if (s > bestSingleScore && limited[i]!.estimatedCalories <= maxCalories) {
-        bestSingleScore = s;
-        bestSingleIdx = i;
+    if (bestItems.length === 0 && limited.length > 0) {
+      let bestSingleIdx = 0;
+      let bestSingleScore = -Infinity;
+      for (let i = 0; i < limited.length; i++) {
+        const s = scoreDishByCategories(limited[i]!.healthCategories, limited[i]!.tags);
+        if (s > bestSingleScore && limited[i]!.estimatedCalories <= maxCalories) {
+          bestSingleScore = s; bestSingleIdx = i;
+        }
       }
+      bestItems = [bestSingleIdx];
+      bestCal = limited[bestSingleIdx]!.estimatedCalories;
+      bestScore = bestSingleScore;
     }
-    bestItems = [bestSingleIdx];
-    bestCal = limited[bestSingleIdx]!.estimatedCalories;
-    bestScore = bestSingleScore;
-  }
 
-  const selected = bestItems.map(i => limited[i]!);
-  const totalCalories = selected.reduce((sum, c) => sum + c.estimatedCalories, 0);
-  const balanceScore = scorePlateBalance(selected.map(c => ({
-    name: c.name,
-    healthCategories: c.healthCategories,
-    tags: c.tags,
-    hasCarbBase: c.hasCarbBase,
-    hasProteinCore: c.hasProteinCore,
-    hasFiberSide: c.hasFiberSide,
-    hasHydration: c.hasHydration,
-    hasDessert: c.hasDessert,
-  })));
+    const selected = bestItems.map(i => limited[i]!);
+    const totalCalories = selected.reduce((sum, c) => sum + c.estimatedCalories, 0);
+    const balanceScore = scorePlateBalance(selected.map(c => ({
+      name: c.name, healthCategories: c.healthCategories, tags: c.tags,
+      hasCarbBase: c.hasCarbBase, hasProteinCore: c.hasProteinCore,
+      hasFiberSide: c.hasFiberSide, hasHydration: c.hasHydration, hasDessert: c.hasDessert,
+    })));
 
-  const result: PlateOptimizationResult = {
-    selected,
-    totalScore: bestScore,
-    totalCalories,
-    balanceScore,
-  };
+    const paretoFrontier: ParetoSolution[] = pareto.slice(0, 8).map(p => ({
+      selected: p.items.map(i => limited[i]!),
+      nutritionScore: p.nutritionScore,
+      completenessRoles: p.completenessRoles,
+      totalCalories: p.totalCalories,
+      itemCount: p.itemCount,
+    }));
 
-  // Cache with LRU pruning
-  if (plateOptCache.size > 100) {
-    const firstKey = plateOptCache.keys().next().value;
-    if (firstKey) plateOptCache.delete(firstKey);
-  }
+    return { selected, totalScore: bestScore, totalCalories, balanceScore, paretoFrontier };
+  }, {
+    selected: [],
+    totalScore: 0,
+    totalCalories: 0,
+    balanceScore: scorePlateBalance([]),
+  });
+
   plateOptCache.set(key, result);
-
-  return result;
+  return recordMetricAndReturn('optimizePlateBalance', startTime, false, plateOptCache.size, false, candidates.length, result, r => r.selected.length);
 }
 
 export function clearPlateOptCache() {
   plateOptCache.clear();
+}
+
+export function getPlateOptCacheSize(): number {
+  return plateOptCache.size;
 }

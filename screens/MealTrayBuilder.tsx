@@ -376,6 +376,18 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         };
     }, [addToTray, addMealToSlot, slotTimes, today, getMeals, setToast]);
 
+    const suggestionAddHandler = useMemo(
+        () => handleSuggestionAdd(currentSlot.mealType),
+        [handleSuggestionAdd, currentSlot.mealType]
+    );
+    const handleOpenSearch = useCallback(() => {
+        setQuickAddSlot(currentSlot.label);
+        setShowQuickAdd(true);
+    }, [currentSlot?.label]);
+    const handleCloseQuickAdd = useCallback(() => {
+        setShowQuickAdd(false);
+    }, []);
+
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
         const t = slotTimes[mealType];
@@ -620,11 +632,8 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                                 userRegion={regionKey}
                                 userDiet={userDiet}
                                 pantryStaples={userPantryStaples}
-                                onAddMeal={handleSuggestionAdd(currentSlot.mealType)}
-                                onOpenSearch={() => {
-                                    setQuickAddSlot(currentSlot.label);
-                                    setShowQuickAdd(true);
-                                }}
+                                onAddMeal={suggestionAddHandler}
+                                onOpenSearch={handleOpenSearch}
                             />
                         )}
 
@@ -750,7 +759,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             {/* Quick Add Modal */}
             <QuickAddModal
                 isOpen={showQuickAdd}
-                onClose={() => setShowQuickAdd(false)}
+                onClose={handleCloseQuickAdd}
                 slot={quickAddSlot}
                 date={today}
                 dishes={dishes}

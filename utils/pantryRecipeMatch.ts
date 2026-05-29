@@ -2,6 +2,7 @@
 // Pantry-to-Recipe Matching — DP-based subset optimization
 // Finds the maximum subset of recipes the user can make with available pantry items
 // ─────────────────────────────────────────────────────────────────────────────
+import { checkWithFallback } from './dpTimeout';
 
 export interface RecipeIngredient {
   name: string;
@@ -87,36 +88,27 @@ export function matchPantryToRecipes(
   }
 
   // Phase 2: DP-based optimization for partially makeable recipes
-  // Find the subset of partially-makeable recipes that minimizes total missing ingredients
-  // This helps prioritize which recipes to suggest for shopping list additions
-
-  if (partiallyMake.length > 1) {
-    // Sort by missing count (ascending) — recipes needing fewer items first
+  checkWithFallback<void>((isTimedOut) => {
+    if (partiallyMake.length <= 1) return;
     partiallyMake.sort((a, b) => a.missingCount - b.missingCount);
 
-    // DP: find optimal ordering that minimizes cumulative missing ingredients
-    // dp[i] = min missing ingredients to make recipes 0..i
     const n = partiallyMake.length;
     const dp: number[] = new Array(n).fill(Infinity);
     const parent: number[] = new Array(n).fill(-1);
 
-    // Base case: each recipe individually
     for (let i = 0; i < n; i++) {
       dp[i] = partiallyMake[i]!.missingCount;
     }
 
-    // Fill DP: consider combining recipes that share missing ingredients
     for (let i = 1; i < n; i++) {
+      if (isTimedOut()) return;
       const currentMissing = new Set(partiallyMake[i]!.missing.map(m => m.toLowerCase()));
 
       for (let j = 0; j < i; j++) {
         const prevMissing = new Set(partiallyMake[j]!.missing.map(m => m.toLowerCase()));
-        // Calculate combined missing (union of missing sets)
         const combined = new Set([...currentMissing, ...prevMissing]);
-        const combinedCount = combined.size;
 
         if (dp[j]! + partiallyMake[i]!.missingCount - currentMissing.size < dp[i]!) {
-          // This recipe shares missing ingredients with previous
           const newCost = dp[j]! + partiallyMake[i]!.missingCount;
           if (newCost < dp[i]!) {
             dp[i] = newCost;
@@ -126,7 +118,6 @@ export function matchPantryToRecipes(
       }
     }
 
-    // Reconstruct optimal chain
     const optimalChain: number[] = [];
     let bestIdx = 0;
     for (let i = 1; i < n; i++) {
@@ -139,12 +130,12 @@ export function matchPantryToRecipes(
       curr = parent[curr]!;
     }
 
-    // Reorder partiallyMake based on optimal chain
     const ordered = optimalChain.map(i => partiallyMake[i]!);
     const remaining = partiallyMake.filter((_, idx) => !optimalChain.includes(idx));
     partiallyMake.length = 0;
     partiallyMake.push(...ordered, ...remaining);
-  }
+  }, undefined);
+
 
   // Calculate coverage score
   const totalRecipes = limitedRecipes.length;
