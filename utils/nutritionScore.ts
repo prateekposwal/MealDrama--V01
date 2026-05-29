@@ -118,6 +118,7 @@ export interface MealsForScoring {
   hasProteinCore?: boolean;  // dal, paneer, meat, egg, legume-based curry
   hasFiberSide?: boolean;    // salad, raita, veg side, chutney
   hasHydration?: boolean;    // beverage, water, chaas, lassi
+  hasDessert?: boolean;      // sweet, dessert, mithai
 }
 
 // ─── Completeness Layer ─────────────────────────────────────────────────────
@@ -138,7 +139,7 @@ function isOnePotCombo(meals: MealsForScoring[]): boolean {
 }
 
 function tallyCompleteness(meals: MealsForScoring[]): { rolesFilled: number; maxRoles: number; missing: string[] } {
-  const roles = { carb: false, protein: false, fiber: false, hydration: false };
+  const roles = { carb: false, protein: false, fiber: false, hydration: false, dessert: false };
   const missing: string[] = [];
 
   for (const meal of meals) {
@@ -146,15 +147,17 @@ function tallyCompleteness(meals: MealsForScoring[]): { rolesFilled: number; max
     if (meal.hasProteinCore) roles.protein = true;
     if (meal.hasFiberSide) roles.fiber = true;
     if (meal.hasHydration) roles.hydration = true;
+    if (meal.hasDessert) roles.dessert = true;
   }
 
   if (!roles.carb) missing.push('carb base (roti/rice)');
   if (!roles.protein) missing.push('protein (dal/paneer/meat)');
   if (!roles.fiber) missing.push('fiber side (salad/veg)');
   if (!roles.hydration) missing.push('hydration (beverage)');
+  if (!roles.dessert) missing.push('dessert (sweet)');
 
-  const rolesFilled = [roles.carb, roles.protein, roles.fiber, roles.hydration].filter(Boolean).length;
-  return { rolesFilled, maxRoles: 4, missing };
+  const rolesFilled = [roles.carb, roles.protein, roles.fiber, roles.hydration, roles.dessert].filter(Boolean).length;
+  return { rolesFilled, maxRoles: 5, missing };
 }
 
 export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
@@ -192,17 +195,17 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
   // ─── Completeness Bonus Layer ───────────────────────────────────────
   const isOnePot = meals.some(isCompleteMeal);
   const { rolesFilled, maxRoles, missing } = isOnePot
-    ? { rolesFilled: 4, maxRoles: 4, missing: [] as string[] }
+    ? { rolesFilled: 5, maxRoles: 5, missing: [] as string[] }
     : tallyCompleteness(meals);
 
-  const completenessBonus = rolesFilled; // +1 per role, max +4
+  const completenessBonus = rolesFilled; // +1 per role, max +5
   const completenessPct = rolesFilled / maxRoles;
 
   if (isOnePot) {
     breakdown.push('✅ Complete one-pot meal — all roles covered');
   } else if (rolesFilled === maxRoles) {
-    breakdown.push('✅ Perfectly balanced plate — all 4 roles present');
-  } else if (rolesFilled >= 2) {
+    breakdown.push('✅ Perfectly balanced plate — all 5 roles present');
+  } else if (rolesFilled >= 3) {
     breakdown.push(`⚠️ Plate ${rolesFilled}/${maxRoles} complete — add ${missing[0]}`);
     suggestions.push(`Complete your plate with: ${missing.join(', ')}`);
   } else if (meals.length > 0) {
@@ -210,8 +213,8 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
     suggestions.push(`Add missing components: ${missing.join(', ')}`);
   }
 
-  // Scale completeness as 0-10 bonus added to total
-  const completenessScore = completenessBonus * 2.5; // max +10
+  // Scale completeness as 0-12.5 bonus added to total (5 roles × 2.5)
+  const completenessScore = completenessBonus * 2.5; // max +12.5
 
   if (vegFruitScore >= 6) breakdown.push('✅ Good vegetable & fruit variety');
   else if (vegFruitScore >= 3) breakdown.push('⚠️ Add more vegetables & fruits');
@@ -240,7 +243,7 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
 
   const baseTotal = vegFruitScore + wholeGrainScore + proteinScore + healthyFatScore + sugaryScore + redMeatScore;
   const total = Math.max(0, baseTotal + completenessScore);
-  const max = 60; // 50 base + 10 completeness
+  const max = 62.5; // 50 base + 12.5 completeness
 
   return {
     total,
@@ -291,6 +294,7 @@ export interface PlateOptimizationCandidate {
   hasProteinCore?: boolean;
   hasFiberSide?: boolean;
   hasHydration?: boolean;
+  hasDessert?: boolean;
 }
 
 export interface PlateOptimizationResult {
@@ -348,6 +352,7 @@ export function optimizePlateBalance(
         hasProteinCore: e.hasProteinCore,
         hasFiberSide: e.hasFiberSide,
         hasHydration: e.hasHydration,
+        hasDessert: e.hasDessert,
       }));
       const newMeal: MealsForScoring = {
         name: item.name,
@@ -357,6 +362,7 @@ export function optimizePlateBalance(
         hasProteinCore: item.hasProteinCore,
         hasFiberSide: item.hasFiberSide,
         hasHydration: item.hasHydration,
+        hasDessert: item.hasDessert,
       };
       const combined = [...existingMeals, newMeal];
       const completeness = isOnePotCombo(combined) ? 4 : tallyCompleteness(combined).rolesFilled;
@@ -414,6 +420,7 @@ export function optimizePlateBalance(
     hasProteinCore: c.hasProteinCore,
     hasFiberSide: c.hasFiberSide,
     hasHydration: c.hasHydration,
+    hasDessert: c.hasDessert,
   })));
 
   const result: PlateOptimizationResult = {

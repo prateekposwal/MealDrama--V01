@@ -781,6 +781,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
           m.name.toLowerCase().includes('coffee') ||
           m.name.toLowerCase().includes('juice')
         );
+        const hasDessert = meals.some(m =>
+          (m.dessert?.length ?? 0) > 0 ||
+          m.name.toLowerCase().includes('dessert') ||
+          m.name.toLowerCase().includes('sweet') ||
+          m.name.toLowerCase().includes('gulab') ||
+          m.name.toLowerCase().includes('kheer') ||
+          m.name.toLowerCase().includes('halwa') ||
+          m.name.toLowerCase().includes('ice cream') ||
+          m.name.toLowerCase().includes('rasgulla') ||
+          m.name.toLowerCase().includes('jalebi') ||
+          m.name.toLowerCase().includes('ladoo') ||
+          m.name.toLowerCase().includes('barfi')
+        );
 
         return [{
           name: mealType,
@@ -791,6 +804,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
           hasProteinCore,
           hasFiberSide,
           hasHydration,
+          hasDessert,
         }];
       });
 
