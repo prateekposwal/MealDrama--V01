@@ -418,7 +418,7 @@ const DISH_STYLE_MAP: Record<string, { style: DishStyle; subTag?: string }> = {
   'mango-lassi': { style: 'beverage', subTag: 'yogurt' },
   'sweet-lassi': { style: 'beverage', subTag: 'yogurt' },
   'salted-lassi': { style: 'beverage', subTag: 'yogurt' },
-  'masala-chaai': { style: 'beverage', subTag: 'spiced' },
+  'masala-chai': { style: 'beverage', subTag: 'tea' },
   'chaas': { style: 'beverage', subTag: 'digestive' },
   'nimbu-pani': { style: 'beverage', subTag: 'citrus' },
   'jaljeera': { style: 'beverage', subTag: 'spiced' },
@@ -452,6 +452,14 @@ const DISH_STYLE_MAP: Record<string, { style: DishStyle; subTag?: string }> = {
   'kulukki-sarbath': { style: 'beverage', subTag: 'citrus' },
   'tender-coconut-shake': { style: 'beverage', subTag: 'natural' },
   'chikoo-shake': { style: 'beverage', subTag: 'creamy' },
+
+  // ── Vermicelli Dishes ──────────────────────────────────
+  'vermicelli-upma': { style: 'steam-boil', subTag: 'vermicelli' },
+  'seviyan-kheer': { style: 'sweet-dessert', subTag: 'milk' },
+  'sheer-khurma': { style: 'sweet-dessert', subTag: 'festive' },
+  'falooda': { style: 'sweet-dessert', subTag: 'cold' },
+  'balaleet': { style: 'breakfast', subTag: 'middle-eastern' },
+  'vermicelli-porridge': { style: 'breakfast', subTag: 'porridge' },
 
   // ── Sweet / Dessert ────────────────────────────────────
   'kulfi': { style: 'sweet-dessert', subTag: 'frozen' },
@@ -604,7 +612,6 @@ const DISH_STYLE_MAP: Record<string, { style: DishStyle; subTag?: string }> = {
   'veggie-spaghetti-sauce': { style: 'gravy', subTag: 'sauce' },
   'chana-masala': { style: 'gravy', subTag: 'chickpea' },
   'aubergine-curry': { style: 'gravy', subTag: 'curry' },
-  'masala-chai': { style: 'beverage', subTag: 'tea' },
 };
 
 export function getDishStyle(dishId: string): DishStyle | undefined {
@@ -777,12 +784,12 @@ export type IndianMealCategory = 'bread' | 'rice' | 'beverage' | 'side' | 'desse
  */
 export const indian_meal_categories: Record<IndianMealCategory, string[]> = {
   bread: [
-    'Roti / Phulka', 'Butter Naan', 'Garlic Naan', 'Aloo Paratha', 'Paneer Paratha',
-    'Gobi Paratha', 'Missi Roti', 'Bhakri', 'Rumali Roti', 'Puri', 'Kulcha',
-    'Luchi', 'Appam', 'Tandoori Roti', 'Khamiri Roti', 'Bhature',
+    'Roti', 'Phulka', 'Butter Naan', 'Garlic Naan', 'Aloo Paratha', 'Paneer Paratha',
+    'Gobi Paratha', 'Missi Roti', 'Bhakri', 'Rumali Roti', 'Kulcha',
+    'Tandoori Roti', 'Khamiri Roti', 'Bhatura', 'Chapati', 'Thepla', 'Puri',
   ],
   rice: [
-    'Steamed Basmati', 'Jeera Rice', 'Lemon Rice', 'Curd Rice', 'Veg Pulao',
+    'Rice', 'Steamed Basmati', 'Jeera Rice', 'Lemon Rice', 'Curd Rice', 'Veg Pulao',
     'Khichdi', 'Sona Masoori', 'Biryani Base', 'Pongal', 'Upma',
     'Curd Pulao', 'Matar Pulao', 'Jeera Sona Masoori', 'Coconut Rice',
   ],
@@ -793,9 +800,24 @@ export const indian_meal_categories: Record<IndianMealCategory, string[]> = {
     'Seasonal Fruit Juice',
   ],
   side: [
-    'Cucumber Raita', 'Boondi Raita', 'Masala Raita', 'Papad', 'Kachumber Salad',
-    'Mango Pickle', 'Lime Pickle', 'Mixed Chutney', 'Coconut Chutney', 'Mint Chutney',
-    'Tamarind Chutney', 'Fryums', 'Onion Rings', 'Lemon Wedge', 'Green Chili',
+    // Raitas
+    'Cucumber Raita', 'Boondi Raita', 'Masala Raita',
+    // Chutneys
+    'Mixed Chutney', 'Coconut Chutney', 'Mint Chutney',
+    'Tamarind Chutney', 'Imli Chutney', 'Green Chutney',
+    // Pickles & Salads
+    'Papad', 'Kachumber Salad', 'Mango Pickle', 'Lime Pickle',
+    'Fryums', 'Onion Rings', 'Lemon Wedge', 'Green Chili',
+    // South Indian essentials
+    'Sambar', 'Rasam', 'Curry Leaves Chutney',
+    // Curd & Dairy
+    'Curd', 'Dahi', 'Butter', 'Ghee',
+    // Biryani accompaniments
+    'Mirchi Ka Salan', 'Bagara Baingan',
+    // Chai/beverage accompaniments
+    'Biscuits', 'Cookies', 'Roasted Peanuts', 'Namkeen', 'Mathri', 'Rusk', 'Bun Maska',
+    // Chaat/street food
+    'Sev', 'Murukku', 'Boondi',
   ],
   dessert: [
     'Kheer / Payasam', 'Gulab Jamun', 'Rasgulla', 'Jalebi', 'Gajar Halwa',
@@ -821,25 +843,25 @@ export function getRecommendedCategories(style: DishStyle): IndianMealCategory[]
     case 'dry-sabzi':
       return ['bread', 'rice', 'side'];
     case 'fry-tadka':
-      return ['bread', 'side', 'beverage'];
+      return ['side', 'beverage'];
     case 'roast-tandoori':
       return ['bread', 'side', 'beverage'];
     case 'rice-biryani':
-      return ['side', 'beverage', 'dessert'];
+      return ['side', 'beverage'];
     case 'steam-boil':
       return ['side', 'beverage'];
     case 'breakfast':
-      return ['beverage'];
+      return ['side', 'beverage'];
     case 'sweet-dessert':
       return [];
     case 'bread':
-      return ['beverage'];
+      return ['side', 'beverage'];
     case 'side':
       return [];
     case 'beverage':
-      return [];
+      return ['side'];
     case 'soup':
-      return ['bread', 'beverage'];
+      return ['side', 'beverage'];
     default:
       return ['bread', 'rice', 'side', 'beverage'];
   }

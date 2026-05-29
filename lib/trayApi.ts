@@ -371,6 +371,14 @@ export const trayApi = {
     await api.post('/tray/skip', { date, mealType }, { signal });
     return { success: true };
   },
+
+  async unskipSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
+    if (simulateFailure()) throw new Error('Network error');
+    const { api } = await import('./api');
+    await api.post('/tray/unskip', { date, mealType }, { signal });
+    return { success: true };
+  },
 };
 
 // ─── Cached Fallbacks ───────────────────────────────────────────────────────

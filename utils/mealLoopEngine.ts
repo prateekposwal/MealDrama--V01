@@ -1,7 +1,7 @@
 import type { MealType, MealLoopConfig, MealLoopAssignment, RotationQueueItem, RotationSlotPointer } from '../types/tray';
 import type { Dish } from '../constants/dishLibrary';
 import { getDishStyle } from '../constants/dishStyles';
-import { getISODate } from './dateUTC';
+import { getISODate, daysBetweenISO } from './dateUTC';
 
 export { getISODate };
 
@@ -29,9 +29,12 @@ export interface LoopValidation {
   errors: string[];
 }
 
-export function validateSourcePool(pool: SourcePool): LoopValidation {
+export function validateSourcePool(pool: SourcePool, plannedSlots?: string[]): LoopValidation {
   const errors: string[] = [];
-  for (const slot of SLOT_TYPES) {
+  const slotsToCheck = plannedSlots
+    ? SLOT_TYPES.filter(s => plannedSlots.includes(s.charAt(0).toUpperCase() + s.slice(1)))
+    : SLOT_TYPES;
+  for (const slot of slotsToCheck) {
     if (pool[slot].length === 0) {
       const slotLabel = slot.charAt(0).toUpperCase() + slot.slice(1);
       errors.push(`${slotLabel} has no dishes — add at least 1 per slot`);
@@ -105,8 +108,9 @@ export function assignFromQueue(
     }
   }
 
+  // Initialize pointers from _startIndex to preserve rotation position
   const pointers: Record<MealType, number> = {
-    breakfast: 0, lunch: 0, snacks: 0, dinner: 0,
+    breakfast: _startIndex, lunch: _startIndex, snacks: _startIndex, dinner: _startIndex,
   };
 
   if (config.repeatPattern === 'random') {
@@ -115,6 +119,15 @@ export function assignFromQueue(
         const j = Math.floor(Math.random() * (i + 1));
         [slotQueues[slot][i], slotQueues[slot][j]] = [slotQueues[slot][j]!, slotQueues[slot][i]!];
       }
+    }
+  }
+
+  // Build last-served index from existing assignments for anti-repetition
+  const lastServed = new Map<string, string>(); // dishId -> date
+  for (const a of existingAssignments) {
+    const prev = lastServed.get(a.dishId);
+    if (!prev || a.date > prev) {
+      lastServed.set(a.dishId, a.date);
     }
   }
 
@@ -137,10 +150,20 @@ export function assignFromQueue(
       const key = `${dateStr}:${slot}`;
       if (existingSet.has(key)) continue;
 
-      const ptr = pointers[slot] % sq.length;
-      pointers[slot]++;
-      const item = sq[ptr]!;
+      // Anti-repetition: skip dishes served within last 5 days
+      let ptr = pointers[slot] % sq.length;
+      let attempts = 0;
+      let item = sq[ptr]!;
+      while (attempts < sq.length) {
+        const lastDate = lastServed.get(item.dishId);
+        if (!lastDate || daysBetweenISO(lastDate, dateStr) >= 5) break;
+        pointers[slot]++;
+        ptr = pointers[slot] % sq.length;
+        item = sq[ptr]!;
+        attempts++;
+      }
 
+      pointers[slot]++;
       assignments.push({
         date: dateStr,
         mealType: slot,
@@ -150,6 +173,7 @@ export function assignFromQueue(
         deprecated: item.deprecated,
       });
       existingSet.add(key);
+      lastServed.set(item.dishId, dateStr);
     }
     activeDays++;
   }

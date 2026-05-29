@@ -1,220 +1,26 @@
 import type { Meal, MealType, TrayItem, TrayItemDefaults } from '../../types/tray';
-import { getDishStyle, getStyleRouting } from '../../constants/dishStyles';
-import { computePairingForDish } from '../../src/data/pairingEngine';
-import type { Dish } from '../../constants/dishLibrary';
+import { getDishStyle } from '../../constants/dishStyles';
+import {
+  normalizeCategory,
+  deduplicateSides,
+  pickBestCarb,
+  pickBestBeverage,
+  dishImpliesCarb,
+  isStandaloneDish,
+  isRotiLike,
+  isBreadLike,
+  detectEmbeddedCarb,
+} from '../../utils/normalizeMealComponents';
 
-const LIGHT_CARBS = new Set(['paratha', 'idli', 'dosa', 'poha', 'upma', 'puttu', 'appam']);
-const HEAVY_CARBS = new Set(['naan', 'tandoori naan', 'paratha', 'butter naan', 'garlic naan', 'pulao', 'biryani', 'fried rice']);
+const CARB_DISH_TAGS = new Set(['paratha', 'bread', 'puri', 'naan', 'roti', 'dosa', 'idli', 'rice', 'pulao', 'biryani', 'khichdi', 'pasta', 'noodles', 'appam', 'puttu', 'upma']);
 const ROTI_REGIONS = new Set(['north', 'central']);
 const RICE_REGIONS = new Set(['south', 'east', 'west', 'northeast']);
-const CARB_DISH_TAGS = new Set(['paratha', 'bread', 'puri', 'naan', 'roti', 'dosa', 'idli', 'rice', 'pulao', 'biryani', 'khichdi', 'pasta', 'noodles', 'appam', 'puttu', 'upma']);
-const NO_CARB_TAGS = new Set(['chaat', 'snacks', 'fried', 'street food', 'drink', 'tea', 'chai', 'beverage', 'sweet', 'dessert']);
-
-type RegionKey = 'north' | 'south' | 'west' | 'east' | 'central' | 'northeast';
-
-const REGION_BREADS: Record<RegionKey, string[]> = {
-  north: ['Tandoori Roti', 'Butter Naan', 'Bhature'],
-  south: ['Appam', 'Plain Dosa'],
-  west: ['Bhakri', 'Thepla'],
-  east: ['Luchi', 'Roti'],
-  central: ['Roti', 'Bafla'],
-  northeast: ['Roti', 'Naan'],
-};
-
-const REGION_RICES: Record<RegionKey, string[]> = {
-  north: ['Jeera Rice', 'Steamed Rice'],
-  south: ['Steamed Rice', 'Lemon Rice'],
-  west: ['Steamed Rice', 'Pulao'],
-  east: ['Steamed Rice'],
-  central: ['Steamed Rice', 'Jeera Rice'],
-  northeast: ['Steamed Rice', 'Sticky Rice'],
-};
-
-const REGION_SIDES: Record<RegionKey, string[]> = {
-  north: ['Raita', 'Salad', 'Pickle'],
-  south: ['Papad', 'Pickle', 'Coconut Chutney'],
-  west: ['Salad', 'Pickle', 'Kadhi'],
-  east: ['Salad', 'Pickle'],
-  central: ['Salad', 'Pickle'],
-  northeast: ['Salad', 'Pickle', 'Chutney'],
-};
-
-const REGION_BEVERAGES: Record<RegionKey, string[]> = {
-  north: ['Water', 'Chaas'],
-  south: ['Water', 'Filter Coffee', 'Chaas'],
-  west: ['Water', 'Chaas'],
-  east: ['Water', 'Chaas'],
-  central: ['Water', 'Chaas'],
-  northeast: ['Water', 'Chai'],
-};
-
-const SLOT_SIDES: Record<MealType, string[]> = {
-  breakfast: ['Mixed Chutney', 'Lemon Wedge', 'Green Chili'],
-  lunch: ['Papad', 'Kachumber Salad', 'Mango Pickle'],
-  snacks: ['Mint Chutney', 'Onion Rings', 'Fryums'],
-  dinner: ['Cucumber Raita', 'Boondi Raita', 'Tamarind Chutney'],
-};
-
-const SLOT_BEVERAGES: Record<MealType, string[]> = {
-  breakfast: ['Masala Chai', 'Seasonal Fruit Juice', 'Filter Coffee'],
-  lunch: ['Chaas', 'Seasonal Fruit Juice', 'Nimbu Pani'],
-  snacks: ['Coconut Water', 'Jaljeera', 'Aam Panna'],
-  dinner: ['Badam Milk', 'Sol Kadhi', 'Ginger Lemon'],
-};
-
-const TAG_BREAD_PREFS: Record<string, string[]> = {
-  gravy: ['Butter Naan', 'Tandoori Roti'],
-  'slow-cooked': ['Butter Naan', 'Tandoori Roti'],
-  tandoori: ['Tandoori Roti', 'Butter Naan'],
-  dal: ['Tandoori Roti', 'Jeera Rice'],
-  'non-veg': ['Butter Naan', 'Tandoori Roti'],
-  egg: ['Tandoori Roti', 'Paratha'],
-  paratha: [],
-  chaat: [],
-  'street food': [],
-  snacks: [],
-  fried: [],
-  drink: [],
-  tea: [],
-  chai: [],
-  beverage: [],
-  sweet: [],
-  dessert: [],
-  breakfast: ['Paratha', 'Bread'],
-};
-
-const TAG_SIDE_PREFS: Record<string, string[]> = {
-  gravy: ['Raita', 'Salad'],
-  dal: ['Papad', 'Pickle'],
-  'rice-dish': ['Raita', 'Papad'],
-  paratha: ['Curd', 'Butter', 'Pickle'],
-  chaat: ['Curd', 'Chutney'],
-  'street food': ['Chutney', 'Curd'],
-  healthy: ['Salad', 'Curd'],
-  'non-veg': ['Salad', 'Onion'],
-  egg: ['Salad', 'Ketchup'],
-  breakfast: ['Butter', 'Jam'],
-  'comfort': ['Papad', 'Salad'],
-  salad: ['Green Salad', 'Kachumber'],
-  fruit: ['Mixed Fruit', 'Seasonal Fruit'],
-};
-
-const TAG_BEVERAGE_PREFS: Record<string, string[]> = {
-  'non-veg': ['Water', 'Chaas'],
-  spicy: ['Chaas', 'Water'],
-  summer: ['Chaas', 'Mango Lassi'],
-  breakfast: ['Chai', 'Coffee', 'Milk'],
-  healthy: ['Green Tea', 'Water'],
-  'comfort': ['Chaas', 'Chai'],
-  salad: ['Water', 'Nimbu Pani'],
-  fruit: ['Lassi', 'Nimbu Pani'],
-};
-
-function resolveRegion(region: string): RegionKey {
-  const known: RegionKey[] = ['north', 'south', 'west', 'east', 'central', 'northeast'];
-  const r = region.toLowerCase() as RegionKey;
-  return known.includes(r) ? r : 'north';
-}
-
-function shouldInferBread(meal: Meal): boolean {
-  if (!meal.tags) return true;
-  if (meal.tags.some(t => CARB_DISH_TAGS.has(t))) return false;
-  if (meal.tags.some(t => NO_CARB_TAGS.has(t))) return false;
-  const style = meal.id ? getDishStyle(meal.id) : undefined;
-  if (style && !getStyleRouting(style).inferBread) return false;
-  return true;
-}
-
-function shouldInferRice(meal: Meal): boolean {
-  if (!meal.tags) return true;
-  if (meal.tags.some(t => ['rice', 'pulao', 'biryani', 'khichdi'].includes(t))) return false;
-  if (meal.tags.some(t => NO_CARB_TAGS.has(t))) return false;
-  const style = meal.id ? getDishStyle(meal.id) : undefined;
-  if (style && !getStyleRouting(style).inferRice) return false;
-  return true;
-}
-
-function inferBreads(meal: Meal): string[] {
-  if (!shouldInferBread(meal)) return [];
-
-  const region = resolveRegion(meal.region);
-
-  const tags = meal.tags ?? [];
-  for (const t of tags) {
-    const prefs = TAG_BREAD_PREFS[t];
-    if (Array.isArray(prefs) && prefs.length === 0) return [];
-  }
-
-  const tagPrefs = tags.flatMap(t => TAG_BREAD_PREFS[t] ?? []).filter(Boolean);
-  if (tagPrefs.length > 0) return tagPrefs;
-
-  const style = meal.id ? getDishStyle(meal.id) : undefined;
-  if (style) {
-    const routing = getStyleRouting(style);
-    if (routing.breads && routing.breads.length > 0) return routing.breads;
-  }
-
-  const base = REGION_BREADS[region] ?? REGION_BREADS['north'];
-  return base;
-}
-
-function inferRices(meal: Meal): string[] {
-  if (!shouldInferRice(meal)) return [];
-
-  const region = resolveRegion(meal.region);
-
-  const style = meal.id ? getDishStyle(meal.id) : undefined;
-  if (style) {
-    const routing = getStyleRouting(style);
-    if (routing.rice && routing.rice.length > 0) return routing.rice;
-  }
-
-  return REGION_RICES[region] ?? REGION_RICES['north'];
-}
-
-function inferSides(meal: Meal, slotType: MealType): string[] {
-  const region = resolveRegion(meal.region);
-  const base = REGION_SIDES[region] ?? REGION_SIDES['north'];
-
-  const tagPrefs = meal.tags?.flatMap(t => TAG_SIDE_PREFS[t] ?? []).filter(Boolean) ?? [];
-  if (tagPrefs.length > 0) return [...new Set(tagPrefs)];
-
-  const style = meal.id ? getDishStyle(meal.id) : undefined;
-  if (style) {
-    const routing = getStyleRouting(style);
-    if (routing.sides && routing.sides.length > 0) return routing.sides;
-  }
-
-  if (slotType === 'breakfast') return SLOT_SIDES.breakfast.slice(0, 2);
-  if (slotType === 'snacks') return SLOT_SIDES.snacks.slice(0, 2);
-
-  return base.slice(0, 3);
-}
-
-function inferBeverages(meal: Meal, slotType: MealType): string[] {
-  const region = resolveRegion(meal.region);
-  const base = REGION_BEVERAGES[region] ?? REGION_BEVERAGES['north'];
-
-  const tagPrefs = meal.tags?.flatMap(t => TAG_BEVERAGE_PREFS[t] ?? []).filter(Boolean) ?? [];
-  if (tagPrefs.length > 0) return [...new Set(tagPrefs)];
-
-  const style = meal.id ? getDishStyle(meal.id) : undefined;
-  if (style) {
-    const routing = getStyleRouting(style);
-    if (routing.beverages && routing.beverages.length > 0) return routing.beverages;
-  }
-
-  const slotBev = SLOT_BEVERAGES[slotType];
-  if (slotBev) return slotBev.slice(0, 2);
-
-  return base.slice(0, 2);
-}
 
 export function applySmartDefaults(
   meal: Meal,
-  slotType: MealType,
+  _slotType: MealType,
   existingItem?: TrayItem,
-  options?: { useSmartSuggestions?: boolean },
+  _options?: { useSmartSuggestions?: boolean },
 ): TrayItemDefaults {
   // ─── BACKWARD COMPAT: if existing item was created with legacy defaults,
   //      preserve its values instead of auto-migrating to smart suggestions.
@@ -234,135 +40,300 @@ export function applySmartDefaults(
     ?? meal.gravyOptions?.[0]
     ?? null;
 
+  // ─── KITCHEN LOGIC: Context-aware carb assignment ──
+  // Rule 1: Skip carbs for standalone dishes (chilla, thukpa, stir-fry, beverages, etc.)
+  // Rule 2: Skip carbs if dish name implies it already has carbs (chawal, dosa, pulao, etc.)
+  // Rule 3: NEVER assign carbs to beverages — they get light accompaniments only
+  const standalone = isStandaloneDish(meal.name, meal.tags);
+  const dishHasCarb = dishImpliesCarb(meal.name);
+  const style = meal.id ? getDishStyle(meal.id) : undefined;
+  const isBeverageStyle = style === 'beverage';
+
+  // ─── EARLY EXIT: Beverages get ZERO carbs, light sides only ──
+  if (isBeverageStyle) {
+    const beverageSides = ['Biscuits', 'Cookies', 'Rusk', 'Bun Maska', 'Roasted Peanuts'];
+    const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+    const sides = availableSides.length > 0 ? deduplicateSides(availableSides) : beverageSides.slice(0, 2);
+
+    const itemQtys: Record<string, number> = {};
+    for (const item of sides) {
+      itemQtys[item] = 1;
+    }
+
+    return { gravy, roti: null, rice: null, sides, beverages: [], dessert: [], itemQtys };
+  }
+
+  // ─── EARLY EXIT: Standalone dishes (chilla, thukpa, etc.) get ZERO carbs ──
+  if (standalone) {
+    const style = meal.id ? getDishStyle(meal.id) : undefined;
+    const isStyleStandalone = style && ['sweet-dessert', 'side'].includes(style);
+    const isBeverageStyle = style === 'beverage';
+    const isSouthBreakfast = (meal.region === 'south' && (meal.tags?.some(t => ['breakfast', 'light', 'idli', 'dosa'].includes(t)) ?? false)) ?? false;
+
+    let sides: string[] = [];
+    let beverages: string[] = [];
+    const dessert: string[] = [];
+
+    if (isBeverageStyle) {
+      const beverageSides = ['Biscuits', 'Cookies', 'Rusk', 'Bun Maska', 'Roasted Peanuts'];
+      const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+      sides = availableSides.length > 0 ? deduplicateSides(availableSides) : beverageSides.slice(0, 2);
+    } else if (isSouthBreakfast) {
+      const southSides = ['Sambar', 'Coconut Chutney'];
+      const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+      sides = availableSides.length > 0 ? deduplicateSides(availableSides) : southSides;
+      const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+      let bestBev = pickBestBeverage(allBevs);
+      if (!bestBev) bestBev = 'Coffee';
+      beverages = [bestBev];
+    } else if (!isStyleStandalone) {
+      const allSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+      sides = deduplicateSides(allSides);
+      if (sides.length === 0) {
+        const region = meal.region || 'north';
+        const regionSides: Record<string, string[]> = {
+          north: ['Raita', 'Salad'],
+          south: ['Papad', 'Pickle'],
+          east: ['Salad', 'Pickle'],
+          west: ['Salad', 'Pickle'],
+          central: ['Salad', 'Pickle'],
+          northeast: ['Salad', 'Pickle'],
+        };
+        sides = (regionSides[region] ?? regionSides.north).slice(0, 2);
+      }
+      const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+      let bestBev = pickBestBeverage(allBevs);
+      if (!bestBev) {
+        const slotBevs: Record<string, string> = {
+          breakfast: 'Coffee',
+          lunch: 'Buttermilk',
+          snacks: 'Buttermilk',
+          dinner: 'Buttermilk',
+        };
+        bestBev = slotBevs[_slotType] ?? 'Buttermilk';
+      }
+      beverages = [bestBev];
+    }
+
+    const itemQtys: Record<string, number> = {};
+    for (const item of [...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
+      itemQtys[item] = 1;
+    }
+
+    return { gravy, roti: null, rice: null, sides, beverages, dessert, itemQtys };
+  }
+
   let roti: string | null = null;
   let rice: string | null = null;
 
-  const explicitRoti = (meal.rotiOptions?.length ?? 0) > 0;
-  const explicitRice = (meal.riceOptions?.length ?? 0) > 0;
+  if (!standalone && !dishHasCarb) {
+    // Only infer carbs for dishes that need them
+    const explicitRoti = (meal.rotiOptions?.length ?? 0) > 0;
+    const explicitRice = (meal.riceOptions?.length ?? 0) > 0;
+    const selfCarb = meal.tags?.some(t => CARB_DISH_TAGS.has(t)) ?? false;
+    const isLightCarb = meal.tags?.includes('light_carb') ?? false;
 
-  const selfCarb = !shouldInferBread(meal);
+    if (!selfCarb) {
+      const region = meal.region || 'north';
 
-  const rotiOptions = explicitRoti
-    ? meal.rotiOptions!
-    : (selfCarb || explicitRice ? [] : inferBreads(meal));
-  const riceOptions = explicitRice
-    ? meal.riceOptions!
-    : (selfCarb || explicitRoti ? [] : inferRices(meal));
+      // Collect all carb options
+      const allCarbs: string[] = [];
+      if (explicitRoti && meal.rotiOptions) allCarbs.push(...meal.rotiOptions);
+      if (explicitRice && meal.riceOptions) allCarbs.push(...meal.riceOptions);
 
-  const hasRoti = rotiOptions.length > 0;
-  const hasRice = riceOptions.length > 0;
-
-  const isNorth = ROTI_REGIONS.has(meal.region);
-  const isSouthEastWest = RICE_REGIONS.has(meal.region);
-  const isLightCarb = meal.tags?.includes('light_carb') ?? false;
-
-  if (hasRoti && hasRice) {
-    switch (slotType) {
-      case 'breakfast':
-        const lightRoti = rotiOptions.find(r => LIGHT_CARBS.has(r.toLowerCase()));
-        const lightRice = riceOptions.find(r => LIGHT_CARBS.has(r.toLowerCase()));
-        if (lightRoti) {
-          roti = lightRoti;
-        } else if (lightRice) {
-          rice = lightRice;
-        } else {
-          if (isNorth) {
-            roti = rotiOptions[0] ?? null;
+      // Slot-type-specific logic
+      if (_slotType === 'snacks' && !isLightCarb) {
+        // Skip heavy carbs in snacks, but allow light carbs
+        const lightCarbs = allCarbs.filter(c => {
+          const lower = c.toLowerCase();
+          return !['naan', 'butter naan', 'garlic naan', 'tandoori naan', 'biryani', 'fried rice', 'pulao'].some(hc => lower.includes(hc));
+        });
+        if (lightCarbs.length > 0) {
+          const bestLight = pickBestCarb(lightCarbs, region);
+          if (isRotiLike(bestLight) || isBreadLike(bestLight)) {
+            roti = bestLight;
           } else {
-            rice = riceOptions[0] ?? null;
+            rice = bestLight;
           }
+        } else {
+          roti = null;
+          rice = null;
         }
-        break;
-
-      case 'snacks':
-        if (isLightCarb) {
-          if (isNorth) {
-            roti = rotiOptions[0] ?? null;
+      } else if (_slotType === 'breakfast' && allCarbs.length > 0) {
+        // Prefer light carbs for breakfast
+        const lightCarbs = allCarbs.filter(c => {
+          const lower = c.toLowerCase();
+          return ['paratha', 'idli', 'dosa', 'poha', 'upma', 'puttu', 'appam', 'pongal'].some(lc => lower.includes(lc));
+        });
+        if (lightCarbs.length > 0) {
+          const bestLight = pickBestCarb(lightCarbs, region);
+          if (isRotiLike(bestLight) || isBreadLike(bestLight)) {
+            roti = bestLight;
           } else {
-            rice = riceOptions[0] ?? null;
+            rice = bestLight;
           }
         } else {
-          const firstRoti = rotiOptions[0];
-          const firstRice = riceOptions[0];
-          if (firstRoti && firstRice) {
-            const rotiIsLight = !HEAVY_CARBS.has(firstRoti.toLowerCase());
-            const riceIsLight = !HEAVY_CARBS.has(firstRice.toLowerCase());
-
-            if (rotiIsLight && isNorth) {
-              roti = firstRoti;
-            } else if (riceIsLight && isSouthEastWest) {
-              rice = firstRice;
+          // Fallback to region logic
+          const bestCarb = pickBestCarb(allCarbs, region);
+          if (bestCarb) {
+            if (isRotiLike(bestCarb) || isBreadLike(bestCarb)) {
+              roti = bestCarb;
+            } else {
+              rice = bestCarb;
             }
           }
-          if (!roti && !rice) {
-            const anyLightRoti = rotiOptions.find(r => !HEAVY_CARBS.has(r.toLowerCase()));
-            const anyLightRice = riceOptions.find(r => !HEAVY_CARBS.has(r.toLowerCase()));
-            if (anyLightRoti && isNorth) roti = anyLightRoti;
-            else if (anyLightRice && isSouthEastWest) rice = anyLightRice;
+        }
+      } else {
+        // Normal logic: pick best carb based on region
+        const bestCarb = pickBestCarb(allCarbs, region);
+        if (bestCarb) {
+          if (isRotiLike(bestCarb) || isBreadLike(bestCarb)) {
+            roti = bestCarb;
+          } else {
+            rice = bestCarb;
           }
-        }
-        break;
-
-      case 'lunch':
-      case 'dinner':
-      default:
-        if (isNorth) {
-          roti = rotiOptions[0] ?? null;
-        } else if (isSouthEastWest) {
-          rice = riceOptions[0] ?? null;
+        } else if (ROTI_REGIONS.has(region)) {
+          // Fallback: North gets roti, others get rice
+          roti = explicitRoti ? normalizeCategory(meal.rotiOptions![0]) : 'Wheat Roti';
         } else {
-          roti = rotiOptions[0] ?? null;
+          rice = explicitRice ? normalizeCategory(meal.riceOptions![0]) : 'Rice';
         }
-        break;
+      }
     }
-  } else if (hasRoti) {
-    roti = rotiOptions[0] ?? null;
-  } else if (hasRice) {
-    rice = riceOptions[0] ?? null;
+  } else if (!standalone && dishHasCarb) {
+    // Dish already has embedded carb (e.g., "Rajma Chawal", "Aloo Gobhi with Phulka")
+    // Set the carb to match the detected embedded carb so UI pre-selects correctly
+    const embedded = detectEmbeddedCarb(meal.name);
+    if (embedded) {
+      if (isRotiLike(embedded) || isBreadLike(embedded)) {
+        roti = embedded;
+      } else {
+        rice = embedded;
+      }
+    }
   }
 
-  // ─── SIDES/BEVERAGES/DESSERT: pairing engine (via suggestedPairings) ──
-  // dishToMeal now uses the pairing engine to populate suggestedPairings
-  // with dish-aware, culturally accurate accompaniments.
-  const style = meal.id ? getDishStyle(meal.id) : undefined;
-  const isStandalone = style && ['beverage', 'sweet-dessert', 'bread', 'side'].includes(style);
+  // ─── KITCHEN LOGIC: Sides & Beverages with deduplication ──
+  const isStyleStandalone = style && ['sweet-dessert', 'side'].includes(style);
+  const isBreadStyle = style === 'bread';
+  const isSoupStyle = style === 'soup';
+  const isStreetFood = (meal.tags?.some(t => ['street food', 'chaat', 'fried', 'snacks'].includes(t)) ?? false);
+  const isBiryani = (meal.tags?.some(t => ['biryani', 'pulao', 'rice-biryani'].includes(t)) ?? false);
+  const isSouthBreakfast = (meal.region === 'south' && (meal.tags?.some(t => ['breakfast', 'light', 'idli', 'dosa'].includes(t)) ?? false));
+  const isIndianSoup = meal.region && ['north', 'south', 'east', 'west', 'central', 'northeast'].includes(meal.region) &&
+    (meal.name.toLowerCase().includes('rasam') || meal.name.toLowerCase().includes('shorba') || meal.name.toLowerCase().includes('soup'));
+  const isWesternSoup = meal.name.toLowerCase().includes('tomato') || meal.name.toLowerCase().includes('mushroom') || meal.name.toLowerCase().includes('corn soup');
 
   let sides: string[] = [];
   let beverages: string[] = [];
-  let dessert: string[] = [];
+  const dessert: string[] = [];
 
-  // Primary: use pairing engine results from dishToMeal
-  const pairingSides = meal.suggestedPairings?.sides ?? [];
-  const pairingBevs = meal.suggestedPairings?.beverages ?? [];
-  if (pairingSides.length >= 2) {
-    sides = pairingSides.slice(0, 2);
-  } else if (pairingSides.length > 0 && meal.sideOptions) {
-    sides = [...new Set([...meal.sideOptions, ...pairingSides])].slice(0, 2);
-  } else if (pairingSides.length > 0) {
-    sides = pairingSides.slice(0, 2);
-  }
-  if (pairingBevs.length > 0) {
-    beverages = pairingBevs.slice(0, 1);
+  if (isBeverageStyle) {
+    // ─── BEVERAGE-SPECIFIC SIDES (chai accompaniments) ──
+    const beverageSides = ['Biscuits', 'Cookies', 'Rusk', 'Bun Maska', 'Roasted Peanuts'];
+    const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+    sides = availableSides.length > 0 ? deduplicateSides(availableSides) : beverageSides.slice(0, 2);
+    beverages = [];
+  } else if (isSouthBreakfast) {
+    // ─── SOUTH INDIAN BREAKFAST (idli, dosa, appam) ──
+    const southSides = ['Sambar', 'Coconut Chutney'];
+    const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+    sides = availableSides.length > 0 ? deduplicateSides(availableSides) : southSides;
+    // Filter coffee for South breakfast
+    const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+    let bestBev = pickBestBeverage(allBevs);
+    if (!bestBev) bestBev = 'Coffee';
+    beverages = [bestBev];
+  } else if (isBiryani) {
+    // ─── BIRYANI — raita is essential ──
+    const biryaniSides = ['Cucumber Raita', 'Mirchi Ka Salan'];
+    const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+    sides = availableSides.length > 0 ? deduplicateSides(availableSides) : biryaniSides;
+    const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+    let bestBev = pickBestBeverage(allBevs);
+    if (!bestBev) bestBev = 'Buttermilk';
+    beverages = [bestBev];
+  } else if (isStreetFood) {
+    // ─── STREET FOOD — chutney trio ──
+    const streetSides = ['Tamarind Chutney', 'Mint Chutney'];
+    const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+    sides = availableSides.length > 0 ? deduplicateSides(availableSides) : streetSides;
+    const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+    let bestBev = pickBestBeverage(allBevs);
+    if (!bestBev) bestBev = 'Chai';
+    beverages = [bestBev];
+  } else if (isSoupStyle) {
+    // ─── SOUP — Indian (rice/papad) vs Western (bread) ──
+    if (isWesternSoup) {
+      // Western soups pair with bread
+      sides = ['Garlic Naan'];
+    } else if (isIndianSoup) {
+      // Indian soups pair with rice or papad
+      sides = ['Rice', 'Papad'];
+    } else {
+      // Generic soup
+      sides = ['Papad'];
+    }
+    const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+    let bestBev = pickBestBeverage(allBevs);
+    if (!bestBev) bestBev = 'Buttermilk';
+    beverages = [bestBev];
+  } else if (isBreadStyle) {
+    // ─── BREAD STYLE (paratha, puri, bhatura) — sides + beverage ──
+    const breadSides = ['Curd', 'Pickle'];
+    const availableSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+    sides = availableSides.length > 0 ? deduplicateSides(availableSides) : breadSides;
+    const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+    let bestBev = pickBestBeverage(allBevs);
+    if (!bestBev) {
+      const slotBevs: Record<string, string> = {
+        breakfast: 'Chai',
+        lunch: 'Buttermilk',
+        snacks: 'Chai',
+        dinner: 'Buttermilk',
+      };
+      bestBev = slotBevs[_slotType] ?? 'Buttermilk';
+    }
+    beverages = [bestBev];
+  } else if (!isStyleStandalone) {
+    // Deduplicate sides by category, cap at 2
+    const allSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
+    sides = deduplicateSides(allSides);
+
+    // Fallback: infer region-appropriate sides if none found
+    if (sides.length === 0) {
+      const region = meal.region || 'north';
+      const regionSides: Record<string, string[]> = {
+        north: ['Raita', 'Salad'],
+        south: ['Papad', 'Pickle'],
+        east: ['Salad', 'Pickle'],
+        west: ['Salad', 'Pickle'],
+        central: ['Salad', 'Pickle'],
+        northeast: ['Salad', 'Pickle'],
+      };
+      sides = (regionSides[region] ?? regionSides.north).slice(0, 2);
+    }
+
+    // Pick best beverage, normalize
+    const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
+    let bestBev = pickBestBeverage(allBevs);
+
+    // Fallback: infer slot-appropriate beverage if none found
+    if (!bestBev) {
+      const slotBevs: Record<string, string> = {
+        breakfast: 'Coffee',
+        lunch: 'Buttermilk',
+        snacks: 'Buttermilk',
+        dinner: 'Buttermilk',
+      };
+      bestBev = slotBevs[_slotType] ?? 'Buttermilk';
+    }
+    beverages = [bestBev];
   }
 
   const itemQtys: Record<string, number> = {};
   for (const item of [roti, rice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
     itemQtys[item] = 1;
-  }
-
-  // Fallback: tag/region/style inference — SKIP for standalone dishes
-  if (!isStandalone) {
-    const explicitSides = (meal.sideOptions?.length ?? 0) > 0;
-    const sideOptions = explicitSides ? meal.sideOptions! : inferSides(meal, slotType);
-    if (!sides.length) {
-      sides = sideOptions.slice(0, 2);
-    }
-
-    const explicitBevs = (meal.beverageOptions?.length ?? 0) > 0;
-    const beverageOptions = explicitBevs ? meal.beverageOptions! : inferBeverages(meal, slotType);
-    if (!beverages.length) {
-      beverages = beverageOptions.slice(0, 1);
-    }
   }
 
   return { gravy, roti, rice, sides, beverages, dessert, itemQtys };

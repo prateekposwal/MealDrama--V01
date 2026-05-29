@@ -77,8 +77,11 @@ export interface SlotBodyProps {
   /** Max dishes to show in a merged slot (default: no cap). First is a card, rest are chips. */
   maxVisible?: number;
 
-  /** Per-slot time preferences from user profile — overrides SLOT_TIME_DEFAULTS */
-  preferences?: Record<string, { start: string; end: string }>;
+  /** Share this slot via WhatsApp */
+  onShareSlot?: () => void;
+
+  /** Hide slot label in MealCard (for cleaner Dashboard layout) */
+  hideSlotLabel?: boolean;
 
   /** Show empty-state amber guide (Dashboard-only). Defaults to true. */
 }
@@ -171,6 +174,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   mergeExtraItems,
   maxVisible,
   preferences,
+  onShareSlot,
+  hideSlotLabel,
 }) => {
   const slotMeals = maxVisible != null ? meals.slice(0, maxVisible) : meals;
   const { isLocked, isMissed, editable, showSuggestions, cardClass } = useMemo(
@@ -334,7 +339,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   }, [mealType, meals.length]);
 
   return (
-    <div className="space-y-3">
+    <div id={`slot-${date}-${mealType}`} className="space-y-3 scroll-mt-24">
       {/* ─── Skipped banner with undo CTA ─── */}
       {mode === 'skipped' && onUndoSkip && (
         <div className="rounded-[20px] bg-amber-50 border border-amber-200 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-300">
@@ -433,6 +438,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   swapCustomizeOpen={swapCustomizeOpenKey === slotMeals[0]!.id}
                   onSwapCustomizeOpen={() => onSwapCustomizeOpen?.(slotMeals[0]!.id)}
                   onSwapCustomizeClose={stableSwapCustomizeClose}
+                  onShareSlot={onShareSlot}
+                  hideSlotLabel={hideSlotLabel}
                 />
               </div>
               <div className="px-5 pb-4 -mt-2 space-y-1.5">
@@ -504,6 +511,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   swapCustomizeOpen={swapCustomizeOpenKey === item.id}
                   onSwapCustomizeOpen={() => onSwapCustomizeOpen?.(item.id)}
                   onSwapCustomizeClose={stableSwapCustomizeClose}
+                  onShareSlot={onShareSlot}
+                  hideSlotLabel={hideSlotLabel}
                 />
               </div>
             ))}

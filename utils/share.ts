@@ -4,12 +4,30 @@ export type ShareLanguage = 'en' | 'hi' | 'mr' | 'bn' | 'ta' | 'te';
 
 export const LANGUAGE_OPTIONS = [
     { key: 'en', label: 'English' },
-    { key: 'hi', label: 'Hindi' },
-    { key: 'mr', label: 'Marathi' },
-    { key: 'bn', label: 'Bengali' },
-    { key: 'ta', label: 'Tamil' },
-    { key: 'te', label: 'Telugu' },
+    { key: 'hi', label: 'हिन्दी' },
+    { key: 'mr', label: 'मराठी' },
+    { key: 'bn', label: 'বাংলা' },
+    { key: 'ta', label: 'தமிழ்' },
+    { key: 'te', label: 'తెలుగు' },
 ] as const;
+
+export const SLOT_LABELS: Record<ShareLanguage, Record<string, string>> = {
+    en: { breakfast: 'Breakfast', lunch: 'Lunch', snacks: 'Snacks', dinner: 'Dinner' },
+    hi: { breakfast: 'नाश्ता', lunch: 'दोपहर का खाना', snacks: 'नाश्ता', dinner: 'रात का खाना' },
+    mr: { breakfast: 'नाश्ता', lunch: 'दुपारचे जेवण', snacks: 'नाश्ता', dinner: 'रात्रीचे जेवण' },
+    bn: { breakfast: 'নাস্তা', lunch: 'দুপুরের খাবার', snacks: 'বিকেলের নাস্তা', dinner: 'রাতের খাবার' },
+    ta: { breakfast: 'காலை உணவு', lunch: 'மதிய உணவு', snacks: 'சிறு உணவு', dinner: 'இரவு உணவு' },
+    te: { breakfast: 'ఉపాహారం', lunch: 'మధ్యాహ్న భోజనం', snacks: 'టిఫిన్', dinner: 'రాత్రి భోజనం' },
+};
+
+export const COMPONENT_LABELS: Record<ShareLanguage, Record<string, string>> = {
+    en: { gravy: 'Gravy', roti: 'Roti', rice: 'Rice', sides: 'Sides', beverages: 'Beverages', dessert: 'Dessert' },
+    hi: { gravy: 'सब्जी/दाल', roti: 'रोटी', rice: 'चावल', sides: 'साइड', beverages: 'पेय', dessert: 'मीठा' },
+    mr: { gravy: 'भाजी/डाळ', roti: 'पोळी', rice: 'भात', sides: 'साइड', beverages: 'पेय', dessert: 'गोड पदार्थ' },
+    bn: { gravy: 'তরকারি/ডাল', roti: 'রুটি', rice: 'ভাত', sides: 'সাইড', beverages: 'পানীয়', dessert: 'মিষ্টি' },
+    ta: { gravy: 'கறி/பருப்பு', roti: 'ரொட்டி', rice: 'அரிசி', sides: 'சைட்', beverages: 'பானம்', dessert: 'இனிப்பு' },
+    te: { gravy: 'కూర/పప్పు', roti: 'రోటీ', rice: 'అన్నం', sides: 'సైడ్', beverages: 'పానీయం', dessert: 'మిఠాయి' },
+};
 
 const STRINGS: Record<ShareLanguage, {
     dailyTitle: string;
@@ -21,6 +39,7 @@ const STRINGS: Record<ShareLanguage, {
     weekPlan: string;
     pantryFor: string;
     sentFrom: string;
+    brandHeader: string;
 }> = {
     en: {
         dailyTitle: 'MealDrama - Today',
@@ -32,6 +51,7 @@ const STRINGS: Record<ShareLanguage, {
         weekPlan: "This week's meals",
         pantryFor: 'Ingredients for',
         sentFrom: 'Sent from MealDrama',
+        brandHeader: 'MealDrama',
     },
     hi: {
         dailyTitle: 'MealDrama - Aaj ka plan',
@@ -43,6 +63,7 @@ const STRINGS: Record<ShareLanguage, {
         weekPlan: 'Is hafte ke meals',
         pantryFor: 'In meals ke liye samaan',
         sentFrom: 'MealDrama se bheja gaya',
+        brandHeader: 'MealDrama',
     },
     mr: {
         dailyTitle: 'MealDrama - Aajcha plan',
@@ -54,6 +75,7 @@ const STRINGS: Record<ShareLanguage, {
         weekPlan: 'Ya aathavdyache meals',
         pantryFor: 'Ya meals sathi saman',
         sentFrom: 'MealDrama kadun pathavle',
+        brandHeader: 'MealDrama',
     },
     bn: {
         dailyTitle: 'MealDrama - Aajker plan',
@@ -65,6 +87,7 @@ const STRINGS: Record<ShareLanguage, {
         weekPlan: 'E soptaher meals',
         pantryFor: 'Ei meals er jonne jinish',
         sentFrom: 'MealDrama theke pathano',
+        brandHeader: 'MealDrama',
     },
     ta: {
         dailyTitle: 'MealDrama - Indraya plan',
@@ -76,6 +99,7 @@ const STRINGS: Record<ShareLanguage, {
         weekPlan: 'Indha vaarathin meals',
         pantryFor: 'Indha meals ku thevaiyana porutkal',
         sentFrom: 'MealDrama ilirundhu anuppappattadhu',
+        brandHeader: 'MealDrama',
     },
     te: {
         dailyTitle: 'MealDrama - Eeroju plan',
@@ -87,6 +111,7 @@ const STRINGS: Record<ShareLanguage, {
         weekPlan: 'Ee vaaram meals',
         pantryFor: 'Ee meals kosam kavalsina samagri',
         sentFrom: 'MealDrama nundi pampabadindi',
+        brandHeader: 'MealDrama',
     },
 };
 

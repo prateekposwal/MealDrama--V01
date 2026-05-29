@@ -74,28 +74,6 @@ export function filterDishesByHealth(dishes: Dish[], filter: HealthFilter): Dish
   });
 }
 
-export function getHealthFilterOptions(): {
-  categoryFilters: { id: string; label: string; categories: string[] }[];
-  tagFilters: { id: string; label: string; tags: string[] }[];
-} {
-  return {
-    categoryFilters: [
-      { id: 'whole-grain', label: 'Whole Grains', categories: ['whole-grain'] },
-      { id: 'lean-protein', label: 'Lean Protein', categories: ['lean-protein'] },
-      { id: 'legume', label: 'Legumes & Dal', categories: ['legume'] },
-      { id: 'veg-fruit', label: 'Vegetables & Fruits', categories: ['veg-fruit'] },
-      { id: 'healthy-fat', label: 'Healthy Fats', categories: ['healthy-fat'] },
-    ],
-    tagFilters: [
-      { id: 'high-protein', label: 'High Protein', tags: ['high-protein'] },
-      { id: 'high-fiber', label: 'High Fiber', tags: ['high-fiber', 'fiber'] },
-      { id: 'low-calorie', label: 'Low Calorie', tags: ['low-calorie'] },
-      { id: 'low-fat', label: 'Low Fat', tags: ['low-fat'] },
-      { id: 'iron-rich', label: 'Iron Rich', tags: ['iron'] },
-      { id: 'calcium', label: 'Calcium Rich', tags: ['calcium'] },
-    ],
-  };
-}
 
 export type HealthFilterPreset = 'healthy' | 'high-protein' | 'high-fiber' | 'low-fat' | 'low-calorie';
 

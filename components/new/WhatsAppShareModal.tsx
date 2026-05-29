@@ -1,23 +1,56 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MessageCircle, Phone, X } from 'lucide-react';
-import { getShareStrings, LANGUAGE_OPTIONS, ShareLanguage } from '../../utils/share';
+import { MessageCircle, Phone, X, Check } from 'lucide-react';
+import { getShareStrings, LANGUAGE_OPTIONS, SLOT_LABELS, ShareLanguage } from '../../utils/share';
 
-const WhatsAppShareModal: React.FC<{
+interface WhatsAppShareModalProps {
     isOpen: boolean;
     defaultPhone?: string;
     title: string;
     onClose: () => void;
-    previewBuilder: (language: ShareLanguage) => string;
-}> = ({ isOpen, defaultPhone = '', title, onClose, previewBuilder }) => {
-    const [phone, setPhone] = useState(defaultPhone);
+    previewBuilder: (language: ShareLanguage, selectedSlots: string[]) => string;
+    availableSlots: { key: string; label: string }[];
+    completedSlots?: string[];
+    preselectedSlot?: string | null;
+}
+
+const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
+    isOpen,
+    defaultPhone = '',
+    title,
+    onClose,
+    previewBuilder,
+    availableSlots,
+    completedSlots = [],
+    preselectedSlot,
+}) => {
+    const [phone, setPhone] = useState(defaultPhone || '');
     const [language, setLanguage] = useState<ShareLanguage>('en');
+    const [selectedSlots, setSelectedSlots] = useState<string[]>(
+        preselectedSlot ? [preselectedSlot] : availableSlots.map(s => s.key),
+    );
 
     useEffect(() => {
         setPhone(defaultPhone || '');
     }, [defaultPhone, isOpen]);
 
-    const preview = useMemo(() => previewBuilder(language), [language, previewBuilder]);
+    useEffect(() => {
+        setSelectedSlots(preselectedSlot ? [preselectedSlot] : availableSlots.map(s => s.key));
+    }, [availableSlots, isOpen, preselectedSlot]);
+
+    const preview = useMemo(
+        () => previewBuilder(language, selectedSlots),
+        [language, selectedSlots, previewBuilder],
+    );
     const copy = getShareStrings(language);
+
+    const toggleSlot = (key: string) => {
+        setSelectedSlots(prev =>
+            prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key],
+        );
+    };
+
+    const selectAll = () => setSelectedSlots(availableSlots.map(s => s.key));
+    const deselectAll = () => setSelectedSlots([]);
 
     if (!isOpen) return null;
 
@@ -38,7 +71,7 @@ const WhatsAppShareModal: React.FC<{
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-2">WhatsApp preview</p>
                         <h3 className="text-xl font-bold text-gray-900">{title}</h3>
-                        <p className="text-sm text-gray-500 mt-1">Choose the language your cook reads fastest, then review before sending.</p>
+                        <p className="text-sm text-gray-500 mt-1">Choose slots, language, and review before sending.</p>
                     </div>
                     <button onClick={onClose} className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center text-gray-500">
                         <X size={16} />
@@ -46,6 +79,7 @@ const WhatsAppShareModal: React.FC<{
                 </div>
 
                 <div className="px-5 py-4 space-y-4">
+                    {/* Language picker */}
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Regional language</p>
                         <div className="flex flex-wrap gap-2">
@@ -61,6 +95,43 @@ const WhatsAppShareModal: React.FC<{
                         </div>
                     </div>
 
+                    {/* Slot checkboxes - compact */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Meal slots</p>
+                            <div className="flex gap-2">
+                                <button onClick={selectAll} className="text-[9px] font-bold text-[#FF385C] active:opacity-60">All</button>
+                                <button onClick={deselectAll} className="text-[9px] font-bold text-gray-400 active:opacity-60">None</button>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {availableSlots.map(slot => {
+                                const isCompleted = completedSlots.includes(slot.key);
+                                const isSelected = selectedSlots.includes(slot.key);
+                                return (
+                                    <button
+                                        key={slot.key}
+                                        onClick={() => toggleSlot(slot.key)}
+                                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all ${
+                                            isSelected
+                                                ? 'border-[#FF385C] bg-[#FF385C]/5 text-[#FF385C]'
+                                                : 'border-gray-200 bg-gray-50 text-gray-400'
+                                        } ${isCompleted ? 'opacity-50' : ''}`}
+                                    >
+                                        <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
+                                            isSelected ? 'border-[#FF385C] bg-[#FF385C]' : 'border-gray-300'
+                                        }`}>
+                                            {isSelected && <Check size={8} className="text-white" />}
+                                        </div>
+                                        <span>{slot.label}</span>
+                                        {isCompleted && <span className="text-[7px] text-green-600 font-bold">✓</span>}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Phone input */}
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Cook&apos;s WhatsApp</p>
                         <div className="relative">
@@ -68,15 +139,16 @@ const WhatsAppShareModal: React.FC<{
                             <input
                                 type="tel"
                                 value={phone}
-                                onChange={(event) => setPhone(event.target.value)}
+                                onChange={(e) => setPhone(e.target.value)}
                                 placeholder="+91 98765 43210"
                                 className="w-full bg-gray-50 rounded-xl py-3 pl-9 pr-3 text-sm font-bold border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-400"
                             />
                         </div>
                     </div>
 
+                    {/* Message preview */}
                     <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">{copy.todayPlan || copy.weekPlan}</p>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Preview</p>
                         <div className="rounded-[22px] border border-gray-100 bg-gray-50 p-4 max-h-64 overflow-y-auto">
                             <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-medium text-gray-700">{preview}</pre>
                         </div>

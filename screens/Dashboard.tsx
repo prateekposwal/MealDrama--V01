@@ -26,7 +26,7 @@ import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
-import { getShareStrings, ShareLanguage } from '../utils/share';
+import { getShareStrings, ShareLanguage, SLOT_LABELS, COMPONENT_LABELS } from '../utils/share';
 
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
 import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd } from '../types/tray';
@@ -73,13 +73,14 @@ type MealSection = 'active' | 'upcoming' | 'completed' | 'skipped';
 
 /** Categorize each slot based on current time — uses per-slot start_time/end_time */
 const categorizeSlots = (
+    slots: typeof SLOTS,
     getMeals: (date: string, mealType: MealType) => TrayItem[],
     today: string,
     completions?: Record<string, number>,
     preferences?: Record<string, { start: string; end: string }>,
     skipped?: Record<string, number>,
 ): { section: MealSection; slot: typeof SLOTS[0] }[] => {
-    const result = SLOTS.map(slot => {
+    const result = slots.map(slot => {
         const meals = getMeals(today, slot.mealType);
         const { start, end } = resolveSlotTimes(meals, slot.mealType, preferences);
         const key = `${today}::${slot.mealType}`;
@@ -119,6 +120,7 @@ interface DashboardSlotSectionProps {
   onUndoCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
   onSkipSlotAction: ((date: string, mealType: MealType) => void) | undefined;
   onUndoSkipAction: ((date: string, mealType: MealType) => void) | undefined;
+  onShareSlotAction?: (mealType: MealType) => void;
   swapOpenKey: string | null;
   stableSwapOpen: (itemId: string) => void;
   stableSwapClose: () => void;
@@ -148,7 +150,7 @@ interface DashboardSlotSectionProps {
 
 const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
   date, mealType, slot, section, sectionColors, sectionLabels,
-  onOpenSearchAction, onCompleteAction, onUndoCompleteAction, onSkipSlotAction, onUndoSkipAction,
+  onOpenSearchAction, onCompleteAction, onUndoCompleteAction, onSkipSlotAction, onUndoSkipAction, onShareSlotAction,
   swapOpenKey, stableSwapOpen, stableSwapClose,
   handleSwapSelect, handleUpdateInline, handleRemove, handleSuggestionAdd,
   swapCustomizeOpenKey, stableSwapCustomizeOpen, stableSwapCustomizeClose, handleSwapCustomizeApply,
@@ -217,6 +219,7 @@ const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
         onUndoCompleteAction={onUndoCompleteAction}
         onSkipSlotAction={!isUserCompleted && !isSkipped ? onSkipSlotAction : undefined}
         onUndoSkipAction={isUndoSkipWindowActive ? onUndoSkipAction : undefined}
+        onShareSlotAction={onShareSlotAction}
       />
     </div>
   );
@@ -224,12 +227,13 @@ const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
 
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
 interface DashboardSlotRowProps extends
-  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete' | 'onSkipSlot' | 'onUndoSkip'> {
+  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete' | 'onSkipSlot' | 'onUndoSkip' | 'onShareSlot' | 'hideSlotLabel'> {
   onOpenSearchAction: (slotLabel: string) => void;
   onCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
   onUndoCompleteAction: ((date: string, mealType: MealType) => void) | undefined;
   onSkipSlotAction: ((date: string, mealType: MealType) => void) | undefined;
   onUndoSkipAction: ((date: string, mealType: MealType) => void) | undefined;
+  onShareSlotAction?: (mealType: MealType) => void;
 }
 
 const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
@@ -239,6 +243,7 @@ const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
   onUndoCompleteAction,
   onSkipSlotAction,
   onUndoSkipAction,
+  onShareSlotAction,
   ...rest
 }) => {
   const onOpenSearch = useCallback(() => {
@@ -261,6 +266,10 @@ const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
     onUndoSkipAction?.(date, mealType);
   }, [date, mealType, onUndoSkipAction]);
 
+  const onShareSlot = useCallback(() => {
+    onShareSlotAction?.(mealType);
+  }, [mealType, onShareSlotAction]);
+
   return (
     <SlotBody
       date={date}
@@ -271,6 +280,8 @@ const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
       onUndoComplete={onUndoCompleteAction ? onUndoComplete : undefined}
       onSkipSlot={onSkipSlotAction ? onSkipSlot : undefined}
       onUndoSkip={onUndoSkipAction ? onUndoSkip : undefined}
+      onShareSlot={onShareSlotAction ? onShareSlot : undefined}
+      hideSlotLabel
       {...rest}
     />
   );
@@ -285,23 +296,55 @@ interface DashboardProps {
 
 const getTodayISO = getISODate;
 
+const SECTION_COLORS: Record<string, string> = {
+  active: 'border-l-[#FF385C]',
+  upcoming: 'border-l-gray-300',
+  completed: 'border-l-gray-200',
+  skipped: 'border-l-amber-300',
+};
+const SECTION_LABELS: Record<string, string> = {
+  active: 'Now',
+  upcoming: 'Upcoming',
+  completed: 'Done',
+  skipped: 'Skipped',
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManageTray }) => {
     const { dishes } = useBackendDishes();
-    // Only update `today` at midnight — no need to tick every 60s
+    // Only update `today` at IST midnight — no need to tick every 60s
     const [today, setToday] = useState(() => getTodayISO());
     useEffect(() => {
-      const now = new Date();
-      const msUntilMidnight = new Date(
-        now.getFullYear(), now.getMonth(), now.getDate() + 1
-      ).getTime() - now.getTime();
+      const istNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const istMidnight = new Date(istNow);
+      istMidnight.setDate(istMidnight.getDate() + 1);
+      istMidnight.setHours(0, 0, 0, 0);
+      const msUntilMidnight = istMidnight.getTime() - istNow.getTime();
       const id = setTimeout(() => setToday(getTodayISO()), msUntilMidnight);
       return () => clearTimeout(id);
     }, []);
 
-    const {
-        getMeals, addMealToSlot, swapMealInSlot, updateItemInline, removeMealFromSlot,
-        guestMode, completions, skipped, completeSlot, undoCompleteSlot, skipSlot, undoSkipSlot,
-    } = useTrayStore();
+    const getMeals = useTrayStore(s => s.getMeals);
+
+    // FIX: Hard cap render layer to max 2 dishes per slot
+    // Prevents legacy dump pollution from showing in UI
+    const getMealsCapped = useCallback((date: string, mealType: MealType) => {
+        const meals = getMeals(date, mealType);
+        return meals.length > 2 ? meals.slice(0, 2) : meals;
+    }, [getMeals]);
+
+    const guestMode = useTrayStore(s => s.guestMode);
+    const completions = useTrayStore(s => s.completions);
+    const skipped = useTrayStore(s => s.skipped);
+    const addMealToSlot = useTrayStore(s => s.addMealToSlot);
+    const addToTray = useStore(s => s.addToTray);
+    const updateProfile = useStore(s => s.updateProfile);
+    const swapMealInSlot = useTrayStore(s => s.swapMealInSlot);
+    const updateItemInline = useTrayStore(s => s.updateItemInline);
+    const removeMealFromSlot = useTrayStore(s => s.removeMealFromSlot);
+    const completeSlot = useTrayStore(s => s.completeSlot);
+    const undoCompleteSlot = useTrayStore(s => s.undoCompleteSlot);
+    const skipSlot = useTrayStore(s => s.skipSlot);
+    const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
 
     const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const { openKey: swapCustomizeOpenKey, setOpenKey: setSwapCustomizeOpenKey } = useSwapCustomize();
@@ -332,6 +375,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [showSlotPicker, setShowSlotPicker] = useState(false);
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
+    const [editingCookContact, setEditingCookContact] = useState(false);
+    const [cookContactInput, setCookContactInput] = useState('');
 
     const ADD_DISH_DUMMY = useMemo<TrayItem>(() => ({
         id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
@@ -354,6 +399,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         setShowGuide(false);
     }, []);
     const [shareType, setShareType] = useState<'prep' | 'pantry' | null>(null);
+    const [sharePreselectSlot, setSharePreselectSlot] = useState<string | null>(null);
+    const onShareSlotAction = useCallback((mealType: MealType) => {
+        setSharePreselectSlot(mealType);
+        setShareType('prep');
+    }, []);
     const [slotTimesRefreshKey, setSlotTimesRefreshKey] = useState(0);
     useEffect(() => {
         const handler = () => setSlotTimesRefreshKey(k => k + 1);
@@ -363,7 +413,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     // Auto-skip past untouched slots — reads state directly from store (no stale closures)
     useEffect(() => {
         const store = useTrayStore.getState();
-        for (const slot of SLOTS) {
+        for (const slot of ACTIVE_SLOTS) {
             const key = `${today}::${slot.mealType}`;
             const meals = store.getMeals(today, slot.mealType);
             if (meals.length === 0) continue;
@@ -374,6 +424,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             }
         }
     }, [today]);
+
+    // ─── Auto-scroll to slot when dish is added ──
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            const el = document.getElementById(`slot-${detail.date}-${detail.mealType}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('slot-highlight');
+                setTimeout(() => el.classList.remove('slot-highlight'), 2500);
+            }
+        };
+        window.addEventListener('slotAdded', handler);
+        return () => window.removeEventListener('slotAdded', handler);
+    }, []);
 
     // Exclude undoSlot from completions/skipped so categorizeSlots treats it as not yet done during the undo window
     const committedCompletions = useMemo(() => {
@@ -409,16 +474,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const regionKey = (user?.region ?? 'India').toLowerCase();
     const userDiet = user?.diet ?? 'veg';
     const pantryStaples = user?.pantryStaples ?? [];
+    const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
+    const ACTIVE_SLOTS = useMemo(() => SLOTS.filter(s => plannedSlots.includes(s.key)), [plannedSlots]);
 
     const spiceLabel = user?.spiceLevel === 'mild' ? 'Mild 🌿' : user?.spiceLevel === 'hot' ? 'Hot 🔥' : 'Medium 🌶️';
 
     // Handle swap customize apply
     const handleSwapCustomizeApply = useCallback((date: string, mealType: MealType, itemId: string) => {
       return (updates: Partial<TrayItem>) => {
+        // If meal_id changed, this is a full swap — use swapMealInSlot for loop sync
+        if (updates.meal_id) {
+          const currentItems = getMeals(date, mealType);
+          const currentItem = currentItems.find(m => m.id === itemId);
+          if (currentItem && currentItem.meal_id !== updates.meal_id) {
+            const newDish = dishes.find(d => d.id === updates.meal_id);
+            if (newDish) {
+              swapMealInSlot(date, mealType, itemId, dishToMeal(newDish));
+              // Apply remaining chip overrides after swap
+              const { meal_id, ...chipUpdates } = updates;
+              if (Object.keys(chipUpdates).length > 0) {
+                updateItemInline(date, mealType, itemId, chipUpdates as Partial<TrayItem>);
+              }
+              setSwapCustomizeOpenKey(null);
+              window.dispatchEvent(new CustomEvent('slotAdded', { detail: { date, mealType } }));
+              return;
+            }
+          }
+        }
         updateItemInline(date, mealType, itemId, updates);
         setSwapCustomizeOpenKey(null);
+        window.dispatchEvent(new CustomEvent('slotAdded', { detail: { date, mealType } }));
       };
-    }, [updateItemInline]);
+    }, [updateItemInline, swapMealInSlot, getMeals, dishes]);
 
     // Handle swap selection — find Dish in library, pass as Meal to store
     const handleSwapSelect = useCallback((date: string, mealType: MealType, itemId: string) => {
@@ -451,25 +538,39 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const handleSuggestionAdd = useCallback((date: string, mealType: MealType) => {
         return (suggestion: SuggestionMeal) => {
             const meal = suggestionToMeal(suggestion);
+            const currentItems = getMeals(date, mealType);
+            if (currentItems.some(m => m.meal_id === meal.id || m.name.toLowerCase() === meal.name.toLowerCase())) {
+                setToast({ message: `${meal.name} already added to ${mealType}`, type: 'info' });
+                return;
+            }
+            addToTray(mealType, { id: meal.id, dishId: meal.id, name: meal.name, icon: meal.icon, sourceRegion: meal.region });
             addMealToSlot(date, mealType, meal);
         };
-    }, [addMealToSlot]);
+    }, [addMealToSlot, getMeals, setToast, addToTray]);
 
     // Quick add modal result — pass Dish to store, store applies defaults
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
-        addMealToSlot(date, mealType, dishToMeal(dish, variant), {
+        const meal = dishToMeal(dish, variant);
+        const currentItems = getMeals(date, mealType);
+        if (currentItems.some(m => m.meal_id === meal.id || m.name.toLowerCase() === meal.name.toLowerCase())) {
+            setToast({ message: `${meal.name} already added to ${mealType}`, type: 'info' });
+            setShowQuickAdd(false);
+            return;
+        }
+        addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
+        addMealToSlot(date, mealType, meal, {
             variant: variant?.name,
             variantId: variant?.id,
             addon: variant?.addOn,
         });
         setShowQuickAdd(false);
-    }, [addMealToSlot]);
+    }, [addMealToSlot, getMeals, setToast, addToTray]);
 
     const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
         const meal = dishToMeal(dish, variant);
         const existing = getMeals(date, mealType);
-        const existingItem = existing.find(m => m.meal_id === dish.id);
+        const existingItem = existing.find(m => m.meal_id === dish.id || m.name.toLowerCase() === dish.name.toLowerCase());
         if (existingItem) {
             updateItemInline(date, mealType, existingItem.id, {
                 quantity: (existingItem.quantity || 1) + 1,
@@ -480,6 +581,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             });
             setToast({ message: `${dish.name} already in ${mealType} — quantity increased`, type: 'info' });
         } else {
+            addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
             addMealToSlot(date, mealType, meal, {
                 variant: variant?.name,
                 variantId: variant?.id,
@@ -487,17 +589,50 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             });
             setToast({ message: `${dish.name} added to ${mealType}`, type: 'success' });
         }
-    }, [getMeals, addMealToSlot, updateItemInline, dishToMeal, setToast]);
+        window.dispatchEvent(new CustomEvent('slotAdded', { detail: { date, mealType } }));
+    }, [getMeals, addMealToSlot, updateItemInline, dishToMeal, setToast, addToTray]);
 
-    const buildPrepMessage = useCallback((lang: ShareLanguage) => {
-        const copy = getShareStrings(lang);
-        const lines = SLOTS
+    const preferences = useMemo(() => user?.slotTimePreferences, [user?.slotTimePreferences]);
+    const stableGuestMode = useMemo(() => guestMode, [
+        guestMode.active, guestMode.guestCount, guestMode.extraServings,
+        guestMode.startDate, guestMode.endDate,
+    ]);
+    const categorizedSlots = useMemo(() => categorizeSlots(ACTIVE_SLOTS, getMealsCapped, today, committedCompletions, preferences, skipped), [ACTIVE_SLOTS, getMealsCapped, today, committedCompletions, preferences, skipped, slotTimesRefreshKey]);
+    const activeSlots = categorizedSlots.filter(s => s.section === 'active');
+    const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
+    const completedSlots = categorizedSlots.filter(s => s.section === 'completed');
+    const skippedSlots = categorizedSlots.filter(s => s.section === 'skipped');
+
+    const buildPrepMessage = useCallback((language: ShareLanguage, selectedSlots: string[]) => {
+        const copy = getShareStrings(language);
+        const slotLabels = SLOT_LABELS[language];
+        const compLabels = COMPONENT_LABELS[language];
+
+        const timeSummary = ACTIVE_SLOTS
+            .filter(slot => selectedSlots.includes(slot.mealType))
             .map(slot => {
                 const meals = getMeals(today, slot.mealType);
                 if (meals.length === 0) return null;
+                const { start, end } = resolveSlotTimes(meals, slot.mealType, preferences);
+                const label = slotLabels[slot.mealType] || slot.label;
+                return `${label} ${start}–${end}`;
+            })
+            .filter(Boolean)
+            .join(' | ');
+
+        const lines = ACTIVE_SLOTS
+            .filter(slot => selectedSlots.includes(slot.mealType))
+            .filter(slot => {
+                const key = `${today}::${slot.mealType}`;
+                return !committedCompletions[key];
+            })
+            .map(slot => {
+                const meals = getMeals(today, slot.mealType);
+                if (meals.length === 0) return null;
+                const slotLabel = slotLabels[slot.mealType] || slot.label;
                 const dishNames = meals.map(m => {
                     const dishQty = (m.quantity || 1) > 1 ? ` x${m.quantity}` : '';
-                    return `  • ${m.name}${dishQty}`;
+                    return `    • ${m.name}${dishQty}`;
                 }).join('\n');
                 const agg = aggregateSlotItems(meals);
                 const allComps = [
@@ -510,39 +645,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 ];
                 const compLines = allComps
                     .filter(c => c.qty > 0)
-                    .map(c => `  • ${c.name} x${c.qty} ${c.unit}`)
+                    .map(c => {
+                        const label = compLabels[c.name.toLowerCase()] || c.name;
+                        return `    • ${label} x${c.qty} ${c.unit}`;
+                    })
                     .join('\n');
-                return `• ${slot.label}:\n${dishNames}${compLines ? '\n' + compLines : ''}`;
+                return `• *${slotLabel}*\n${dishNames}${compLines ? '\n' + compLines : ''}`;
             })
             .filter(Boolean);
-        return `🍱 *${copy.dailyTitle}*\n\n${today}\n${copy.todayPlan}:\n${lines.join('\n')}\n\nRegion: ${user?.region ?? ''}`;
-    }, [getMeals, today, user]);
 
-    const buildPantryMessage = useCallback((lang: ShareLanguage) => {
-        const copy = getShareStrings(lang);
-        const items = SLOTS
-            .flatMap(slot => getMeals(today, slot.mealType))
-            .map(m => `• ${m.name}`)
+        return `*${copy.brandHeader}*\n\n📅 ${today}${timeSummary ? `\n⏰ ${timeSummary}` : ''}\n\n${copy.todayPlan}:\n\n${lines.join('\n\n')}\n\n━━━━━━━━━━━━━━━\n${copy.region}: ${user?.region ?? ''}`;
+    }, [getMeals, today, user, committedCompletions, preferences]);
+
+    const buildPantryMessage = useCallback((language: ShareLanguage, selectedSlots: string[]) => {
+        const copy = getShareStrings(language);
+        const slotLabels = SLOT_LABELS[language];
+
+        const items = ACTIVE_SLOTS
+            .filter(slot => selectedSlots.includes(slot.mealType))
+            .filter(slot => {
+                const key = `${today}::${slot.mealType}`;
+                return !committedCompletions[key];
+            })
+            .flatMap(slot => {
+                const meals = getMeals(today, slot.mealType);
+                const slotLabel = slotLabels[slot.mealType] || slot.label;
+                return meals.map(m => `  • ${slotLabel}: ${m.name}`);
+            })
             .join('\n');
-        return `🛒 *${copy.pantryTitle}*\n\n${copy.pantryFor}:\n${items}\n\n${copy.sentFrom}`;
-    }, [getMeals, today]);
 
-    const preferences = useMemo(() => user?.slotTimePreferences, [user?.slotTimePreferences]);
-    const stableGuestMode = useMemo(() => guestMode, [
-        guestMode.active, guestMode.guestCount, guestMode.extraServings,
-        guestMode.startDate, guestMode.endDate,
-    ]);
-    const categorizedSlots = useMemo(() => categorizeSlots(getMeals, today, committedCompletions, preferences, skipped), [getMeals, today, committedCompletions, preferences, skipped, slotTimesRefreshKey]);
-    const activeSlots = categorizedSlots.filter(s => s.section === 'active');
-    const upcomingSlots = categorizedSlots.filter(s => s.section === 'upcoming');
-    const completedSlots = categorizedSlots.filter(s => s.section === 'completed');
-    const skippedSlots = categorizedSlots.filter(s => s.section === 'skipped');
+        return `*${copy.brandHeader}*\n\n🛒 *${copy.pantryTitle}*\n\n${copy.pantryFor}:\n\n${items}\n\n━━━━━━━━━━━━━━━\n${copy.sentFrom}`;
+    }, [getMeals, today, committedCompletions]);
 
     const displaySlots = categorizedSlots;
     const displayActiveUpcomingSlots = useMemo(() => displaySlots.filter(s => s.section !== 'completed' && s.section !== 'skipped'), [displaySlots]);
     const displayCompletedSlots = useMemo(() => categorizedSlots.filter(s => s.section === 'completed' || s.section === 'skipped'), [categorizedSlots]);
 
-    const [mealTab, setMealTab] = useState<'upcoming' | 'history'>('upcoming');
     const [healthExpanded, setHealthExpanded] = useState(false);
 
     // H11: plateScore only depends on meal content, not slot timing.
@@ -697,7 +835,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         className="w-10 h-10 rounded-2xl shadow border flex items-center justify-center active:scale-95 transition-all bg-white border-gray-100 overflow-hidden"
                         aria-label="Open profile settings"
                     >
-                        <img src="/logo.png" alt="Profile" className="w-full h-full object-cover" />
+                        {user?.avatarUrl ? (
+                            <img src={user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                            <img src="/logo.png" alt="Profile" className="w-full h-full object-cover" />
+                        )}
                     </button>
                 </div>
             </header>
@@ -754,7 +896,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 </button>
                 {healthExpanded && (
                     <div className="mt-3 space-y-3">
-                        {displaySlots.some(({ slot }) => getMeals(today, slot.mealType).length > 0) ? (
+                        {displaySlots.some(({ slot }) => getMealsCapped(today, slot.mealType).length > 0) ? (
                             <PlateBalanceVisualizer score={plateScore} diet={userDiet} />
                         ) : (
                             <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-center">
@@ -804,81 +946,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     </span>
                 </div>
 
-                {/* Tab nav */}
-                <div className="flex gap-2 mb-4">
-                    <button
-                        onClick={() => setMealTab('upcoming')}
-                        className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
-                            mealTab === 'upcoming'
-                                ? 'bg-gray-900 text-white'
-                                : 'bg-gray-100 text-gray-500'
-                        }`}
-                    >
-                        Upcoming
-                    </button>
-                    <button
-                        onClick={() => setMealTab('history')}
-                        className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
-                            mealTab === 'history'
-                                ? 'bg-gray-900 text-white'
-                                : 'bg-gray-100 text-gray-500'
-                        }`}
-                    >
-                        History
-                        {(completedSlots.length + skippedSlots.length) > 0 && (
-                            <span className="ml-1.5 text-[8px] opacity-60">{completedSlots.length + skippedSlots.length}</span>
-                        )}
-                    </button>
-                </div>
-
-                {/* Slot list */}
-                <div className="space-y-4">
-                    {mealTab === 'upcoming' && displayActiveUpcomingSlots.length === 0 ? (
-                        <div className="py-8 text-center">
-                            <div className="text-4xl mb-2">🎉</div>
-                            <p className="text-sm font-bold text-gray-800">All done for today!</p>
-                            <p className="text-xs text-gray-500 mt-1">
-                                {displayCompletedSlots.length > 0
-                                    ? 'Check History to see what you cooked'
-                                    : 'Add meals to get started'}
-                            </p>
-                            {displayCompletedSlots.length > 0 && (
-                                <button
-                                    onClick={() => setMealTab('history')}
-                                    className="mt-3 px-4 py-2 rounded-full bg-gray-900 text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
-                                >
-                                    View History
-                                </button>
-                            )}
-                        </div>
-                    ) : (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).length > 0 ? (
-                        (mealTab === 'upcoming' ? displayActiveUpcomingSlots : displayCompletedSlots).map(({ section, slot }) => {
-                        const sectionColors: Record<string, string> = {
-                            active: 'border-l-[#FF385C]',
-                            upcoming: 'border-l-gray-300',
-                            completed: 'border-l-gray-200',
-                            skipped: 'border-l-amber-300',
-                        };
-                        const sectionLabels: Record<string, string> = {
-                            active: 'Now',
-                            upcoming: 'Upcoming',
-                            completed: 'Done',
-                            skipped: 'Skipped',
-                        };
-                        return (
+                {/* ─── TODAY'S ACTIVE & UPCOMING ─── */}
+                {displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length === 0 ? (
+                    <div className="py-8 text-center">
+                        <div className="text-4xl mb-2">🎉</div>
+                        <p className="text-sm font-bold text-gray-800">All done for today!</p>
+                        <p className="text-xs text-gray-500 mt-1">Add meals to get started</p>
+                    </div>
+                ) : (
+                    <>
+                        {displayActiveUpcomingSlots.map(({ section, slot }) => (
                             <DashboardSlotSection
                                 key={slot.key}
                                 date={today}
                                 mealType={slot.mealType}
                                 slot={slot}
                                 section={section}
-                                sectionColors={sectionColors}
-                                sectionLabels={sectionLabels}
+                                sectionColors={SECTION_COLORS}
+                                sectionLabels={SECTION_LABELS}
                                 onOpenSearchAction={openSearchAction}
                                 onCompleteAction={handleCompleteSlot}
                                 onUndoCompleteAction={handleUndoComplete}
                                 onSkipSlotAction={handleSkipSlot}
                                 onUndoSkipAction={handleUndoSkip}
+                                onShareSlotAction={onShareSlotAction}
                                 swapOpenKey={swapOpenKey}
                                 stableSwapOpen={stableSwapOpen}
                                 stableSwapClose={stableSwapClose}
@@ -905,14 +996,71 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                 handleSkipSlot={handleSkipSlot}
                                 handleUndoSkip={handleUndoSkip}
                             />
-                        );
-                    })) : null}
-                </div>
+                        ))}
+
+                        {/* ─── TODAY'S HISTORY (Completed & Skipped) ─── */}
+                        {displayCompletedSlots.length > 0 && (
+                            <>
+                                <div className="flex items-center gap-2 mt-6 mb-3">
+                                    <div className="text-base" aria-hidden="true">📋</div>
+                                    <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">
+                                        Today's History
+                                    </p>
+                                    <span className="text-[11px] font-bold text-gray-400 ml-auto">
+                                        {displayCompletedSlots.length} slot{displayCompletedSlots.length > 1 ? 's' : ''}
+                                    </span>
+                                </div>
+                                {displayCompletedSlots.map(({ section, slot }) => (
+                                    <DashboardSlotSection
+                                        key={`hist-${slot.key}`}
+                                        date={today}
+                                        mealType={slot.mealType}
+                                        slot={slot}
+                                        section={section}
+                                        sectionColors={SECTION_COLORS}
+                                        sectionLabels={SECTION_LABELS}
+                                        onOpenSearchAction={openSearchAction}
+                                        onCompleteAction={handleCompleteSlot}
+                                        onUndoCompleteAction={handleUndoComplete}
+                                        onSkipSlotAction={handleSkipSlot}
+                                        onUndoSkipAction={handleUndoSkip}
+                                        onShareSlotAction={onShareSlotAction}
+                                        swapOpenKey={swapOpenKey}
+                                        stableSwapOpen={stableSwapOpen}
+                                        stableSwapClose={stableSwapClose}
+                                        handleSwapSelect={handleSwapSelect}
+                                        handleUpdateInline={handleUpdateInline}
+                                        handleRemove={handleRemove}
+                                        handleSuggestionAdd={handleSuggestionAdd}
+                                        swapCustomizeOpenKey={swapCustomizeOpenKey}
+                                        stableSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                        stableSwapCustomizeClose={stableSwapCustomizeClose}
+                                        handleSwapCustomizeApply={handleSwapCustomizeApply}
+                                        handleAddAnother={handleAddAnother}
+                                        preferences={preferences}
+                                        today={today}
+                                        dishes={dishes}
+                                        user={user}
+                                        pantryStaples={pantryStaples}
+                                        stableGuestMode={stableGuestMode}
+                                        completions={completions}
+                                        skipped={skipped}
+                                        undoSlot={undoSlot}
+                                        handleCompleteSlot={handleCompleteSlot}
+                                        handleUndoComplete={handleUndoComplete}
+                                        handleSkipSlot={handleSkipSlot}
+                                        handleUndoSkip={handleUndoSkip}
+                                    />
+                                ))}
+                            </>
+                        )}
+                    </>
+                )}
 
                 {/* All-day servings breakdown */}
                 <div className="mt-4">
                     <ServingsBreakdown
-                        items={displaySlots.flatMap(({ slot }) => getMeals(today, slot.mealType))}
+                        items={displaySlots.flatMap(({ slot }) => getMealsCapped(today, slot.mealType))}
                         title="Today's Serving Load"
                     />
                 </div>
@@ -927,21 +1075,78 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         </div>
                         <div>
                             <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Cook</p>
-                            <p className="text-sm font-bold text-gray-800">{user?.cookContact || '— Drop a number'}</p>
+                            {editingCookContact ? (
+                                <div className="flex items-center gap-2 mt-0.5">
+                                    <input
+                                        type="tel"
+                                        value={cookContactInput}
+                                        onChange={(e) => setCookContactInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                const trimmed = cookContactInput.trim();
+                                                if (trimmed) {
+                                                    updateProfile({ cookContact: trimmed });
+                                                    setToast({ message: 'Cook number saved!', type: 'success' });
+                                                }
+                                                setEditingCookContact(false);
+                                            }
+                                            if (e.key === 'Escape') setEditingCookContact(false);
+                                        }}
+                                        className="text-sm font-bold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-0.5 w-32 focus:outline-none focus:border-[#FF385C]"
+                                        placeholder="Enter number"
+                                        autoFocus
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            const trimmed = cookContactInput.trim();
+                                            if (trimmed) {
+                                                updateProfile({ cookContact: trimmed });
+                                                setToast({ message: 'Cook number saved!', type: 'success' });
+                                            }
+                                            setEditingCookContact(false);
+                                        }}
+                                        className="text-[10px] font-bold text-[#FF385C] px-2 py-0.5 rounded-lg bg-[#FF385C]/10 active:scale-95"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={() => setEditingCookContact(false)}
+                                        className="text-[10px] font-bold text-gray-400 px-2 py-0.5 rounded-lg bg-gray-100 active:scale-95"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            ) : (
+                                <p
+                                    className="text-sm font-bold text-gray-800 cursor-pointer active:opacity-60"
+                                    onClick={() => {
+                                        setCookContactInput(user?.cookContact || '');
+                                        setEditingCookContact(true);
+                                    }}
+                                >
+                                    {user?.cookContact || '— Tap to add'}
+                                </p>
+                            )}
                         </div>
                     </div>
-                    <button
-                        onClick={() => {
-                            if (!user?.cookContact) { alert("Add cook's number in Profile first."); return; }
-                            setShareType('prep');
-                        }}
-                        className="bg-white px-4 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-[#FF385C] border border-gray-100 active:scale-95 transition-all shadow-sm"
-                    >
-                        <span className="flex items-center gap-1.5">
-                            <MessageCircle size={12} />
-                            Share
-                        </span>
-                    </button>
+                    {!editingCookContact && (
+                        <button
+                            onClick={() => {
+                                if (!user?.cookContact) {
+                                    setCookContactInput('');
+                                    setEditingCookContact(true);
+                                    return;
+                                }
+                                setShareType('prep');
+                            }}
+                            className="bg-white px-4 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-[#FF385C] border border-gray-100 active:scale-95 transition-all shadow-sm"
+                        >
+                            <span className="flex items-center gap-1.5">
+                                <MessageCircle size={12} />
+                                {user?.cookContact ? 'Share' : 'Add'}
+                            </span>
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -950,8 +1155,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 isOpen={shareType !== null}
                 defaultPhone={user?.cookContact || ''}
                 title="Daily meal plan"
-                onClose={() => setShareType(null)}
-                previewBuilder={(language) => shareType === 'prep' ? buildPrepMessage(language) : buildPantryMessage(language)}
+                onClose={() => { setShareType(null); setSharePreselectSlot(null); }}
+                previewBuilder={(language, selectedSlots) => shareType === 'prep' ? buildPrepMessage(language, selectedSlots) : buildPantryMessage(language, selectedSlots)}
+                availableSlots={ACTIVE_SLOTS.map(s => ({ key: s.mealType, label: s.label }))}
+                completedSlots={Object.entries(committedCompletions)
+                    .filter(([key]) => key.startsWith(`${today}::`))
+                    .map(([key]) => key.split('::')[1])}
+                preselectedSlot={sharePreselectSlot}
             />
 
             {/* Undo toast */}
@@ -1001,7 +1211,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             {new Date(today).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                         </p>
                         <div className="space-y-2">
-                            {SLOTS.map(({ label, key }) => (
+                            {ACTIVE_SLOTS.map(({ label, key }) => (
                                 <button
                                     key={key}
                                     onClick={() => {

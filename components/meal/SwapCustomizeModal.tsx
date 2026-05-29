@@ -23,6 +23,7 @@ import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../..
 import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
 import DishImage from '../new/DishImage';
 import { generateMealTitle } from '../../utils/generateMealTitle';
+import { detectEmbeddedCarb, isRotiLike, isBreadLike } from '../../utils/normalizeMealComponents';
 import {
   X, Search, Sparkles, Check, ChevronLeft, ChevronDown, Plus, Minus, AlertTriangle, Info,
 } from 'lucide-react';
@@ -67,6 +68,31 @@ const ICON_MAP: Record<string, string> = {
   'gajar halwa': '🍮', 'sooji halwa': '🍮', 'rasmalai': '🍥', 'shrikhand': '🥣',
   'barfi (milk/coconut)': '🍬', 'modak': '🥟', 'phirni': '🍮',
   'ladoo (besan/motichoor)': '🍬', 'malpua': '🥞', 'kulfi': '🍦', 'ras malai': '🍥',
+  // Canonical names from normalizeCategory
+  'roti': '🫓', 'phulka': '🫓', 'rice': '🍚', 'tandoori roti': '🫓',
+  'rumali roti': '🫓', 'chapati': '🫓', 'plain roti': '🫓', 'tawa roti': '🫓',
+  'atta roti': '🫓', 'wheat roti': '🫓', 'tandoori': '🫓',
+  'naan': '🫓', 'tandoori naan': '🫓', 'masala paratha': '🫓',
+  'lacha paratha': '🫓', 'plain paratha': '🫓', 'paratha': '🫓',
+  'millet roti': '🫓', 'corn roti': '🫓', 'oats roti': '🫓',
+  'quinoa roti': '🫓', 'rajgira roti': '🫓', 'kuttu roti': '🫓',
+  'singhara roti': '🫓', 'other grain roti': '🫓',
+  'bhatura': '🫓', 'pav': '🫓', 'bread': '🫓',
+  // Chai/beverage accompaniments
+  'biscuits': '🍪', 'cookies': '🍪', 'roasted peanuts': '🥜',
+  'namkeen': '🍿', 'mathri': '🥨',
+  // South Indian essentials
+  'sambar': '🍲', 'rasam': '🍲', 'curry leaves chutney': '🫘',
+  // Curd & Dairy
+  'curd': '🥛', 'dahi': '🥛', 'butter': '🧈', 'ghee': '🧈',
+  // Biryani accompaniments
+  'cucumber raita': '🥣', 'boondi raita': '🥣', 'masala raita': '🥣',
+  'mirchi ka salan': '🌶️', 'bagara baingan': '🍆',
+  // Chaat/street food
+  'imli chutney': '🫘', 'green chutney': '🫘',
+  'sev': '🍜', 'murukku': '🥨', 'boondi': '🟡',
+  // Soup accompaniments
+  'papad': '🫓',
 };
 
 interface SwapCustomizeModalProps {
@@ -249,6 +275,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       asyncGuard.reset();
       syncBufferRef.current.cancel();
       if (initialAddMode) {
+        if (initRef.current === '__add_mode__') return;
         setAddAnotherMode(true);
         setShowSwapSearch(true);
         setSearchQuery('');
@@ -298,9 +325,30 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         if (seededMealRef.current !== item.meal_id) {
           seededMealRef.current = item.meal_id;
           const removed = explicitlyRemovedRef.current;
+
+          // ─── FIX: Detect embedded carb and override stale stored values ──
+          // Existing items may have extra carbs from old loop fills (e.g., both
+          // roti AND rice stored). Detect what carb the dish name implies and
+          // clear conflicting values so only the correct carb is pre-selected.
+          const embeddedCarb = detectEmbeddedCarb(m.name);
+          let effectiveRoti = item.roti;
+          let effectiveRice = item.rice;
+
+          if (embeddedCarb) {
+            if (isRotiLike(embeddedCarb) || isBreadLike(embeddedCarb)) {
+              // Dish implies a roti-like carb → clear rice, use embedded carb
+              effectiveRoti = embeddedCarb;
+              effectiveRice = null;
+            } else {
+              // Dish implies rice → clear roti
+              effectiveRoti = null;
+              effectiveRice = embeddedCarb;
+            }
+          }
+
           setSelectedCategories({
-            bread: item.roti ? [item.roti].filter(s => !removed.has(`bread_${s.toLowerCase().trim()}`)) : [],
-            rice: item.rice ? [item.rice].filter(s => !removed.has(`rice_${s.toLowerCase().trim()}`)) : [],
+            bread: effectiveRoti ? [effectiveRoti].filter(s => !removed.has(`bread_${s.toLowerCase().trim()}`)) : [],
+            rice: effectiveRice ? [effectiveRice].filter(s => !removed.has(`rice_${s.toLowerCase().trim()}`)) : [],
             side: item.sides?.length ? item.sides.filter(s => !removed.has(`side_${s.toLowerCase().trim()}`)) : [],
             beverage: item.beverages?.length ? item.beverages.filter(s => !removed.has(`beverage_${s.toLowerCase().trim()}`)) : [],
             dessert: item.dessert?.length ? item.dessert.filter(s => !removed.has(`dessert_${s.toLowerCase().trim()}`)) : [],

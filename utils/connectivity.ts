@@ -46,11 +46,6 @@ export function onConnectivityChange(fn: (state: ConnectivityState) => void): ()
   return () => _listeners.delete(fn);
 }
 
-/** Get current connectivity state */
-export function getConnectivityState(): ConnectivityState {
-  return _state;
-}
-
 /** Get current connectivity state (boolean) */
 export function isOnline(): boolean {
   return _state === 'online';

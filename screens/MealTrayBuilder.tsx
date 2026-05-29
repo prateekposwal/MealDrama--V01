@@ -55,11 +55,14 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const { dishes, isLoading, error, retry } = useBackendDishes();
     const today = getTodayISO();
 
+    const plannedSlots = userProp?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
+    const ACTIVE_SLOTS = useMemo(() => SLOTS.filter(s => plannedSlots.includes(s.key)), [plannedSlots]);
+
     const initialSlotIdx = useMemo(() => {
         if (!defaultSlot) return 0;
-        const idx = SLOTS.findIndex(s => s.mealType === defaultSlot.toLowerCase());
+        const idx = ACTIVE_SLOTS.findIndex(s => s.mealType === defaultSlot.toLowerCase());
         return idx >= 0 ? idx : 0;
-    }, [defaultSlot]);
+    }, [defaultSlot, ACTIVE_SLOTS]);
     const [currentSlotIdx, setCurrentSlotIdx] = useState(initialSlotIdx);
     const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const [swapCustomizeOpenKey, setSwapCustomizeOpenKey] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const trayLibrary = useStore(s => s.trayLibrary);
     const removeFromTray = useStore(s => s.removeFromTray);
     const addToTray = useStore(s => s.addToTray);
+    const setToast = useStore(s => s.setToast);
     const updateProfile = useStore(s => s.updateProfile);
     const userRegion = useStore(s => s.user?.region ?? 'India');
     const userDiet = useStore(s => s.user?.diet ?? 'veg');
@@ -119,6 +123,53 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         });
     }, [slotTimePrefs]);
 
+    // FIX: One-time cleanup of duplicate dishes in plan.days (historical data)
+    // Merges items with same name (case-insensitive) into single entry with summed quantity
+    const _cleanupDone = useRef(false);
+    useEffect(() => {
+        if (_cleanupDone.current) return;
+        _cleanupDone.current = true;
+
+        for (const slot of ACTIVE_SLOTS) {
+            const planItems = planDays[today]?.[slot.mealType] || [];
+            if (planItems.length <= 1) continue;
+
+            const nameMap = new Map<string, TrayItem>();
+            let needsCleanup = false;
+
+            for (const item of planItems) {
+                const key = item.name.toLowerCase().trim();
+                const existing = nameMap.get(key);
+                if (existing) {
+                    needsCleanup = true;
+                    nameMap.set(key, {
+                        ...existing,
+                        quantity: (existing.quantity || 1) + (item.quantity || 1),
+                        sides: [...new Set([...(existing.sides || []), ...(item.sides || [])])],
+                    });
+                } else {
+                    nameMap.set(key, { ...item });
+                }
+            }
+
+            if (needsCleanup) {
+                const cleaned = Array.from(nameMap.values());
+                useTrayStore.setState((s) => ({
+                    plan: {
+                        ...s.plan,
+                        days: {
+                            ...s.plan.days,
+                            [today]: {
+                                ...s.plan.days[today],
+                                [slot.mealType]: cleaned,
+                            },
+                        },
+                    },
+                }));
+            }
+        }
+    }, [planDays, today]);
+
     const handleSlotTimeChange = useCallback((mealType: MealType, field: 'start' | 'end', value: string) => {
         // H8: Compute new values inside setSlotTimes updater to avoid stale closure
         setSlotTimes(prev => {
@@ -140,7 +191,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         });
     }, [planDays, batchUpdateItems, today, slotTimePrefs, updateProfile]);
 
-    const currentSlot = SLOTS[currentSlotIdx]!;
+    const currentSlot = ACTIVE_SLOTS[currentSlotIdx]!;
     const regionKey = userRegion;
 
 
@@ -220,7 +271,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const slotStatus = SLOT_MESSAGES[currentSlot.label]!;
 
     // Check overall progress across both planDays and trayLibrary (dishes can be in either)
-    const allSlotsComplete = SLOTS.every(s => {
+    const allSlotsComplete = ACTIVE_SLOTS.every(s => {
         const trayItems = trayLibrary[s.mealType] || [];
         const planItems = planDays[today]?.[s.mealType] || [];
         const unique = new Set([...trayItems.map(i => i.dishId), ...planItems.map(i => i.meal_id)]);
@@ -310,20 +361,33 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const handleSuggestionAdd = useCallback((mealType: MealType) => {
         return (suggestion: SuggestionMeal) => {
             const t = slotTimes[mealType];
+            const existing = getMeals(today, mealType);
+            const meal = suggestionToMeal(suggestion);
+            if (existing.some(m => m.meal_id === meal.id || m.name.toLowerCase() === meal.name.toLowerCase())) {
+                setToast({ message: `${meal.name} already added to ${mealType}`, type: 'info' });
+                return;
+            }
             addToTray(mealType, { id: suggestion.id, dishId: suggestion.id, name: suggestion.name, icon: suggestion.icon, sourceRegion: suggestion.region });
-            addMealToSlot(today, mealType, suggestionToMeal(suggestion), {
+            addMealToSlot(today, mealType, meal, {
                 start_time: t?.start,
                 end_time: t?.end,
                 source: 'onboarding',
             });
         };
-    }, [addToTray, addMealToSlot, slotTimes, today]);
+    }, [addToTray, addMealToSlot, slotTimes, today, getMeals, setToast]);
 
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
         const t = slotTimes[mealType];
+        const meal = dishToMeal(dish, variant);
+        const currentItems = getMeals(date, mealType);
+        if (currentItems.some(m => m.meal_id === meal.id || m.name.toLowerCase() === meal.name.toLowerCase())) {
+            setToast({ message: `${meal.name} already added to ${mealType}`, type: 'info' });
+            setShowQuickAdd(false);
+            return;
+        }
         addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
-        addMealToSlot(date, mealType, dishToMeal(dish, variant), {
+        addMealToSlot(date, mealType, meal, {
             start_time: t?.start,
             end_time: t?.end,
             variant: variant?.name,
@@ -331,14 +395,15 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             addon: variant?.addOn,
             source: 'onboarding',
         });
-    setShowQuickAdd(false);
-  }, [addToTray, addMealToSlot, slotTimes]);
+        setShowQuickAdd(false);
+    }, [addToTray, addMealToSlot, slotTimes, getMeals, setToast]);
 
   const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
     const meal = dishToMeal(dish, variant);
     addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
     const existing = getMeals(date, mealType);
-    const existingItem = existing.find(m => m.meal_id === dish.id);
+    // FIX: Check both meal_id AND name (case-insensitive) to catch cross-source duplicates
+    const existingItem = existing.find(m => m.meal_id === dish.id || m.name.toLowerCase() === dish.name.toLowerCase());
     if (existingItem) {
       updateItemInline(date, mealType, existingItem.id, {
         quantity: (existingItem.quantity || 1) + 1,
@@ -363,12 +428,12 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
   }, [addToTray, addMealToSlot, dishToMeal, slotTimes, getMeals, updateItemInline]);
 
     const handleNextSlot = () => {
-        if (currentSlotIdx < SLOTS.length - 1) {
+        if (currentSlotIdx < ACTIVE_SLOTS.length - 1) {
             setCurrentSlotIdx(idx => idx + 1);
         } else if (allSlotsComplete) {
             onComplete();
         } else {
-            const incomplete = SLOTS.filter(s => {
+            const incomplete = ACTIVE_SLOTS.filter(s => {
                 const trayItems = trayLibrary[s.mealType] || [];
                 const planItems = planDays[today]?.[s.mealType] || [];
                 const unique = new Set([...trayItems.map(i => i.dishId ?? i.id), ...planItems.map(i => i.meal_id ?? i.id)]);
@@ -429,7 +494,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                     </div>
                     {/* Progress dots */}
                     <div className="flex items-center gap-2">
-                        {SLOTS.map((s, idx) => {
+                        {ACTIVE_SLOTS.map((s, idx) => {
                             const slotItems = trayLibrary[s.mealType] || [];
                             const done = slotItems.length >= s.minRequired;
                             return (
@@ -637,9 +702,9 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         <>
                             <CheckCircle2 size={18} /> Lock It In
                         </>
-                    ) : currentSlotIdx < SLOTS.length - 1 ? (
+                    ) : currentSlotIdx < ACTIVE_SLOTS.length - 1 ? (
                         <>
-                            {SLOTS[currentSlotIdx + 1]!.label} <ChevronRight size={18} />
+                            {ACTIVE_SLOTS[currentSlotIdx + 1]!.label} <ChevronRight size={18} />
                         </>
                     ) : (
                         'Complete setup'

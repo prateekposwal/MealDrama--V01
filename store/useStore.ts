@@ -1,49 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nativeStorage } from '../utils/nativeStorage';
-import { Dish } from '../constants/dishLibrary';
+import { loadAuth, saveAuth, clearAuth } from '../utils/authStorage';
 import api, { setAuthReady } from '../lib/api';
 import { RequestTracker, requestDedupCache } from '../utils/asyncGuard';
-import { removeDishFromLoopState } from './useTrayStore';
 import { onConnectivityChange } from '../utils/connectivity';
 
-// ─── Roommate Types ──────────────────────────────────────────────────────────
-
-export interface RoommateLink {
-  id: string;
-  linkId: string;
-  token: string;
-  magicLink: string;
-  expiresAt: string;
-  isActive: boolean;
-  createdAt?: string;
-}
-
-export interface RoommateSuggestion {
-  id: string;
-  mealName: string;
-  date: string;
-  slot: string;
-  quantity: number;
-  roommateName: string;
-  gravyStyle?: string;
-  rotiType?: string;
-  riceType?: string;
-  sides: string[];
-  beverages: string[];
-  status: 'pending' | 'approved' | 'rejected';
-  createdAt: string;
-}
-
-export type MutationKind = 'plan' | 'complete';
-
-export interface PendingMutation {
-  id: string;
-  kind: MutationKind;
-  payload: Record<string, unknown>;
-  addedAt: number;
-  retryCount: number;
-}
 
 const MAX_RETRIES = 3;
 
@@ -103,6 +65,7 @@ if (typeof window !== 'undefined') {
 
 export interface User {
   id: string;
+  username?: string;
   name?: string;
   email?: string;
   phone?: string;
@@ -131,6 +94,8 @@ export interface User {
   sugarLimit?: number;
   /** Per-slot time overrides (start/end in HH:MM) — overrides SLOT_TIME_DEFAULTS */
   slotTimePreferences?: Record<string, { start: string; end: string }>;
+  /** User-uploaded profile picture (base64 data URL) */
+  avatarUrl?: string;
 }
 
 export interface CategorySelection {
@@ -169,23 +134,6 @@ export interface MealResolution {
   duplicateWarning?: { type: 'same-day-block' | 'week-soft-warning'; message: string };
 }
 
-export interface SwapNotification {
-  id: string;
-  date: string;
-  slot: string;
-  oldMeal: string;
-  newMeal: string;
-  timestamp: number;
-  message?: string;
-}
-
-export interface TrayEditSession {
-  originTab?: 'home' | 'plan' | 'pantry' | 'profile';
-  returnTab?: 'pantry' | 'home' | 'plan' | 'profile';
-  slot?: string;
-  returnToOnboarding?: boolean;
-}
-
 export interface TrayLibrary {
     breakfast: MealOption[];
     lunch: MealOption[];
@@ -193,44 +141,8 @@ export interface TrayLibrary {
     snacks: MealOption[];
 }
 
-export interface SmartQueue {
-    week2: MealOption[];
-    favorites: MealOption[];
-}
 
-export interface UserProfile {
-  userId: string;
-  dietType: string;
-  region: string;
-  allergies: string[];
-  dislikedItems: string[];
-  spiceLevel: string;
-}
-
-export interface Ingredient {
-  name: string;
-  quantity: number;
-  unit: string;
-  category: string;
-}
-
-export interface PantryItem extends Ingredient {
-  id: string;
-  checked: boolean;
-  auto: boolean;
-  mealName?: string;
-  mealDate?: string;
-}
-
-export interface CompletedSlot {
-  id?: string;
-  userId: string;
-  date: string;
-  slot: string;
-  status: 'cooked' | 'missed' | 'skipped';
-}
-
-import { getISODate, daysBetweenISO, getISTTime } from '../utils/dateUTC';
+import { getISODate, daysBetweenISO } from '../utils/dateUTC';
 export { getISODate };
 
 const _MEAL_RESOLUTION_CACHE = new Map<string, MealResolution>();
@@ -265,9 +177,6 @@ export function getMealResolution(
   return result;
 }
 
-export function invalidateMealResolutionCache(): void {
-  _MEAL_RESOLUTION_CACHE.clear();
-}
 
 function _computeMealResolution(
   trayLibrary: TrayLibrary,
@@ -326,11 +235,6 @@ function _computeMealResolution(
 }
 
 
-export const isEarlyMorning = (): boolean => {
-  const { hours } = getISTTime();
-  return hours < 8;
-};
-
 const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[]) => {
   if (!meal?.dishId) return { name: meal?.variant || meal?.name || '', addOn: meal?.addOn };
   const dish = dishes.find(d => d.id === meal.dishId);
@@ -356,14 +260,65 @@ const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[])
 // Device identity — generated ONCE per install, persisted via Zustand
 function generateDeviceId(): string {
   try {
-    return crypto.randomUUID();
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   } catch {
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 }
 
+// Load auth state synchronously from dedicated storage
+const initialAuth = loadAuth();
+
+// FIX: Validate and clear corrupted storage BEFORE Zustand hydrates
+// Prevents infinite hydration loops caused by malformed JSON
+function clearCorruptedStorage(key: string): void {
+  try {
+    const raw = localStorage.getItem(key);
+    console.log(`[Store] Checking ${key}: ${raw ? raw.substring(0, 50) + '...' : 'null'}`);
+    if (!raw) return;
+    if (typeof raw !== 'string' || !raw.startsWith('{')) {
+      console.warn(`[Store] Clearing corrupted ${key} (invalid format: "${raw.substring(0, 30)}")`);
+      localStorage.removeItem(key);
+      return;
+    }
+    // Validate it's actually valid JSON
+    JSON.parse(raw);
+  } catch (e) {
+    console.warn(`[Store] Clearing corrupted ${key} (JSON parse failed)`, e);
+    try { localStorage.removeItem(key); } catch {}
+  }
+}
+
+console.log('[Store] Running pre-hydration storage cleanup...');
+clearCorruptedStorage('mealdrama-store');
+clearCorruptedStorage('mealdrama-tray-store');
+console.log('[Store] Pre-hydration storage cleanup complete');
+
+// Load trayLibrary synchronously from persisted storage
+function loadInitialTrayLibrary(): TrayLibrary {
+  try {
+    const raw = localStorage.getItem('mealdrama-store');
+    if (raw && typeof raw === 'string' && raw.startsWith('{')) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.state?.trayLibrary && typeof parsed.state.trayLibrary === 'object') {
+        return parsed.state.trayLibrary;
+      }
+    }
+  } catch (err) {
+    console.warn('[Store] loadInitialTrayLibrary failed, clearing corrupted storage:', err);
+    try { localStorage.removeItem('mealdrama-store'); } catch {}
+  }
+  return { breakfast: [], lunch: [], dinner: [], snacks: [] };
+}
+
+const initialTrayLibrary = loadInitialTrayLibrary();
+
 interface StoreState {
   isLoggedIn: boolean;
+  authReady: boolean;
   user: User | null;
   token: string | null;
   deviceId: string;
@@ -376,7 +331,6 @@ interface StoreState {
   dishes: Dish[];
   toast: { message: string; type: 'error' | 'success' | 'info'; action?: { label: string; onClick: () => void } } | null;
   setToast: (toast: { message: string; type: 'error' | 'success' | 'info'; action?: { label: string; onClick: () => void } } | null) => void;
-  setLoggedIn: (value: boolean) => void;
   login: (userId: string, primaryId: string) => void;
   updateProfile: (updates: Partial<User>) => void;
   setUser: (user: User) => void;
@@ -434,10 +388,11 @@ interface StoreState {
 export const useStore = create<StoreState>()(
   persist(
     (set, get) => ({
-      isLoggedIn: false,
+      isLoggedIn: initialAuth.isLoggedIn,
+      authReady: initialAuth.isLoggedIn,
       token: null,
       deviceId: generateDeviceId(),
-      user: null,
+      user: initialAuth.user as User | null,
       trayLibrary: { breakfast: [], lunch: [], dinner: [], snacks: [] },
       swaps: {},
       notifications: [],
@@ -447,35 +402,36 @@ export const useStore = create<StoreState>()(
       pendingMutations: [],
       deadLetterMutations: [],
       smartQueue: { week2: [], favorites: [] },
-      trayBuilt: false,
+      trayBuilt: initialAuth.trayBuilt,
       customDishes: [],
       roommateLink: null,
       roommateSuggestions: [],
 
       setToast: (toast) => set({ toast }),
 
-      setLoggedIn: (value: boolean) => {
-        console.log('[Store] setLoggedIn called with:', value, 'previous:', get().isLoggedIn);
-        set((state) => ({
-          ...state,
-          isLoggedIn: value,
-        }));
-      },
-
       // FIX: Atomic login function that sets both isLoggedIn and user in one operation
       // This prevents race conditions where updateProfile reads stale isLoggedIn=false
-      login: (userId: string, primaryId: string) => {
-        console.log('[Store] login called, userId:', userId);
+      login: (username: string) => {
+        console.log('[Store] login called, username:', username);
+        // Generate a stable internal ID for this user session
+        const userId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const newUser = {
+          id: userId,
+          username: username,
+          primaryId: userId.slice(0, 8),
+          systemId: userId.slice(0, 8),
+        } as User;
+        
         set((state) => ({
           ...state,
           isLoggedIn: true,
-          user: {
-            id: userId,
-            primaryId,
-            systemId: userId.slice(0, 8),
-          } as User,
+          authReady: true,
+          user: newUser,
         }));
-        console.log('[Store] login complete, isLoggedIn:', true);
+        
+        // FIX: Immediately persist auth state to dedicated storage
+        saveAuth({ isLoggedIn: true, trayBuilt: false, user: newUser });
+        console.log('[Store] login complete, userId:', userId);
       },
 
       updateProfile: (updates: Partial<User>) => {
@@ -491,6 +447,11 @@ export const useStore = create<StoreState>()(
             user: newUser,
           };
         });
+        // FIX: Sync user profile to dedicated auth storage to prevent onboarding loop
+        const currentUser = get().user;
+        if (currentUser) {
+          saveAuth({ isLoggedIn: true, trayBuilt: get().trayBuilt, user: currentUser });
+        }
       },
 
       setUser: (user: User) => set({ user, isLoggedIn: true }),
@@ -524,11 +485,16 @@ export const useStore = create<StoreState>()(
         ds.tracker.cancelAll();
         requestDedupCache.clear();
         // M1: Clear meal resolution cache on logout — prevents User A's data leaking to User B
-        invalidateMealResolutionCache();
+        _MEAL_RESOLUTION_CACHE.clear();
         // Notify TrayStore to clear its debounce timers (avoids circular import)
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('store:logout'));
+        
+        // FIX: Clear dedicated auth storage
+        clearAuth();
+        
         set({
           isLoggedIn: false,
+          authReady: true,
           token: null,
           user: null,
           swaps: {},
@@ -537,8 +503,11 @@ export const useStore = create<StoreState>()(
           pendingMutations: [],
           deadLetterMutations: [],
           smartQueue: { week2: [], favorites: [] },
-          trayLibrary: { breakfast: [], lunch: [], dinner: [], snacks: [] },
-          trayBuilt: false,
+      trayLibrary: initialTrayLibrary,
+      trayBuilt: false,
+          customDishes: [],
+          roommateLink: null,
+          roommateSuggestions: [],
         });
       },
 
@@ -550,11 +519,11 @@ export const useStore = create<StoreState>()(
           if (existing) {
             if (existing.name === meal.name && existing.icon === meal.icon) return state;
             const updated = tray.map(m => m.id === meal.id ? { ...m, name: meal.name, icon: meal.icon, sourceRegion: meal.sourceRegion ?? m.sourceRegion } : m);
-            invalidateMealResolutionCache();
+            _MEAL_RESOLUTION_CACHE.clear();
             if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
             return { trayLibrary: { ...state.trayLibrary, [key]: updated } };
           }
-          invalidateMealResolutionCache();
+          _MEAL_RESOLUTION_CACHE.clear();
           if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
           return {
             trayLibrary: {
@@ -567,9 +536,8 @@ export const useStore = create<StoreState>()(
       removeFromTray: (slot: string, mealId: string) =>
         set((state) => {
           const key = slot.toLowerCase() as keyof TrayLibrary;
-          invalidateMealResolutionCache();
+          _MEAL_RESOLUTION_CACHE.clear();
           if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
-          removeDishFromLoopState(mealId);
           return {
             trayLibrary: {
               ...state.trayLibrary,
@@ -874,7 +842,10 @@ export const useStore = create<StoreState>()(
           };
         }),
 
-      setTrayBuilt: (value: boolean) => set({ trayBuilt: value }),
+      setTrayBuilt: (value: boolean) => {
+        set({ trayBuilt: value });
+        saveAuth({ isLoggedIn: get().isLoggedIn, trayBuilt: value, user: get().user });
+      },
 
       addCustomDish: (dish) => set((s) => ({
         customDishes: [...s.customDishes.filter(d => d.id !== dish.id), dish],
@@ -941,11 +912,12 @@ export const useStore = create<StoreState>()(
       name: 'mealdrama-store',
       // ⛔ FREEZE: Do NOT bump this version unless you are adding/removing persisted fields.
       // Bumping triggers migrate() which can drop auth state and force users through onboarding again.
-      version: 10,
+      version: 11,
       storage: nativeStorage,
       // FIX: Explicit partialize to ensure ALL critical fields are saved
       partialize: (state) => ({
         isLoggedIn: state.isLoggedIn,
+        authReady: state.authReady,
         user: state.user,
         token: state.token,
         deviceId: state.deviceId,
@@ -977,6 +949,7 @@ export const useStore = create<StoreState>()(
         // Preserve critical auth/session fields through ANY migration
         const savedAuth = {
           isLoggedIn: state.isLoggedIn,
+          authReady: state.authReady,
           user: state.user,
           deviceId: state.deviceId,
           token: state.token,
@@ -1048,10 +1021,16 @@ export const useStore = create<StoreState>()(
             // localStorage unavailable, ignore
           }
         }
+        if (fromVersion < 11) {
+          // v10 → v11: initialize authReady to true (hydration complete)
+          state.authReady = true;
+          console.log('[Store] v11 migration: initialized authReady=true');
+        }
 
         // Restore critical auth/session fields that must survive any migration
         // Prevents accidental logout/onboarding-reset from version bumps
         if (savedAuth.isLoggedIn !== undefined) state.isLoggedIn = savedAuth.isLoggedIn;
+        if (savedAuth.authReady !== undefined) state.authReady = savedAuth.authReady;
         if (savedAuth.user !== undefined) {
           state.user = savedAuth.user;
         } else if (state.user) {
@@ -1067,11 +1046,25 @@ export const useStore = create<StoreState>()(
       },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
-          console.error('[Store] Hydration failed:', error);
+          console.error('[Store] Hydration failed, clearing corrupted storage:', error);
+          try { localStorage.removeItem('mealdrama-store'); } catch {}
         } else if (state) {
+          // FIX: Ensure deviceId always exists after hydration
+          if (!state.deviceId) {
+            state.deviceId = generateDeviceId();
+          }
+          // FIX: authReady is true once hydration is complete, regardless of login status
+          // This allows the LoginScreen to render for non-logged-in users
+          state.authReady = true;
+          
+          // FIX: Sync hydrated state to dedicated auth storage to prevent onboarding loop
+          if (state.isLoggedIn && state.user) {
+            saveAuth({ isLoggedIn: true, trayBuilt: state.trayBuilt, user: state.user });
+          }
+          
           const trayLib = state.trayLibrary || {};
           const trayTotal = Object.values(trayLib).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0);
-          console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'user.id=', state.user?.id, 'trayLibrary=', trayTotal, 'dishes=', state.dishes?.length);
+          console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'authReady=', state.authReady, 'user.id=', state.user?.id, 'trayLibrary=', trayTotal, 'dishes=', state.dishes?.length);
           setAuthReady(true);
         }
       },

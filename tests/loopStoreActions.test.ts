@@ -275,7 +275,7 @@ describe('Store-level loop actions', () => {
   });
 
   describe('onboarding cleanup on loop apply', () => {
-    it('strips onboarding-source meals from today and keeps user meals', () => {
+    it('preserves all source types on today — loop/legacy never stripped', () => {
       const today = getISODate();
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -313,10 +313,11 @@ describe('Store-level loop actions', () => {
       const state = useTrayStore.getState();
       const todayBreakfast = state.plan.days[today]?.breakfast ?? [];
 
-      // Only legacy (undefined source) dish should be stripped; onboarding + user survive
-      expect(todayBreakfast.length).toBe(2);
+      // All source types survive — never strip loop/legacy from today
+      expect(todayBreakfast.length).toBe(3);
       expect(todayBreakfast[0]?.source).toBe('onboarding');
       expect(todayBreakfast[1]?.source).toBe('user');
+      expect(todayBreakfast[2]?.source).toBeUndefined();
     });
 
     it('preserves all dishes on future dates', () => {

@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { TrayItem, SaveStatus, MealType } from '../../store/useTrayStore';
 import {
-    X, Sparkles,
+    X, Sparkles, MessageCircle,
 } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import type { Dish } from '../../constants/dishLibrary';
@@ -47,13 +47,15 @@ interface MealCardProps {
     onSwapSelect?: (newMealId: string, chipOverrides?: Record<string, unknown>) => void;
     hideTime?: boolean;
     hideChips?: boolean;
+    onShareSlot?: () => void;
+    hideSlotLabel?: boolean;
 }
 
 export const MealCard: React.FC<MealCardProps> = React.memo(({
     item, slot, dishes, mealType,
     isLocked, isMissed, onRemove, editable = true,
     swapCustomizeOpen, onSwapCustomizeOpen, onSwapCustomizeClose,
-    onUpdateInline, hideTime = false,
+    onUpdateInline, hideTime = false, onShareSlot, hideSlotLabel,
 }) => {
     const [editingTime, setEditingTime] = useState(false);
     const [justSwapped, setJustSwapped] = useState(false);
@@ -115,9 +117,16 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
 
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">{slot}</span>
-                    {isNowActive && (
-                      <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-[#FF385C]/10 text-[#FF385C]">Now</span>
+                    {!hideSlotLabel && (
+                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">{slot}</span>
+                    )}
+                    {onShareSlot && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onShareSlot(); }}
+                            className="w-5 h-5 rounded-md bg-[#25D366]/10 flex items-center justify-center text-[#25D366] active:scale-90 transition-all"
+                        >
+                            <MessageCircle size={10} />
+                        </button>
                     )}
                     {!hideTime && (
                         <span className="ml-auto">

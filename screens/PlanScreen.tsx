@@ -26,9 +26,32 @@ import { getSkipUndoWindowExpiry } from '../types/tray';
 import { getISODate, getISTDayOfWeek, parseISODate } from '../utils/dateUTC';
 import { computeStyleWarnings } from '../constants/dishStyles';
 
+/**
+ * ID pinning hook: caps visible meals per slot to `maxVisible`.
+ * Tracks specific meal IDs, not array positions.
+ */
+function usePinnedMeals(allMeals: TrayItem[], maxVisible = 2) {
+  const visibleIdsRef = useRef<Set<string>>(new Set());
+  return useMemo(() => {
+    const currentIds = allMeals.map(m => m.id);
+    const prevIds = [...visibleIdsRef.current];
+    const keptIds = prevIds.filter(id => currentIds.includes(id));
+    const newIds = currentIds.filter(id => !visibleIdsRef.current.has(id));
+    let nextIds = [...keptIds];
+    for (const newId of newIds) {
+      if (nextIds.length < maxVisible) nextIds.push(newId);
+    }
+    if (nextIds.length === 0 && currentIds.length > 0) {
+      nextIds = currentIds.slice(0, maxVisible);
+    }
+    visibleIdsRef.current = new Set(nextIds);
+    return allMeals.filter(m => visibleIdsRef.current.has(m.id));
+  }, [allMeals, maxVisible]);
+}
+
 // ─── Slot Wrapper (stabilizes inline callbacks for React.memo) ───
 interface PlanUpcomingSlotProps extends
-  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete' | 'onSkipSlot' | 'onUndoSkip'> {
+  Omit<SlotBodyProps, 'onOpenSearch' | 'onComplete' | 'onUndoComplete' | 'onSkipSlot' | 'onUndoSkip' | 'onShareSlot'> {
   onOpenSearchAction: (date: string, slotLabel: string) => void;
   onCompleteAction: (date: string, mealType: MealType) => void;
   onUndoCompleteAction: (date: string, mealType: MealType) => void;
@@ -228,6 +251,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const getMeals = useTrayStore(s => s.getMeals);
     const addMealToSlot = useTrayStore(s => s.addMealToSlot);
+    const addToTray = useStore(s => s.addToTray);
     const swapMealInSlot = useTrayStore(s => s.swapMealInSlot);
     const updateItemInline = useTrayStore(s => s.updateItemInline);
     const removeMealFromSlot = useTrayStore(s => s.removeMealFromSlot);
@@ -241,6 +265,66 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
     const mealLoop = useTrayStore(s => s.mealLoop);
     const planDays = useTrayStore(s => s.plan.days);
+
+    const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
+    const ACTIVE_SLOTS = useMemo(() => SLOTS.filter(s => plannedSlots.includes(s.key)), [plannedSlots]);
+
+    // FIX: Deduplicate plan.days on mount to clean historical duplicates
+    const _planCleanupDone = useRef(false);
+    useEffect(() => {
+        if (_planCleanupDone.current) return;
+        _planCleanupDone.current = true;
+
+        const cleanedDays: Record<string, any> = {};
+        let needsCleanup = false;
+
+        for (const [date, dayMeals] of Object.entries(planDays)) {
+            const cleaned: any = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+            for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+                const items = (dayMeals as any)[slot] || [];
+                if (items.length === 0) continue;
+                // Deduplicate by meal_id (keep first occurrence)
+                const seen = new Set<string>();
+                const deduped: any[] = [];
+                for (const item of items) {
+                    const key = item.meal_id || item.id;
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        deduped.push(item);
+                    }
+                }
+                if (deduped.length !== items.length) {
+                    needsCleanup = true;
+                    cleaned[slot] = deduped;
+                } else {
+                    cleaned[slot] = deduped;
+                }
+            }
+            cleanedDays[date] = cleaned;
+        }
+
+        if (needsCleanup) {
+            useTrayStore.setState((s) => ({
+                plan: { ...s.plan, days: { ...s.plan.days, ...cleanedDays } },
+            }));
+            console.log('[PlanScreen] Cleaned duplicate dishes from plan.days');
+        }
+    }, [planDays]);
+
+    // ─── Auto-scroll to slot when dish is added ──
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            const el = document.getElementById(`slot-${detail.date}-${detail.mealType}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('slot-highlight');
+                setTimeout(() => el.classList.remove('slot-highlight'), 2500);
+            }
+        };
+        window.addEventListener('slotAdded', handler);
+        return () => window.removeEventListener('slotAdded', handler);
+    }, []);
 
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
     const committedCompletions = useMemo(() => {
@@ -356,6 +440,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
       return (updates: Partial<TrayItem>) => {
         updateItemInline(date, mealType, itemId, updates);
         setSwapCustomizeOpenKey(null);
+        window.dispatchEvent(new CustomEvent('slotAdded', { detail: { date, mealType } }));
       };
     }, [updateItemInline]);
 
@@ -383,18 +468,25 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         };
     }, [removeMealFromSlot]);
 
+    const setToast = useStore(s => s.setToast);
+
     const handleSuggestionAdd = useCallback((date: string, mealType: MealType) => {
         return (suggestion: SuggestionMeal) => {
-            addMealToSlot(date, mealType, suggestionToMeal(suggestion));
+            const meal = suggestionToMeal(suggestion);
+            const currentItems = getMeals(date, mealType);
+            if (currentItems.some(m => m.meal_id === meal.id || m.name.toLowerCase() === meal.name.toLowerCase())) {
+                setToast({ message: `${meal.name} already added to ${mealType}`, type: 'info' });
+                return;
+            }
+            addToTray(mealType, { id: meal.id, dishId: meal.id, name: meal.name, icon: meal.icon, sourceRegion: meal.region });
+            addMealToSlot(date, mealType, meal);
         };
-    }, [addMealToSlot]);
-
-    const setToast = useStore(s => s.setToast);
+    }, [addMealToSlot, getMeals, setToast, addToTray]);
 
     const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
         const meal = dishToMeal(dish, variant);
         const existing = getMeals(date, mealType);
-        const existingItem = existing.find(m => m.meal_id === dish.id);
+        const existingItem = existing.find(m => m.meal_id === dish.id || m.name.toLowerCase() === dish.name.toLowerCase());
         if (existingItem) {
             updateItemInline(date, mealType, existingItem.id, {
                 quantity: (existingItem.quantity || 1) + 1,
@@ -405,6 +497,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             });
             setToast({ message: `${dish.name} already in ${mealType} — quantity increased`, type: 'info' });
         } else {
+            addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
             addMealToSlot(date, mealType, meal, {
                 variant: variant?.name,
                 variantId: variant?.id,
@@ -412,23 +505,32 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             });
             setToast({ message: `${dish.name} added to ${mealType}`, type: 'success' });
         }
-    }, [getMeals, addMealToSlot, updateItemInline, dishToMeal, setToast]);
+        window.dispatchEvent(new CustomEvent('slotAdded', { detail: { date, mealType } }));
+    }, [getMeals, addMealToSlot, updateItemInline, dishToMeal, setToast, addToTray]);
 
     const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
         const mealType = slot.toLowerCase() as MealType;
-        addMealToSlot(date, mealType, dishToMeal(dish, variant), {
+        const meal = dishToMeal(dish, variant);
+        const currentItems = getMeals(date, mealType);
+        if (currentItems.some(m => m.meal_id === meal.id || m.name.toLowerCase() === meal.name.toLowerCase())) {
+            setToast({ message: `${meal.name} already added to ${mealType}`, type: 'info' });
+            setShowQuickAdd(false);
+            return;
+        }
+        addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
+        addMealToSlot(date, mealType, meal, {
             variant: variant?.name,
             variantId: variant?.id,
             addon: variant?.addOn,
         });
         setShowQuickAdd(false);
-    }, [addMealToSlot]);
+    }, [addMealToSlot, getMeals, setToast, addToTray]);
 
     const today = getISODate(new Date());
     const [planTab, setPlanTab] = useState<'upcoming' | 'history'>('upcoming');
     const pastDates = useMemo(() => weekDates.filter(d => d < today), [weekDates, today]);
     const pastDatesWithMeals = useMemo(
-        () => pastDates.filter(d => SLOTS.some(s => getMeals(d, s.mealType).length > 0)),
+        () => pastDates.filter(d => ACTIVE_SLOTS.some(s => getMeals(d, s.mealType).length > 0)),
         [pastDates, getMeals],
     );
 
@@ -619,7 +721,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                 </div>
 
                                 <div className="space-y-3">
-                                    {SLOTS.map(({ key, mealType, label }, i) => {
+                                    {ACTIVE_SLOTS.map(({ key, mealType, label }, i) => {
                                         const mode = 'upcoming';
                                         const tomorrowDate = getISODate(new Date(new Date(date).getTime() + 86400000));
                                         const tomorrowMeals = getMeals(tomorrowDate, mealType);
@@ -778,7 +880,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
                         {/* Slots */}
                         <div className="space-y-2">
-                            {SLOTS.map(({ key, label }) => (
+                            {ACTIVE_SLOTS.map(({ key, label }) => (
                                 <button
                                     key={key}
                                     onClick={() => {

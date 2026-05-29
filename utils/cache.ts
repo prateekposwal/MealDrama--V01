@@ -14,6 +14,4 @@ export function cachedIngredients(
   return INGREDIENT_CACHE.get(key)!;
 }
 
-export function invalidateIngredientCache(): void {
-  INGREDIENT_CACHE.clear();
-}
+

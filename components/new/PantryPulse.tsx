@@ -260,7 +260,7 @@ const PantryPulse: React.FC = () => {
         setNewItem('');
     };
 
-    const buildShareListMessage = (lang: ShareLanguage) => {
+    const buildShareListMessage = (lang: ShareLanguage, _selectedSlots: string[]) => {
         const copy = getShareStrings(lang);
         const unchecked = allItems.filter(it => !it.checked);
         const groupedByCategory: Record<string, typeof unchecked> = {};
@@ -290,10 +290,11 @@ const PantryPulse: React.FC = () => {
         <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-500">
             <WhatsAppShareModal
                 isOpen={showShareModal}
-                defaultPhone={sharePhone || user?.cookContact}
+                defaultPhone={sharePhone || user?.cookContact || ''}
                 title="Kitchen List"
                 onClose={() => setShowShareModal(false)}
                 previewBuilder={buildShareListMessage}
+                availableSlots={[]}
             />
 
             <header className="px-6 pt-14 pb-4">

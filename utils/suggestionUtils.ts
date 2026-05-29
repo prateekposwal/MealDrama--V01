@@ -14,7 +14,8 @@ import { DISH_LIBRARY, type Region } from '../constants/dishLibrary';
  */
 export function suggestionToMeal(s: SuggestionMeal): Meal {
   const match = DISH_LIBRARY.find(d => d.name.toLowerCase() === s.name.toLowerCase())
-    || DISH_LIBRARY.find(d => d.name.toLowerCase().startsWith(s.name.toLowerCase()) && (d.name.length === s.name.length || d.name[s.name.length] === ' ' || d.name[s.name.length] === '('));
+    || DISH_LIBRARY.find(d => d.name.toLowerCase().startsWith(s.name.toLowerCase()) && (d.name.length === s.name.length || d.name[s.name.length] === ' ' || d.name[s.name.length] === '('))
+    || DISH_LIBRARY.find(d => s.name.toLowerCase().startsWith(d.name.toLowerCase()) && (s.name.length === d.name.length || s.name[d.name.length] === ' ' || s.name[d.name.length] === '('));
   return {
     id: match?.id ?? s.id,
     name: s.name,

@@ -6,7 +6,7 @@ import type { SourcePool } from '../../utils/mealLoopEngine';
 import type { Category } from '../../constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
-import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X } from 'lucide-react';
+import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Camera } from 'lucide-react';
 import { getISODate } from '../../utils/dateUTC';
 
 
@@ -50,7 +50,7 @@ const [cookInput, setCookInput] = useState(user?.cookContact || '');
 const [notifications, setNotifications] = useState(true);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
 
-const { customDishes, addCustomDish, updateCustomDish, removeCustomDish } = useStore();
+const { customDishes, addCustomDish, updateCustomDish, removeCustomDish, setToast } = useStore();
 const [showCustomForm, setShowCustomForm] = useState(false);
 const [editingDishId, setEditingDishId] = useState<string | null>(null);
 const [customName, setCustomName] = useState('');
@@ -67,9 +67,30 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
     const dishes = useStore(s => s.dishes);
     const plan = useTrayStore(s => s.plan);
     const getMeals = useTrayStore(s => s.getMeals);
-    const { applyLoopConfig, undoLoopChange } = useTrayStore();
+    const { applyLoopConfig } = useTrayStore();
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleAvatarUpload = useCallback(() => {
+        fileInputRef.current?.click();
+    }, []);
+
+    const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) {
+            setToast({ message: 'Image too large. Max 2MB.', type: 'error' });
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const dataUrl = ev.target?.result as string;
+            updateProfile({ avatarUrl: dataUrl });
+            setToast({ message: 'Profile picture updated!', type: 'success' });
+        };
+        reader.readAsDataURL(file);
+    }, [updateProfile, setToast]);
+
     const mealLoop = useTrayStore(s => s.mealLoop);
-    const hasLoopUndo = mealLoop.undoStack.length > 0;
 
     // FIX 6: Live status indicator — refreshes on loop_updated events from background sync
     const [refreshKey, setRefreshKey] = useState(0);
@@ -90,21 +111,21 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
     }, [mealLoop.config, refreshKey]);
 
     const trayCounts = useMemo(() => {
-        const today = getISODate(new Date());
         const types: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
         const counts: Record<MealType, Set<string>> = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
-        // Merge trayLibrary items (user's saved tray)
+        // Read from trayLibrary (user's saved defaults)
         for (const mt of types) {
             for (const item of trayLibrary[mt]) {
                 counts[mt].add(item.dishId ?? item.id);
             }
         }
-        // Merge today's plan.days items only — loop assignments on future dates
-        // should not inflate the tray summary (tray builder only shows today)
-        for (const mt of types) {
-            const meals = getMeals(today, mt);
-            for (const item of meals) {
-                counts[mt].add(item.meal_id ?? item.id);
+        // FIX: Also include dishes from plan.days to match Meal Tray Builder counts
+        for (const date of Object.keys(plan.days)) {
+            for (const mt of types) {
+                const meals = plan.days[date]?.[mt] || [];
+                for (const item of meals) {
+                    counts[mt].add(item.meal_id);
+                }
             }
         }
         return {
@@ -113,14 +134,16 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
             snacks: counts.snacks.size,
             dinner: counts.dinner.size,
         };
-    }, [plan.days, getMeals, trayLibrary]);
+    }, [trayLibrary, plan.days]);
+
+    const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
 
     const traySummary = [
         { slot: 'Breakfast' as const, count: trayCounts.breakfast },
         { slot: 'Lunch' as const, count: trayCounts.lunch },
         { slot: 'Dinner' as const, count: trayCounts.dinner },
         { slot: 'Snacks' as const, count: trayCounts.snacks },
-    ];
+    ].filter(item => plannedSlots.includes(item.slot));
 
     const traySourcePool = useMemo((): SourcePool => {
         const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
@@ -308,14 +331,22 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                 <p className="text-[11px] text-gray-400 mt-1.5">You can change this anytime.</p>
             </div>
                 <div className="flex items-center gap-5">
-                    <div className="w-20 h-20 bg-gradient-to-br from-[#FF385C] to-[#E31C5F] rounded-[28px] flex items-center justify-center shadow-xl shadow-[#FF385C]/20 overflow-hidden">
-                        <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
+                    <div className="relative w-20 h-20 bg-gradient-to-br from-[#FF385C] to-[#E31C5F] rounded-[28px] flex items-center justify-center shadow-xl shadow-[#FF385C]/20 overflow-hidden cursor-pointer active:scale-95 transition-all" onClick={handleAvatarUpload}>
+                        {user?.avatarUrl ? (
+                            <img src={user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
+                        )}
+                        <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-all flex items-center justify-center">
+                            <Camera size={16} className="text-white opacity-0 hover:opacity-100 transition-opacity" />
+                        </div>
                     </div>
                     <div>
                         <h3 className="text-2xl font-bold">{user.diet || 'Food Lover'}</h3>
                         <p className="text-gray-400 text-sm">{user.region} · {SPICE_LABELS[user.spiceLevel || 2]}</p>
                     </div>
                 </div>
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                 {/* Visual stat cards removed: replaced by a focused Profile editing experience */}
             </header>
             <div className="px-6 pb-6">
@@ -553,15 +584,6 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
-                                {hasLoopUndo && (
-                                    <button
-                                        onClick={undoLoopChange}
-                                        className="px-3 py-2 rounded-xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-amber-600 active:scale-95 transition-all"
-                                        title="Undo last loop change"
-                                    >
-                                        Undo
-                                    </button>
-                                )}
                                 <button
                                     onClick={() => setMealLoopModalOpen(true)}
                                     className="px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-emerald-500"
@@ -630,6 +652,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                 isOpen={mealLoopModalOpen}
                 onClose={() => setMealLoopModalOpen(false)}
                 sourcePool={traySourcePool}
+                plannedSlots={user?.plannedSlots}
                 onApply={handleLoopApply}
                 onFixSlots={(targetSlot) => {
                     setMealLoopModalOpen(false);

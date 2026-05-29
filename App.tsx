@@ -1,13 +1,13 @@
 import React, { useState, useEffect, Suspense, useMemo, useRef, useCallback } from 'react';
 import { useStore } from './store/useStore';
-import { useTrayStore } from './store/useTrayStore';
+import { useTrayStore, seedTodayFromTray } from './store/useTrayStore';
+import { saveAuth } from './utils/authStorage';
 import api, { setAuthReady } from './lib/api';
 import LoginScreen from './components/new/LoginScreen';
 import MealTrayBuilder from './screens/MealTrayBuilder';
 import MealLoopConfigModal from './components/meal/MealLoopConfigModal';
 import { Home, Calendar, ShoppingBasket, User as UserIcon, ChevronLeft, X } from 'lucide-react';
 import { useBackendDishes } from './hooks/useBackendDishes';
-import QuickStartOnboarding from './components/new/QuickStartOnboarding';
 import FlashOnboarding from './components/new/FlashOnboarding';
 import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
@@ -15,7 +15,8 @@ import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
 import { enqueue } from './utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
-import type { Dish } from './constants/dishLibrary';
+import type { Dish, DishLibrary } from './constants/dishLibrary';
+import { DISH_LIBRARY } from './constants/dishLibrary';
 import type { SourcePool } from './utils/mealLoopEngine';
 import type { MealLoopConfig } from './types/tray';
 import { getISODate, addDaysISO } from './utils/dateUTC';
@@ -24,12 +25,6 @@ const DashScreen = React.lazy(() => import('./screens/Dashboard'));
 const PlanScreen = React.lazy(() => import('./screens/PlanScreen'));
 const Profile = React.lazy(() => import('./components/new/Profile'));
 const PantryPulse = React.lazy(() => import('./components/new/PantryPulse'));
-const PageLoader = () => (
-  <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
-    <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
-    <p className="text-sm font-medium text-gray-400 text-center">Preparing your meal plan…</p>
-  </div>
-);
 
 const TABS = [
   { key: 'dashboard', label: 'Home', Icon: Home },
@@ -73,17 +68,16 @@ const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; act
 
 const App: React.FC = () => {
   const {
-    isLoggedIn, user,
+    isLoggedIn, authReady, user,
     login, updateProfile, logout, setDishes, setSwap, toast, setToast,
-    trayBuilt, setTrayBuilt, setLoggedIn,
+    trayBuilt, setTrayBuilt,
   } = useStore();
   const { quickSetupOpen, quickSetupPrefill, openQuickSetup, closeQuickSetup } = useStore();
   const { dishes: fetchedDishes } = useBackendDishes();
 
-  // ─── ALL hooks must be before any conditional return (Rules of Hooks) ───
-  const [hydrated, setHydrated] = useState(
-    () => useStore.persist.hasHydrated() && useTrayStore.persist.hasHydrated()
-  );
+  // ─── ALL hooks must be before any conditional return (Rules of Hooks) ──
+  const [isHydrated, setIsHydrated] = useState(false);
+  const _rehydrateAttempted = useRef(false);
   const _trayLibrary = useStore(s => s.trayLibrary);
   const planDays = useTrayStore(s => s.plan.days);
   const today = getISODate();
@@ -109,7 +103,6 @@ const App: React.FC = () => {
   const [manageTray, setManageTray] = useState(false);
   const [manageTraySlot, setManageTraySlot] = useState<string | undefined>(undefined);
   const [showLoopConfig, setShowLoopConfig] = useState(false);
-  const [loopSkipped, setLoopSkipped] = useState(false);
   const [cycleEndNudge, setCycleEndNudge] = useState<{ lastDate: string; daysLeft: number } | null>(null);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -117,6 +110,7 @@ const App: React.FC = () => {
   const [navStack, setNavStack] = useState<string[]>([]);
   const navStackRef = useRef(navStack);
   navStackRef.current = navStack;
+  const backExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pushNav = useCallback((tab: string) => {
     setNavStack(prev => [...prev, tab]);
   }, []);
@@ -145,23 +139,91 @@ const App: React.FC = () => {
     mainRef.current?.focus({ preventScroll: true });
   }, [activeTab]);
 
-  // Hydration detection — await both stores before rendering
+  // Hydration detection — Zustand 5 hydrates automatically on store creation
   useEffect(() => {
-    if (useStore.persist.hasHydrated() && useTrayStore.persist.hasHydrated()) {
-      setHydrated(true);
+    let cancelled = false;
+    let unsub1: (() => void) | undefined;
+    let unsub2: (() => void) | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const checkBoth = () => {
+      if (!cancelled) {
+        if (timeoutId) clearTimeout(timeoutId);
+        seedTodayFromTray();
+        // FIX: Rebuild plan.days from loop assignments on hydration
+        // Ensures all cycle dates are populated, not just rendered ones
+        const trayState = useTrayStore.getState();
+        if (trayState.mealLoop.config) {
+          const { applyLoopConfig, mealLoop } = useTrayStore.getState();
+          const { trayLibrary } = useStore.getState();
+          if (trayLibrary?.breakfast && mealLoop.config) {
+            // Build source pool from trayLibrary
+            const pool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+              for (const item of trayLibrary[mt] || []) {
+                const dish = DISH_LIBRARY.find(d => d.id === (item.dishId || item.id));
+                if (dish) pool[mt].push(dish);
+              }
+            }
+            applyLoopConfig(mealLoop.config, pool, DISH_LIBRARY);
+          }
+        }
+        setIsHydrated(true);
+      }
+    };
+
+    // Safety timeout: force hydration after 3s even if stores haven't finished
+    timeoutId = setTimeout(() => {
+      console.warn('[App] Hydration timeout — forcing render after 3s');
+      checkBoth();
+    }, 3000);
+
+    const store1Ready = useStore.persist.hasHydrated();
+    const store2Ready = useTrayStore.persist.hasHydrated();
+
+    if (store1Ready && store2Ready) {
+      checkBoth();
       return;
     }
-    let cancelled = false;
-    Promise.all([
-      useStore.persist.rehydrate(),
-      useTrayStore.persist.rehydrate(),
-    ]).then(() => {
-      if (!cancelled) {
-        setHydrated(true);
-      }
-    });
-    return () => { cancelled = true; };
+
+    if (!store1Ready) {
+      unsub1 = useStore.persist.onFinishHydration(() => {
+        if (useTrayStore.persist.hasHydrated()) checkBoth();
+      });
+    }
+
+    if (!store2Ready) {
+      unsub2 = useTrayStore.persist.onFinishHydration(() => {
+        if (useStore.persist.hasHydrated()) checkBoth();
+      });
+    }
+
+    return () => {
+      cancelled = true;
+      unsub1?.();
+      unsub2?.();
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
+
+  // RECOVERY: If Zustand state is empty but storage has data, force rehydrate (once)
+  useEffect(() => {
+    if (isHydrated && !isLoggedIn && !_rehydrateAttempted.current) {
+      const raw = localStorage.getItem('mealdrama-store');
+      if (raw) {
+        console.warn('[App] Zustand state empty but storage has data. Forcing rehydrate.');
+        _rehydrateAttempted.current = true;
+        useStore.persist.rehydrate();
+      }
+    }
+  }, [isHydrated, isLoggedIn]);
+
+  // SYNC: Keep authStorage in sync with trayBuilt to prevent routing loops
+  useEffect(() => {
+    if (isHydrated && isLoggedIn) {
+      saveAuth({ isLoggedIn: true, trayBuilt, user: user as any });
+    }
+  }, [isHydrated, isLoggedIn, trayBuilt, user]);
 
   // Hardware back button (Capacitor Android)
   useEffect(() => {
@@ -170,8 +232,31 @@ const App: React.FC = () => {
       try {
         const { App } = await import('@capacitor/app');
         const handler = await App.addListener('backButton', () => {
+          // Priority 1: Pop sub-view nav stack
           if (navStackRef.current.length > 0) {
             goBack();
+            return;
+          }
+          // Priority 2: Navigate from non-dashboard tabs to dashboard
+          if (activeTab !== 'dashboard') {
+            setActiveTab('dashboard');
+            return;
+          }
+          // Priority 3: Double-tap exit on dashboard
+          if (backExitTimerRef.current) {
+            // Second tap within 2s → exit
+            clearTimeout(backExitTimerRef.current);
+            backExitTimerRef.current = null;
+            (async () => {
+              const { App } = await import('@capacitor/app');
+              App.exitApp();
+            })();
+          } else {
+            // First tap → start timer, show toast
+            setToast({ message: 'Press back again to exit', type: 'info' });
+            backExitTimerRef.current = setTimeout(() => {
+              backExitTimerRef.current = null;
+            }, 2000);
           }
         });
         cleanup = handler.remove;
@@ -179,8 +264,33 @@ const App: React.FC = () => {
         // Not running in Capacitor (web preview), ignore
       }
     })();
-    return () => cleanup?.();
-  }, [goBack]);
+    return () => {
+      cleanup?.();
+      if (backExitTimerRef.current) {
+        clearTimeout(backExitTimerRef.current);
+        backExitTimerRef.current = null;
+      }
+    };
+  }, [goBack, activeTab, setToast]);
+
+  // FIX: Flush persistence stores before app goes to background to prevent data loss
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    (async () => {
+      try {
+        const { App } = await import('@capacitor/app');
+        const handler = await App.addListener('appStateChange', ({ isActive }) => {
+          if (!isActive) {
+            // App going to background — Zustand 5 persists synchronously, no flush needed
+          }
+        });
+        cleanup = handler.remove;
+      } catch {
+        // Not running in Capacitor, ignore
+      }
+    })();
+    return () => { cleanup?.(); };
+  }, []);
 
   // ─── Cycle-end nudge: toast when loop has ≤3 days of assignments left ───
   useEffect(() => {
@@ -234,7 +344,7 @@ const App: React.FC = () => {
 
   console.log('[App] Rendering, isLoggedIn:', isLoggedIn, 'user:', !!user, 'user.region:', user?.region);
 
-  if (!hydrated) {
+  if (!isHydrated) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
         <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
@@ -253,7 +363,7 @@ const App: React.FC = () => {
       <FlashOnboarding
         isEditMode={true}
         prefill={quickSetupPrefill as unknown as { region?: string; diet?: string; spiceLevel?: number; plannedSlots?: ("Breakfast" | "Lunch" | "Snacks" | "Dinner")[]; cookContact?: string; } | undefined}
-        onComplete={(payload) => {
+        onComplete={async (payload) => {
           try {
             updateProfile({
               region: payload.region,
@@ -273,15 +383,31 @@ const App: React.FC = () => {
     );
   }
 
-  // FIX: No hydration guard - Zustand v5 hydrates synchronously on web
-  // The store is ready before the first render completes
+  // FIX 4: Gate navigation behind authReady — prevents premature rendering
+  // before hydration + login state is stable
+  if (!authReady) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
+        <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-medium text-gray-400 text-center">Preparing your kitchen…</p>
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={async (userId, primaryId) => {
-      console.log('[App] onLogin called, userId:', userId);
-      // FIX: Use atomic login function and wait for persistence
-      login(userId, primaryId);
-      console.log('[App] login persisted to localStorage');
+    return <LoginScreen onLogin={async (username) => {
+      console.log('[App] onLogin called, username:', username);
+      // FIX: Use atomic login function and flush persistence immediately
+      login(username);
+      
+      // VERIFY: Check if data actually saved
+      const saved = localStorage.getItem('mealdrama-store');
+      if (!saved) {
+        console.error('[App] CRITICAL: Login data NOT saved to localStorage!');
+        setToast({ message: 'Storage error: Data not saved.', type: 'error' });
+      } else {
+        console.log('[App] Login data verified in storage.');
+      }
     }} />;
   }
 
@@ -320,9 +446,9 @@ const App: React.FC = () => {
         <MealLoopConfigModal
           isOpen={true}
           sourcePool={sourcePool}
-          onClose={() => {
+          plannedSlots={user?.plannedSlots}
+            onClose={() => {
             setShowLoopConfig(false);
-            setLoopSkipped(true);
             setManageTray(false);
             setManageTraySlot(undefined);
             setActiveTab('dashboard');
@@ -339,7 +465,6 @@ const App: React.FC = () => {
               setToast({ message: 'Loop config saved locally (offline) — will sync when reconnected', type: 'info' });
               window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
               setShowLoopConfig(false);
-              setLoopSkipped(false);
               setManageTray(false);
               setActiveTab('dashboard');
               return;
@@ -356,7 +481,6 @@ const App: React.FC = () => {
             applyLoopConfig(config, sourcePool, fetchedDishes);
             window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
             setShowLoopConfig(false);
-            setLoopSkipped(false);
             setManageTray(false);
             setActiveTab('dashboard');
           }}

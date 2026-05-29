@@ -22,6 +22,7 @@ interface MealLoopConfigModalProps {
   sourcePool: SourcePool;
   onApply: (config: MealLoopConfig) => void;
   onFixSlots?: (targetSlot: MealType) => void;
+  plannedSlots?: string[];
 }
 
 const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
@@ -30,6 +31,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
   sourcePool,
   onApply,
   onFixSlots,
+  plannedSlots,
 }) => {
   const mealLoop = useTrayStore(s => s.mealLoop);
   const savedConfig = mealLoop.config;
@@ -40,7 +42,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
 
   const pool = sourcePool;
 
-  const validation = useMemo(() => validateSourcePool(pool), [pool]);
+  const validation = useMemo(() => validateSourcePool(pool, plannedSlots), [pool, plannedSlots]);
 
   const isFirstTimeSetup = !savedConfig;
 

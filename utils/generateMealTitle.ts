@@ -1,24 +1,45 @@
+import { normalizeCategory, isCarb, isBeverage, deduplicateSides, detectEmbeddedCarb } from './normalizeMealComponents';
+
 export function generateMealTitle(
   mainDish: string,
   sides: string[],
   beverages: string[],
-  embeddedCarb?: string,
+  assignedCarb?: string,
 ): string {
+  // ─── KITCHEN LOGIC: Format as [Main] ([Sides]) + [Beverage] ──
+  // Cap components, deduplicate by category, never repeat categories.
+
+  // Normalize and deduplicate sides
+  const normalizedSides = deduplicateSides(sides);
+
+  // Normalize beverage (pick first, cap at 1)
+  const normalizedBev = beverages.length > 0 ? normalizeCategory(beverages[0]) : null;
+
+  // Detect carb already embedded in dish name
+  const dishCarb = detectEmbeddedCarb(mainDish);
+
+  // Normalize assigned carb if present
+  const normalizedAssignedCarb = assignedCarb ? normalizeCategory(assignedCarb) : null;
+
+  // Skip assigned carb if dish already has the same carb embedded
+  const effectiveCarb = (normalizedAssignedCarb && normalizedAssignedCarb !== dishCarb) ? normalizedAssignedCarb : null;
+
+  // Build sides list (exclude any carb that matches effective carb or dish carb)
+  const sideParts = normalizedSides.filter(s => s !== effectiveCarb && s !== dishCarb);
+
+  // Format: Main (Side1, Side2) + Carb + Beverage
   const parts: string[] = [mainDish];
 
-  if (embeddedCarb) {
-    parts.push(embeddedCarb);
+  if (sideParts.length > 0) {
+    parts.push(`(${sideParts.join(', ')})`);
   }
 
-  const uniqueSides = sides.filter((s, i) => sides.indexOf(s) === i && s !== embeddedCarb);
-  if (uniqueSides.length > 0) {
-    parts.push(uniqueSides.slice(0, 2).join(', '));
+  if (effectiveCarb) {
+    parts.push(effectiveCarb);
   }
 
-  const uniqueBeverages = beverages.filter((s, i) => beverages.indexOf(s) === i);
-  if (uniqueBeverages.length > 0) {
-    const firstBev = uniqueBeverages[0];
-    if (firstBev) parts.push(firstBev);
+  if (normalizedBev) {
+    parts.push(normalizedBev);
   }
 
   return parts.join(' + ');

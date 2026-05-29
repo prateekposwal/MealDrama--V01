@@ -100,6 +100,8 @@ export interface TrayItem {
   /** Custom time window for this meal slot (HH:MM format) */
   start_time?: string;
   end_time?: string;
+  /** Title ownership: 'auto' = generated, 'custom' = user-edited (preserved on loop fill) */
+  titleOwnership?: 'auto' | 'custom';
   /** Origin of this meal — controls gap-fill behavior */
   source?: 'user' | 'loop' | 'suggestion' | 'onboarding';
 }
@@ -222,6 +224,7 @@ export interface MealLoopState {
     rotationQueue: RotationQueueItem[];
     rotationState: MealLoopState['rotationState'];
     analytics: MealLoopState['analytics'];
+    planDaysSnapshot?: Record<string, DayMeals>;
   }>;
   /** FIX 9: Loop analytics — tracks user progress */
   analytics: {

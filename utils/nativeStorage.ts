@@ -1,146 +1,49 @@
 /**
- * FIX: Storage Adapter for Zustand v5 persist middleware.
+ * Robust Storage Adapter with Debug Logging.
  *
- * Zustand v5 passes the raw { state, version } object to storage.setItem,
- * and expects { state, version } back from storage.getItem.
- *
- * This adapter handles serialization/deserialization to/from JSON itself.
+ * BETA STRATEGY: Synchronous localStorage only.
+ * - Logs every read/write to help diagnose persistence issues.
+ * - Eliminates async race conditions.
+ * - Implements PersistStorage interface directly (handles JSON parsing).
  */
 
-let isNativeEnv: boolean | undefined;
-
-function getIsNative(): boolean {
-  if (isNativeEnv !== undefined) return isNativeEnv;
-  if (typeof window === 'undefined') { isNativeEnv = false; return false; }
-  const cap = (window as any).Capacitor;
-  if (!cap) { isNativeEnv = false; return false; }
-  if (typeof cap.isNativePlatform === 'function') { isNativeEnv = cap.isNativePlatform() ?? false; return isNativeEnv; }
-  isNativeEnv = !!cap.isNative;
-  return isNativeEnv;
-}
-
-/**
- * Web storage — synchronous localStorage
- * PersistState = { state: Record<string, any>, version: number }
- */
-const webStorage = {
-  getItem: (key: string): Record<string, any> | null => {
+export const nativeStorage = {
+  getItem: (key: string): { state: any; version?: number } | null => {
     try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return null;
-      let parsed: any;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        console.warn(`[webStorage] CORRUPTED data for "${key}", clearing`);
-        localStorage.removeItem(key);
+      const value = localStorage.getItem(key);
+      if (!value) return null;
+      // Validate JSON before parsing
+      if (typeof value !== 'string' || !value.startsWith('{')) {
+        console.warn(`[Storage] getItem("${key}") -> Invalid format, clearing`);
+        try { localStorage.removeItem(key); } catch {}
         return null;
       }
-      // Validate shape — must have state and optionally version
-      if (!parsed || typeof parsed !== 'object') {
-        console.warn(`[webStorage] Invalid data for "${key}", clearing`);
-        localStorage.removeItem(key);
-        return null;
-      }
+      const parsed = JSON.parse(value);
+      console.log(`[Storage] getItem("${key}") -> Found (v${parsed?.version ?? '?'})`);
       return parsed;
     } catch (err) {
-      console.error('[webStorage] getItem failed:', err);
+      console.error(`[Storage] getItem("${key}") failed, clearing:`, err);
+      try { localStorage.removeItem(key); } catch {}
       return null;
     }
   },
-  setItem: (key: string, value: Record<string, any>): void => {
+
+  setItem: (key: string, value: { state: any; version?: number }): void => {
     try {
       const serialized = JSON.stringify(value);
       localStorage.setItem(key, serialized);
+      console.log(`[Storage] setItem("${key}") -> Success (${serialized.length} bytes)`);
     } catch (err) {
-      console.error('[webStorage] setItem failed:', err);
+      console.error('[Storage] setItem failed:', err);
     }
   },
+
   removeItem: (key: string): void => {
     try {
       localStorage.removeItem(key);
+      console.log(`[Storage] removeItem("${key}") -> Success`);
     } catch (err) {
-      console.error('[webStorage] removeItem failed:', err);
+      console.error('[Storage] removeItem failed:', err);
     }
-  },
-};
-
-/**
- * Native storage — async Capacitor Preferences (lazy loaded)
- */
-let nativeImpl: {
-  getItem: (key: string) => Promise<Record<string, any> | null>;
-  setItem: (key: string, value: Record<string, any>) => Promise<void>;
-  removeItem: (key: string) => Promise<void>;
-} | null = null;
-
-async function getNative(): Promise<typeof nativeImpl extends null ? never : typeof nativeImpl> {
-  if (nativeImpl) return nativeImpl;
-  const { Preferences } = await import('@capacitor/preferences');
-
-  nativeImpl = {
-    getItem: async (key: string) => {
-      try {
-        const { value } = await Preferences.get({ key });
-        if (!value) return null;
-        try {
-          return JSON.parse(value);
-        } catch {
-          console.warn(`[nativeStorage] CORRUPTED data for "${key}", clearing`);
-          await Preferences.remove({ key });
-          return null;
-        }
-      } catch (err) {
-        console.error('[nativeStorage] getItem failed:', err);
-        return null;
-      }
-    },
-    setItem: async (key: string, value: Record<string, any>) => {
-      try {
-        await Preferences.set({ key, value: JSON.stringify(value) });
-      } catch (err) {
-        console.error('[nativeStorage] setItem failed:', err);
-      }
-    },
-    removeItem: async (key: string) => {
-      try {
-        await Preferences.remove({ key });
-      } catch (err) {
-        console.error('[nativeStorage] removeItem failed:', err);
-      }
-    },
-  };
-  return nativeImpl;
-}
-
-// Pre-load native storage if running on native
-export const cachedIsNative = getIsNative();
-if (cachedIsNative) {
-  getNative();
-}
-
-/**
- * Hybrid storage adapter
- */
-export const nativeStorage = {
-  getItem: (key: string): Record<string, any> | null | Promise<Record<string, any> | null> => {
-    if (cachedIsNative) {
-      return getNative().then(ns => ns!.getItem(key));
-    }
-    return webStorage.getItem(key);
-  },
-
-  setItem: (key: string, value: Record<string, any>): void | Promise<void> => {
-    if (cachedIsNative) {
-      return getNative().then(ns => ns!.setItem(key, value));
-    }
-    webStorage.setItem(key, value);
-  },
-
-  removeItem: (key: string): void | Promise<void> => {
-    if (cachedIsNative) {
-      return getNative().then(ns => ns!.removeItem(key));
-    }
-    webStorage.removeItem(key);
   },
 };

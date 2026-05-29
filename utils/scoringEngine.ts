@@ -1,6 +1,6 @@
 import type { Meal, MealType } from '../types/tray';
 
-export interface ScoredItem {
+interface ScoredItem {
   name: string;
   score: number;
   maxScore: number;
@@ -309,15 +309,6 @@ export function scoreItem(
   };
 }
 
-export function scoreItemList(
-  candidates: string[],
-  category: 'bread' | 'rice' | 'side' | 'beverage',
-  ctx: ScoringContext,
-): ScoredItem[] {
-  return candidates
-    .map(c => scoreItem(c, category, ctx))
-    .sort((a, b) => b.score - a.score);
-}
 
 export function formatRecommendation(name: string, reasons: string[]): string {
   if (reasons.length === 0) return `Recommended: ${name}`;
