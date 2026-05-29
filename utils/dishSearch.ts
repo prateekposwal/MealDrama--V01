@@ -59,8 +59,19 @@ function diversityBonus(candidate: Dish, existingDishes: Dish[]): number {
 
 // DP-based top-N diversity optimization
 // Uses DP to select top-N results that maximize both relevance and variety
+const diversityCache = new Map<string, ScoredDish[]>();
+const MAX_DIVERSITY_CACHE = 100;
+
 function optimizeTopNDiversity(scored: ScoredDish[], existingDishes: Dish[], topN: number): ScoredDish[] {
   if (topN <= 0 || scored.length === 0) return scored;
+
+  // Cache key: scored dish IDs + scores + existing dish IDs + topN
+  const scoredKey = scored.slice(0, 30).map(s => `${s.dish.id}:${s.score}:${s.healthScore}`).join(',');
+  const existingKey = existingDishes.map(d => d.id).join(',');
+  const cacheKey = `${scoredKey}::${existingKey}::${topN}`;
+
+  const cached = diversityCache.get(cacheKey);
+  if (cached) return cached;
 
   const limit = Math.min(scored.length, 30); // Cap for DP performance
   const candidates = scored.slice(0, limit);
@@ -128,7 +139,16 @@ function optimizeTopNDiversity(scored: ScoredDish[], existingDishes: Dish[], top
   // Append remaining items that weren't selected
   const selectedIds = new Set(result.map(r => r.dish.id));
   const remaining = scored.filter(s => !selectedIds.has(s.dish.id));
-  return [...result, ...remaining];
+  const finalResult = [...result, ...remaining];
+
+  // Cache with LRU pruning
+  if (diversityCache.size >= MAX_DIVERSITY_CACHE) {
+    const firstKey = diversityCache.keys().next().value;
+    if (firstKey) diversityCache.delete(firstKey);
+  }
+  diversityCache.set(cacheKey, finalResult);
+
+  return finalResult;
 }
 
 /**
