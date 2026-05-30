@@ -359,7 +359,7 @@ function aggregateIngredients(
 }
 
 // FIX-01: Infer ingredients from dishId when dish not found in local catalog
-function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredient[] {
+function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?: string): Ingredient[] {
     const idLower = dishId.toLowerCase();
     const result: Ingredient[] = [];
 
@@ -452,8 +452,8 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
     if (idLower.includes('sabzi') && !result.find(i => i.category === 'produce')) {
         result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
     }
-    // INF-05: Egg inference (from dishId)
-    if (idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
+    // INF-05: Egg inference (from dishId) — skip for vegan dishes
+    if (dishType !== 'vegan' && idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
     }
     if (idLower.includes('chicken') || idLower.includes('meat')) {
@@ -517,7 +517,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string): Ingredie
         result.push({ name: 'Wheat Flour', quantity: 70, unit: 'g', category: 'grains', inStock: false });
     }
     // INF-09: French Toast / Egg Toast / Bread Dish inference
-    if ((idLower.includes('french') || idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') || idLower.includes('bread dish') || idLower.includes('bread toast')) && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
+    if (dishType !== 'vegan' && (idLower.includes('french') || idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') || idLower.includes('bread dish') || idLower.includes('bread toast')) && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'White Bread', quantity: 4, unit: 'pcs', category: 'breads', inStock: false });
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
         result.push({ name: 'Milk', quantity: 100, unit: 'ml', category: 'dairy', inStock: false });
@@ -1089,7 +1089,7 @@ export function getIngredientsForMealOption(
                 : dish.name;
             if (r.length === 0) {
                 const fromInference = [
-                    ...inferIngredientsFromDishId(dishId, variantInclusiveName),
+                    ...inferIngredientsFromDishId(dishId, variantInclusiveName, dish.type),
                     ...inferIngredientsFromDishId(variantInclusiveName),
                 ];
                 const seen = new Set<string>();
@@ -1099,7 +1099,7 @@ export function getIngredientsForMealOption(
                 }
             }
             const existingNames = new Set(r.map(i => i.name.toLowerCase()));
-            for (const ing of inferIngredientsFromDishId(dishId, variantInclusiveName)) {
+            for (const ing of inferIngredientsFromDishId(dishId, variantInclusiveName, dish.type)) {
                 if (!existingNames.has(ing.name.toLowerCase())) r.push(ing);
             }
             for (const ing of inferIngredientsFromDishId(variantInclusiveName)) {

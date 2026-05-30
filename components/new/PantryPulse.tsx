@@ -42,7 +42,8 @@ const PantryPulse: React.FC = () => {
     const [showShareInput, setShowShareInput] = useState(false);
     const [showShareModal, setShowShareModal] = useState(false);
     const [showAllWeekMeals, setShowAllWeekMeals] = useState(false);
-    const [refreshKey, setRefreshKey] = useState(0); // FIX-10: Cache busting
+    const [refreshKey, setRefreshKey] = useState(0);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const tomorrowISO = getTomorrowISO();
     const weekEndISO = getWeekEndISO();
@@ -53,22 +54,7 @@ const PantryPulse: React.FC = () => {
         return isAfterEnd(dinner.start, dinner.end);
     };
     
-    // Smart default: show tomorrow if all today's slots passed
-    const getDefaultViewMode = () => {
-        if (allTodaySlotsPassed()) return 'tomorrow';
-        return 'week';
-    };
-    const [viewMode, setViewMode] = useState<'tomorrow' | 'week'>(getDefaultViewMode);
-
-    // H5: Re-evaluate viewMode when time crosses dinner boundary
-    React.useEffect(() => {
-        const interval = setInterval(() => {
-            if (allTodaySlotsPassed() && viewMode === 'week') {
-                setViewMode('tomorrow');
-            }
-        }, 60000); // Check every minute
-        return () => clearInterval(interval);
-    }, [viewMode]);
+    const [viewMode, setViewMode] = useState<'tomorrow' | 'week'>('tomorrow');
     
     // FIX-10: Listen for pantry invalidation events (swap/cancel)
     React.useEffect(() => {
@@ -332,16 +318,31 @@ const PantryPulse: React.FC = () => {
             <header className="px-6 pt-14 pb-4">
                 <div className="flex items-center justify-between mb-2">
                     <h2 className="text-4xl font-bold tracking-tight">What's in the Kitchen</h2>
-                    <button
-                        onClick={() => {
-                            if (!(sharePhone || user?.cookContact)) { alert('Enter a phone number in Profile first'); return; }
-                            setShowShareModal(true);
-                        }}
-                        className="flex items-center gap-2 bg-[#FF385C] text-white px-4 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-lg shadow-[#FF385C]/20"
-                    >
-                        <Share2 size={14} />
-                        Share
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => {
+                                setIsRefreshing(true);
+                                invalidateIngredientCache();
+                                setRefreshKey(k => k + 1);
+                                setTimeout(() => setIsRefreshing(false), 600);
+                            }}
+                            className={`flex items-center gap-1.5 bg-gray-100 text-gray-600 px-3 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all ${isRefreshing ? 'opacity-50' : ''}`}
+                            aria-label="Refresh pantry"
+                        >
+                            <span className={`inline-block ${isRefreshing ? 'animate-spin' : ''}`}>↻</span>
+                            Refresh
+                        </button>
+                        <button
+                            onClick={() => {
+                                if (!(sharePhone || user?.cookContact)) { alert('Enter a phone number in Profile first'); return; }
+                                setShowShareModal(true);
+                            }}
+                            className="flex items-center gap-2 bg-[#FF385C] text-white px-4 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-lg shadow-[#FF385C]/20"
+                        >
+                            <Share2 size={14} />
+                            Share
+                        </button>
+                    </div>
                 </div>
                 <p className="text-gray-400 text-sm font-medium">
                     {uncheckedCount} items needed · {checkedCount} ready
@@ -357,18 +358,6 @@ const PantryPulse: React.FC = () => {
                             {v === 'tomorrow' ? "Tomorrow's Menu" : "This Week's Menu"}
                         </button>
                     ))}
-                </div>
-                
-                {/* Time-aware status message */}
-                <div className="mt-3 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100">
-                    <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide">
-                        {allTodaySlotsPassed() 
-                            ? "✨ Today's meals done — showing Tomorrow" 
-                            : "📅 Showing upcoming meals only"}
-                    </p>
-                    <p className="text-[9px] text-blue-600 mt-0.5">
-                        Past/missed meals are excluded from the shopping list
-                    </p>
                 </div>
             </header>
 
