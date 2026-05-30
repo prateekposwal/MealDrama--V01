@@ -761,6 +761,28 @@ export const DISH_HEALTH_MAP: Record<string, { healthCategories: string[]; tags:
   'watermelon-feta-mint-salad': { healthCategories: ["veg-fruit"], tags: ["fiber","vitamins","low-calorie"] },
   'wintermelon-milk-tea': { healthCategories: ["healthy-beverage","dairy"], tags: ["antioxidant","low-calorie"] },
   'yakhni': { healthCategories: ["lean-protein"], tags: ["high-protein","low-calorie"] },
+
+  // ─── Cafe-Style Shakes & Smoothies ─────────────────────────────────
+  'chocolate-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'indulgent'] },
+  'cold-cocoa-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'antioxidant'] },
+  'oreo-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'indulgent'] },
+  'kit-kat-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'indulgent'] },
+  'indian-chocolate-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'indulgent'] },
+  'choco-shake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'indulgent'] },
+  'mango-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'vitamins'] },
+  'mango-mastani': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'indulgent'] },
+  'mango-pineapple-juice': { healthCategories: ['veg-fruit'], tags: ['vitamins', 'antioxidant', 'low-calorie'] },
+  'peach-mango-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'vitamins'] },
+  'almond-banana-smoothie': { healthCategories: ['veg-fruit', 'dairy', 'healthy-fat'], tags: ['fiber', 'protein', 'vitamins'] },
+  'banana-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'potassium'] },
+  'banana-date-milkshake': { healthCategories: ['veg-fruit', 'dairy'], tags: ['fiber', 'iron', 'natural-sweetness'] },
+  'banana-yogurt-milkshake': { healthCategories: ['veg-fruit', 'dairy'], tags: ['probiotic', 'protein', 'healthy'] },
+  'dry-fruit-milkshake': { healthCategories: ['veg-fruit', 'dairy', 'healthy-fat'], tags: ['protein', 'fiber', 'nutritious'] },
+  'fruit-and-nut-milkshake': { healthCategories: ['veg-fruit', 'dairy', 'healthy-fat'], tags: ['protein', 'fiber', 'vitamins'] },
+  'chickoo-nut-milkshake': { healthCategories: ['veg-fruit', 'dairy', 'healthy-fat'], tags: ['fiber', 'vitamins'] },
+  'fig-apricot-shake': { healthCategories: ['veg-fruit', 'dairy'], tags: ['fiber', 'iron', 'antioxidant'] },
+  'fresh-fig-banana-milkshake': { healthCategories: ['veg-fruit', 'dairy'], tags: ['fiber', 'antioxidant', 'natural-sugar'] },
+  'strawberry-vanilla-milkshake': { healthCategories: ['sugary-beverage', 'dairy'], tags: ['high-sugar', 'vitamins', 'indulgent'] },
 };
 
 export const COMPONENT_HEALTH_MAP: Record<string, { healthCategories: string[]; tags: string[] }> = {
@@ -821,6 +843,8 @@ export const COMPONENT_HEALTH_MAP: Record<string, { healthCategories: string[]; 
   'Buttermilk': { healthCategories: ['healthy-beverage', 'dairy'], tags: ['probiotic', 'healthy'] },
   'Water': { healthCategories: ['healthy-beverage'], tags: ['healthy'] },
   'Orange Juice': { healthCategories: ['veg-fruit'], tags: ['vitamins', 'low-calorie'] },
+  'Milkshake': { healthCategories: ['veg-fruit', 'sugary-beverage'], tags: ['high-sugar', 'indulgent'] },
+  'Honey': { healthCategories: ['veg-fruit'], tags: ['natural-sweetener', 'antioxidant'] },
 
   // ─── Dessert ────────────────────────────────────────────────────────────────
   'Gulab Jamun': { healthCategories: ['dessert'], tags: ['high-sugar', 'indulgent'] },

@@ -81,14 +81,27 @@ function inferComponentCategory(
     lower.includes('chutney') ||
     lower.includes('pickle') ||
     lower.includes('raita') ||
-    lower.includes('soup')
+    lower.includes('soup') ||
+    lower.includes('banana') ||
+    lower.includes('mango') ||
+    lower.includes('strawberry') ||
+    lower.includes('apple') ||
+    lower.includes('pineapple') ||
+    lower.includes('berry') ||
+    lower.includes('peach') ||
+    lower.includes('fig') ||
+    lower.includes('dates') ||
+    lower.includes('honey') ||
+    lower.includes('chickoo')
   ) {
     cats.push('veg-fruit');
   }
 
-  if (lower.includes('juice') || lower.includes('smoothie') || lower.includes('sharbat') || lower.includes('sherbet')) {
+  if (lower.includes('juice') || lower.includes('smoothie') || lower.includes('milkshake') || lower.includes('shake') ||
+      lower.includes('sharbat') || lower.includes('sherbet')) {
     cats.push('veg-fruit');
-    if (lower.includes('smoothie') || lower.includes('sharbat') || lower.includes('sherbet')) {
+    if (lower.includes('smoothie') || lower.includes('milkshake') || lower.includes('shake') ||
+        lower.includes('sharbat') || lower.includes('sherbet')) {
       cats.push('sugary-beverage');
     }
   }
