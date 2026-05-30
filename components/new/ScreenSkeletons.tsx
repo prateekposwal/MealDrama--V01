@@ -6,7 +6,7 @@ const Shimmer: React.FC<{ className?: string }> = ({ className = '' }) => (
 
 export const DashboardSkeleton: React.FC = () => (
   <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-300">
-    <header className="px-6 pt-14 pb-4">
+    <header className="px-6 pt-4 pb-4">
       <Shimmer className="h-8 w-48 mb-2" />
       <Shimmer className="h-4 w-32" />
     </header>
@@ -35,7 +35,7 @@ export const DashboardSkeleton: React.FC = () => (
 
 export const PlanScreenSkeleton: React.FC = () => (
   <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-300">
-    <header className="px-6 pt-14 pb-4">
+    <header className="px-6 pt-4 pb-4">
       <Shimmer className="h-8 w-40 mb-2" />
       <Shimmer className="h-4 w-24" />
     </header>
@@ -73,7 +73,7 @@ export const PlanScreenSkeleton: React.FC = () => (
 
 export const PantryPulseSkeleton: React.FC = () => (
   <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-300">
-    <header className="px-6 pt-14 pb-4">
+    <header className="px-6 pt-4 pb-4">
       <Shimmer className="h-8 w-56 mb-2" />
       <Shimmer className="h-4 w-32" />
       <div className="mt-4">
@@ -96,7 +96,7 @@ export const PantryPulseSkeleton: React.FC = () => (
 
 export const ProfileSkeleton: React.FC = () => (
   <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-300">
-    <header className="px-6 pt-14 pb-4">
+    <header className="px-6 pt-4 pb-4">
       <Shimmer className="h-8 w-32 mb-2" />
     </header>
     <div className="px-6 space-y-4">

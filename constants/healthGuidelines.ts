@@ -802,6 +802,8 @@ export const COMPONENT_HEALTH_MAP: Record<string, { healthCategories: string[]; 
 
   // ─── Sides ──────────────────────────────────────────────────────────────────
   'Salad': { healthCategories: ['veg-fruit'], tags: ['fiber', 'vitamins'] },
+  'Kachumber Salad': { healthCategories: ['veg-fruit'], tags: ['fiber', 'vitamins', 'low-calorie'] },
+  'Fruit Salad': { healthCategories: ['veg-fruit'], tags: ['fiber', 'vitamins', 'low-calorie'] },
   'Raita': { healthCategories: ['dairy'], tags: ['probiotic'] },
   'Curd': { healthCategories: ['dairy'], tags: ['probiotic'] },
   'Pickle': { healthCategories: ['veg-fruit'], tags: ['fermented'] },
@@ -809,6 +811,7 @@ export const COMPONENT_HEALTH_MAP: Record<string, { healthCategories: string[]; 
   'Green Chutney': { healthCategories: ['veg-fruit'], tags: ['vitamins'] },
   'Coconut Chutney': { healthCategories: ['healthy-fat', 'veg-fruit'], tags: ['healthy'] },
   'Sambhar': { healthCategories: ['legume', 'veg-fruit'], tags: ['high-protein', 'fiber'] },
+  'Bun Maska': { healthCategories: ['healthy-fat'], tags: ['moderate'] },
 
   // ─── Beverages ──────────────────────────────────────────────────────────────
   'Chai': { healthCategories: ['healthy-beverage'], tags: ['moderate'] },
@@ -817,6 +820,7 @@ export const COMPONENT_HEALTH_MAP: Record<string, { healthCategories: string[]; 
   'Lassi': { healthCategories: ['healthy-beverage', 'dairy'], tags: ['probiotic'] },
   'Buttermilk': { healthCategories: ['healthy-beverage', 'dairy'], tags: ['probiotic', 'healthy'] },
   'Water': { healthCategories: ['healthy-beverage'], tags: ['healthy'] },
+  'Orange Juice': { healthCategories: ['veg-fruit'], tags: ['vitamins', 'low-calorie'] },
 
   // ─── Dessert ────────────────────────────────────────────────────────────────
   'Gulab Jamun': { healthCategories: ['dessert'], tags: ['high-sugar', 'indulgent'] },

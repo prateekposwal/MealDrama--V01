@@ -174,7 +174,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                 <DishImage name={item.name} slot={slot} size="lg" />
                 <div className="flex-1 min-w-0">
                     <h4 className="font-extrabold text-xl tracking-tight leading-tight flex items-center flex-wrap gap-1.5 text-gray-900">
-                        <span className="truncate">{item.title || item.name}</span>
+                        <span className="text-sm leading-snug line-clamp-2">{item.title || item.name}</span>
                         {item.quantity > 1 && (
                             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
                                 x{item.quantity}

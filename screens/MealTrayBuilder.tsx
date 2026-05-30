@@ -458,7 +458,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         <>
         <div className="min-h-screen flex flex-col bg-white">
             {/* Header */}
-            <div className="sticky top-0 z-20 px-6 pt-14 pb-3 bg-white">
+            <div className="sticky top-0 z-20 px-6 pt-4 pb-3 bg-white">
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                         {onBack && (

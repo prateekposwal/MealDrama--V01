@@ -321,6 +321,12 @@ export type LiveStatus = 'upcoming' | 'cooking' | 'history';
  * Uses IST (Asia/Kolkata) for consistent behavior across all device timezones.
  * Hydration-safe: accepts optional `now` Date (defaults to current time).
  */
+/** IST hour (fractional) from any Date — pure math, no Date manipulation */
+function toISTHours(date: Date): number {
+  const totalMinutes = date.getUTCHours() * 60 + date.getUTCMinutes() + 330; // +5:30
+  return ((totalMinutes % 1440) + 1440) % 1440 / 60;
+}
+
 export function isSlotActive(
   start: string | undefined | null,
   end: string | undefined | null,
@@ -329,10 +335,7 @@ export function isSlotActive(
   const currentTime = now || new Date();
   const startHour = timeToHours(start);
   const endHour = timeToHours(end);
-  // IST current hour — consistent for all users regardless of device timezone
-  const istString = currentTime.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-  const istDate = new Date(istString);
-  const currentHour = istDate.getHours() + istDate.getMinutes() / 60;
+  const currentHour = toISTHours(currentTime);
 
   // Midnight-spanning slot (e.g., 22:00-02:00)
   if (endHour <= startHour) {
@@ -356,9 +359,7 @@ export function isAfterEnd(
   const currentTime = now || new Date();
   const startHour = timeToHours(start);
   const endHour = timeToHours(end);
-  const istString = currentTime.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-  const istDate = new Date(istString);
-  const currentHour = istDate.getHours() + istDate.getMinutes() / 60;
+  const currentHour = toISTHours(currentTime);
 
   if (endHour <= startHour) {
     // Midnight span: past end means during the day gap (e.g., 02:00–22:00)
@@ -380,11 +381,8 @@ export function getMealStatus(
   now?: Date,
 ): LiveStatus {
   if (isSlotActive(start, end, now)) return 'cooking';
-  const currentTime = now || new Date();
+  const currentHour = toISTHours(now || new Date());
   const startHour = timeToHours(start);
-  const istString = currentTime.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-  const istDate = new Date(istString);
-  const currentHour = istDate.getHours() + istDate.getMinutes() / 60;
   // For midnight-spanning slots, remaining time before start is the gap
   if (currentHour < startHour) return 'upcoming';
   return 'history';
@@ -415,15 +413,13 @@ export function getSkipUndoWindowExpiry(
   const nextStart = pref?.start ?? defaults.start;
   const [h, m] = nextStart.split(':').map(Number);
 
-  // M9: Compute expiry in IST without double-conversion.
-  // IST = UTC+5:30. We construct the expiry as a UTC timestamp directly.
+  // Compute expiry in IST.
   const now = new Date();
-  // Get current IST components
-  const istString = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' });
-  const istDate = new Date(istString);
-  const istYear = istDate.getFullYear();
-  const istMonth = istDate.getMonth();
-  const istDay = istDate.getDate();
+  const istMs = now.getTime() + 5.5 * 60 * 60 * 1000;
+  const istDate = new Date(istMs);
+  const istYear = istDate.getUTCFullYear();
+  const istMonth = istDate.getUTCMonth();
+  const istDay = istDate.getUTCDate();
 
   // Construct expiry at HH:MM IST today
   const expiryIST = new Date(Date.UTC(istYear, istMonth, istDay, h ?? 0, m ?? 0, 0, 0));

@@ -14,7 +14,6 @@ const categoryLabels: Record<string, string> = {
   healthyFat: 'Healthy Fats',
   limitSugary: 'Low Sugar',
   limitRedMeat: 'Limit Red Meat',
-  sidePairing: 'Pairing Quality',
 };
 
 export const PlateBalanceVisualizer: React.FC<PlateBalanceVisualizerProps> = React.memo(({ score, diet }) => {

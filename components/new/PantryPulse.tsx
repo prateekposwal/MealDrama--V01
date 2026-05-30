@@ -18,6 +18,7 @@ import type { Ingredient } from '../../constants/dishLibrary';
 import WhatsAppShareModal from './WhatsAppShareModal';
 import { isAfterEnd, SLOT_TIME_DEFAULTS } from '../../types/tray';
 import { getISODate } from '../../utils/dateUTC';
+import PullToRefresh from './PullToRefresh';
 import { matchPantryToRecipes, suggestShoppingList, clearPantryMatchCache } from '../../utils/pantryRecipeMatch';
 
 interface PantryItem {
@@ -43,7 +44,6 @@ const PantryPulse: React.FC = () => {
     const [showShareModal, setShowShareModal] = useState(false);
     const [showAllWeekMeals, setShowAllWeekMeals] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
-    const [isRefreshing, setIsRefreshing] = useState(false);
     const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
     const tomorrowISO = getTomorrowISO();
@@ -319,24 +319,11 @@ const PantryPulse: React.FC = () => {
                 previewBuilder={buildShareListMessage}
                 availableSlots={[]}
             />
-
-            <header className="px-6 pt-14 pb-4">
+            <PullToRefresh onRefresh={() => useTrayStore.getState().syncOfflineQueue()}>
+            <header className="px-6 pt-4 pb-4">
                 <div className="flex items-center justify-between mb-2">
                     <h2 className="text-3xl font-bold tracking-tight">What's in the Kitchen</h2>
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => {
-                                setIsRefreshing(true);
-                                invalidateIngredientCache();
-                                setRefreshKey(k => k + 1);
-                                setTimeout(() => setIsRefreshing(false), 600);
-                            }}
-                            className={`flex items-center gap-1.5 bg-gray-100 text-gray-600 px-3 py-2.5 rounded-2xl text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all ${isRefreshing ? 'opacity-50' : ''}`}
-                            aria-label="Refresh pantry"
-                        >
-                            <span className={`inline-block ${isRefreshing ? 'animate-spin' : ''}`}>↻</span>
-                            Refresh
-                        </button>
                         <button
                             onClick={() => {
                                 if (!(sharePhone || user?.cookContact)) { alert('Enter a phone number in Profile first'); return; }
@@ -607,6 +594,7 @@ const PantryPulse: React.FC = () => {
                     </p>
                 </div>
             )}
+            </PullToRefresh>
         </div>
     );
 };

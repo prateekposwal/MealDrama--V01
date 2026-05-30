@@ -71,6 +71,8 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'rumali-roti': [ing('Maida', 200, 'g', 'grains')],
   'tandoori-roti': [ing('Wheat Flour (Atta)', 200, 'g', 'grains')],
   'khamiri-roti': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Yogurt', 30, 'g', 'dairy')],
+  'bun': [ing('Bun', 1, 'pc', 'breads')],
+  'bun-maska': [ing('Bun', 2, 'pcs', 'breads'), ing('Butter', 30, 'g', 'dairy')],
 
   // ─── Rice ─────────────────────────────────────────────────
   'steamed-basmati-rice': [ing('Basmati Rice', 100, 'g', 'grains')],

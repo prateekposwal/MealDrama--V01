@@ -556,9 +556,21 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
               className="flex-1 flex items-center gap-2 text-left hover:brightness-95 active:scale-[0.98] transition-all -m-2 p-2"
             >
               <div className="flex items-center -space-x-2">
-                <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
+                <div className="relative">
+                  <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
+                  {meals[0] && (() => {
+                    const qty = meals[0].itemQtys ? Object.values(meals[0].itemQtys).reduce((a, b) => a + b, 0) : meals[0].quantity;
+                    return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center">×{qty}</span> : null;
+                  })()}
+                </div>
                 {meals.length > 1 && (
-                  <DishImage name={meals[1]?.name || slotLabel} slot={slotLabel} size="sm" />
+                  <div className="relative">
+                    <DishImage name={meals[1]?.name || slotLabel} slot={slotLabel} size="sm" />
+                    {meals[1] && (() => {
+                      const qty = meals[1].itemQtys ? Object.values(meals[1].itemQtys).reduce((a, b) => a + b, 0) : meals[1].quantity;
+                      return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center">×{qty}</span> : null;
+                    })()}
+                  </div>
                 )}
               </div>
               <div>

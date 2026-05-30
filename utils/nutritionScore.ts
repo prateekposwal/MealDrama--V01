@@ -115,6 +115,7 @@ export interface ComponentItem {
   healthCategories: string[];
   tags: string[];
   type: 'roti' | 'rice' | 'side' | 'beverage' | 'gravy' | 'dessert';
+  qty?: number;
 }
 
 export interface MealsForScoring {
@@ -182,23 +183,6 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
   let healthyFatScore = 0;
   let sugaryScore = 0;
   let redMeatScore = 0;
-  let sidePairingScore = 0;
-
-  // ─── Score individual components (roti, rice, sides, beverages) ──────
-  const scoredComponents = new Set<string>();
-  for (const meal of meals) {
-    for (const comp of meal.components ?? []) {
-      const key = `${comp.name}|${comp.type}`;
-      if (scoredComponents.has(key)) continue;
-      scoredComponents.add(key);
-      // Score using existing health category scoring
-      const raw = scoreDishByCategories(comp.healthCategories, comp.tags);
-      // Map from -20..20 to 0..10: (raw + 20) * 0.25
-      sidePairingScore += Math.max(0, Math.min(10, (raw + 20) * 0.25));
-    }
-  }
-  sidePairingScore = Math.max(0, Math.min(10, sidePairingScore));
-
   for (const cat of allCategories) {
     if (cat === 'veg-fruit' || cat === 'legume') vegFruitScore += 2;
     if (cat === 'whole-grain') wholeGrainScore += 3;
@@ -211,7 +195,7 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
   }
 
   vegFruitScore = Math.max(0, Math.min(10, vegFruitScore));
-  wholeGrainScore = Math.max(0, Math.min(10, wholeGrainScore));
+  wholeGrainScore = Math.max(1, Math.min(10, wholeGrainScore));
   proteinScore = Math.max(0, Math.min(10, proteinScore));
   healthyFatScore = Math.max(0, Math.min(10, healthyFatScore));
   sugaryScore = Math.max(-5, Math.min(0, sugaryScore));
@@ -269,9 +253,9 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
     suggestions.push('Swap red meat for poultry, fish, or plant proteins');
   }
 
-  const baseTotal = vegFruitScore + wholeGrainScore + proteinScore + healthyFatScore + sugaryScore + redMeatScore + sidePairingScore;
+  const baseTotal = vegFruitScore + wholeGrainScore + proteinScore + healthyFatScore + sugaryScore + redMeatScore;
   const total = Math.max(0, baseTotal + completenessScore);
-  const max = 72.5; // 50 base + 12.5 completeness + 10 sidePairing
+  const max = 62.5; // 50 base + 12.5 completeness
 
   return {
     total,
@@ -283,7 +267,6 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
       healthyFat: healthyFatScore,
       limitSugary: sugaryScore,
       limitRedMeat: redMeatScore,
-      sidePairing: sidePairingScore,
     },
     breakdown,
     suggestions,

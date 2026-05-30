@@ -317,7 +317,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
 
     return (
         <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-500">
-            <header className="px-6 pt-14 pb-6 bg-gradient-to-b from-gray-50 to-white">
+            <header className="px-6 pt-4 pb-6 bg-gradient-to-b from-gray-50 to-white">
                 <div className="mb-4">
                 <input
                     value={nameDraft}

@@ -18,6 +18,7 @@ import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import TrayScreen from '../components/new/TrayScreen';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
+import PullToRefresh from '../components/new/PullToRefresh';
 import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
@@ -581,9 +582,10 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     }, [weekStart, mealLoop.config, upcomingDates]);
 
     return (
+        <PullToRefresh onRefresh={() => useTrayStore.getState().syncOfflineQueue()}>
         <div className="pb-40 animate-in fade-in duration-300 bg-white">
             {/* ─── Header ─── */}
-            <header className="px-6 pt-14 pb-4">
+            <header className="px-6 pt-4 pb-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-black tracking-tight">Meal Plan</h1>
@@ -898,10 +900,11 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
                         {/* Slots */}
                         <div className="space-y-2">
-                            {ACTIVE_SLOTS.map(({ key, label }) => {
+                            {ACTIVE_SLOTS.map(({ key, label, mealType }) => {
                                 const dateIsPast = quickAddDate < today;
-                                const { start, end } = getSlotDefaultTimes(key.toLowerCase() as MealType, stablePreferences);
-                                const expired = dateIsPast || (quickAddDate === today && isAfterEnd(start, end));
+                                const { start, end } = getSlotDefaultTimes(mealType, stablePreferences);
+                                const completionKey = `${quickAddDate}::${mealType}`;
+                                const expired = dateIsPast || committedCompletions[completionKey] != null || (quickAddDate === today && isAfterEnd(start, end));
                                 return expired ? (
                                     <div
                                         key={key}
@@ -992,6 +995,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 />
             )}
         </div>
+        </PullToRefresh>
     );
 };
 

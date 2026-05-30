@@ -30,6 +30,7 @@ import { getShareStrings, ShareLanguage, SLOT_LABELS, COMPONENT_LABELS } from '.
 
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
 import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
+import PullToRefresh from '../components/new/PullToRefresh';
 import { getISODate } from '../utils/dateUTC';
 
 /** Fallback whole-grain keywords matched against dish/component names when health maps are missing */
@@ -47,6 +48,7 @@ const REFINED_GRAIN_NAMES = [
   'maida', 'naan', 'puri', 'bhature', 'bread',
   'biryani', 'pulao',
   'rice',
+  'bun',
 ];
 
 function inferGrainCategory(name: string): string | null {
@@ -58,6 +60,66 @@ function inferGrainCategory(name: string): string | null {
     if (lower.includes(kw)) return 'refined-grain';
   }
   return null;
+}
+
+/** Infer health categories from component name when COMPONENT_HEALTH_MAP has no entry */
+function inferComponentCategory(
+  name: string,
+  type: 'roti' | 'rice' | 'side' | 'beverage' | 'gravy' | 'dessert',
+): string[] {
+  const lower = name.toLowerCase();
+  const cats: string[] = [];
+
+  const grain = inferGrainCategory(name);
+  if (grain) cats.push(grain);
+
+  if (
+    lower.includes('salad') ||
+    lower.includes('vegetable') ||
+    lower.includes('veg') ||
+    lower.includes('fruit') ||
+    lower.includes('chutney') ||
+    lower.includes('pickle') ||
+    lower.includes('raita') ||
+    lower.includes('soup')
+  ) {
+    cats.push('veg-fruit');
+  }
+
+  if (lower.includes('juice') || lower.includes('smoothie') || lower.includes('sharbat') || lower.includes('sherbet')) {
+    cats.push('veg-fruit');
+    if (lower.includes('smoothie') || lower.includes('sharbat') || lower.includes('sherbet')) {
+      cats.push('sugary-beverage');
+    }
+  }
+
+  if (lower.includes('water') || lower.includes('chaas') || lower.includes('lassi') || lower.includes('buttermilk')) {
+    cats.push('healthy-beverage');
+  }
+
+  if (lower.includes('halwa') || lower.includes('barfi') || lower.includes('ladoo') || lower.includes('jalebi') ||
+      lower.includes('kheer') || lower.includes('gulab') || lower.includes('rasgulla') || lower.includes('ice cream') ||
+      lower.includes('mithai') || lower.includes('sweet')) {
+    cats.push('dessert');
+  }
+
+  if (lower.includes('fried') || lower.includes('pakora') || lower.includes('bhaji') || lower.includes('tawa fry') ||
+      lower.includes('manchurian') || lower.includes('chilli')) {
+    cats.push('fried');
+  }
+
+  if (lower.includes('dairy') || lower.includes('cream') || lower.includes('cheese') || lower.includes('paneer') ||
+      lower.includes('milk') || lower.includes('malai')) {
+    cats.push('dairy');
+  }
+
+  if (lower.includes('peanut') || lower.includes('nuts') || lower.includes('almond') || lower.includes('cashew') ||
+      lower.includes('walnut') || lower.includes('seed')) {
+    cats.push('lean-protein');
+    cats.push('healthy-fat');
+  }
+
+  return cats;
 }
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
@@ -314,7 +376,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     // Only update `today` at IST midnight — no need to tick every 60s
     const [today, setToday] = useState(() => getTodayISO());
     useEffect(() => {
-      const istNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+      const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+      const istNow = new Date(Date.now() + IST_OFFSET);
       const istMidnight = new Date(istNow);
       istMidnight.setDate(istMidnight.getDate() + 1);
       istMidnight.setHours(0, 0, 0, 0);
@@ -715,7 +778,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
           }
         }
 
-        const seen = new Set<string>();
         for (const m of meals) {
           const comps: [string | null, 'roti' | 'rice' | 'side' | 'beverage' | 'gravy' | 'dessert'][] = [
             [m.roti, 'roti'],
@@ -727,25 +789,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
           ];
           for (const [name, type] of comps) {
             if (!name) continue;
-            const key = name.trim().toLowerCase();
-            if (!seen.has(key)) {
-              seen.add(key);
-              const componentMeta = COMPONENT_HEALTH_MAP[name];
-              const hc = componentMeta ? [...componentMeta.healthCategories] : [];
-              const tg = componentMeta ? [...componentMeta.tags] : [];
-              if (!hc.some(c => c === 'whole-grain' || c === 'refined-grain')) {
-                const inferred = inferGrainCategory(name);
-                if (inferred) hc.push(inferred);
-              }
-              if (componentMeta) {
-                categories.push(...componentMeta.healthCategories);
-                tags.push(...componentMeta.tags);
-              } else {
-                const inferred = inferGrainCategory(name);
-                if (inferred) categories.push(inferred);
-              }
-              components.push({ name, healthCategories: hc, tags: tg, type });
+            const qty = m.itemQtys?.[name] ?? 1;
+            const componentMeta = COMPONENT_HEALTH_MAP[name];
+            const hc = componentMeta ? [...componentMeta.healthCategories] : [];
+            const tg = componentMeta ? [...componentMeta.tags] : [];
+            if (!hc.some(c => c === 'whole-grain' || c === 'refined-grain')) {
+              const inferred = inferGrainCategory(name);
+              if (inferred) hc.push(inferred);
             }
+            if (componentMeta) {
+              for (let i = 0; i < qty; i++) {
+                categories.push(...componentMeta.healthCategories);
+              }
+              tags.push(...componentMeta.tags);
+            } else {
+              const inferred = inferComponentCategory(name, type);
+              for (let i = 0; i < qty; i++) {
+                for (const c of inferred) categories.push(c);
+              }
+            }
+            components.push({ name, healthCategories: hc, tags: tg, type, qty });
           }
         }
 
@@ -816,27 +879,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         }];
       });
 
-      // ─── Keyword-based whole-grain detection (catches items MISSING from health maps) ───
-      const GRAIN_KEYWORDS = ['roti', 'phulka', 'bhakri', 'paratha', 'thepla', 'brown rice', 'oats', 'millet', 'jowar', 'bajra', 'ragi', 'whole wheat', 'multigrain', 'bran'];
-      const rawMeals = allSlots.flatMap(({ meals }) => meals);
-      const activeItems = rawMeals.filter(m => (m.quantity || 1) > 0);
-      const grainNames: string[] = [];
-      for (const m of activeItems) {
-        const dishName = m.name.toLowerCase();
-        if (GRAIN_KEYWORDS.some(k => dishName.includes(k))) grainNames.push(m.name);
-        const comps = [m.roti, m.rice, ...(m.sides ?? []), ...(m.beverages ?? []), ...(m.dessert ?? [])].filter(Boolean) as string[];
-        for (const c of comps) {
-          if (GRAIN_KEYWORDS.some(k => c.toLowerCase().includes(k))) {
-            grainNames.push(`${m.name}→${c}`);
-          }
-        }
-      }
-      if (grainNames.length > 0) {
-        for (let i = 0; i < grainNames.length; i++) {
-          (allMeals as Array<{ name: string; healthCategories: string[]; tags: string[]; quantity: number }>).push({ name: `keyword-grain-${i}`, healthCategories: ['whole-grain'], tags: [], quantity: 1 });
-        }
-      }
-
       const result = scorePlateBalance(allMeals);
 
       // ─── Brute-force keyword detection for Healthy Fats & Low Sugar ───
@@ -860,6 +902,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         return keywords.some(k => allNames.some(n => n.includes(k)));
       };
 
+      const activeItems = allSlots.flatMap(({ meals }) => meals).filter(m => (m.quantity || 1) > 0);
       const fatsMatched = activeItems.filter(i => (i.quantity ?? 1) > 0 && itemMatchesKeywords(i, HEALTHY_FAT_KEYWORDS));
       const healthyFatsCount = fatsMatched.reduce((sum, i) => sum + (i.quantity ?? 1), 0);
 
@@ -868,7 +911,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
       result.categories.healthyFat = Math.min(10, healthyFatsCount);
       result.categories.limitSugary = Math.min(5, lowSugarCount);
-      result.total = Math.max(0, result.categories.vegFruit + result.categories.wholeGrain + result.categories.protein + result.categories.healthyFat + result.categories.limitSugary + result.categories.limitRedMeat + result.categories.sidePairing);
+      result.max = 40;
+      result.total = Math.max(0, result.categories.vegFruit + result.categories.wholeGrain + result.categories.protein + result.categories.healthyFat + result.categories.limitSugary + result.categories.limitRedMeat);
 
       return result;
     }, [today, getMeals]);
@@ -876,9 +920,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const loopConfigured = loopConfig !== null;
 
     return (
+        <PullToRefresh onRefresh={() => useTrayStore.getState().syncOfflineQueue()}>
         <div className="pb-40 animate-in fade-in duration-300 bg-white">
             {/* Header */}
-            <header className="flex justify-between items-end px-6 pt-14 pb-2">
+            <header className="flex justify-between items-end px-6 pt-4 pb-2">
                 <div>
                     <span className="text-2xl font-black tracking-tight leading-none">
                         Meal<span className="text-[#FF385C]">Drama</span>
@@ -1277,9 +1322,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             {new Date(today).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                         </p>
                         <div className="space-y-2">
-                            {ACTIVE_SLOTS.map(({ label, key }) => {
-                                const { start, end } = getSlotDefaultTimes(key.toLowerCase() as MealType, preferences);
-                                const expired = isAfterEnd(start, end);
+                            {ACTIVE_SLOTS.map(({ label, key, mealType }) => {
+                                const { start, end } = getSlotDefaultTimes(mealType, preferences);
+                                const completionKey = `${today}::${mealType}`;
+                                const expired = isAfterEnd(start, end) || committedCompletions[completionKey] != null;
                                 return expired ? (
                                     <div
                                         key={key}
@@ -1369,6 +1415,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 onNavigateToLoopSettings={() => onNavigate?.('profile')}
             />
         </div>
+        </PullToRefresh>
     );
 };
 
