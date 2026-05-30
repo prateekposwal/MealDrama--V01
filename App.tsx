@@ -150,24 +150,6 @@ const App: React.FC = () => {
       if (!cancelled) {
         if (timeoutId) clearTimeout(timeoutId);
         seedTodayFromTray();
-        // FIX: Rebuild plan.days from loop assignments on hydration
-        // Ensures all cycle dates are populated, not just rendered ones
-        const trayState = useTrayStore.getState();
-        if (trayState.mealLoop.config) {
-          const { applyLoopConfig, mealLoop } = useTrayStore.getState();
-          const { trayLibrary } = useStore.getState();
-          if (trayLibrary?.breakfast && mealLoop.config) {
-            // Build source pool from trayLibrary
-            const pool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
-            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
-              for (const item of trayLibrary[mt] || []) {
-                const dish = DISH_LIBRARY.find(d => d.id === (item.dishId || item.id));
-                if (dish) pool[mt].push(dish);
-              }
-            }
-            applyLoopConfig(mealLoop.config, pool, DISH_LIBRARY);
-          }
-        }
         setIsHydrated(true);
       }
     };

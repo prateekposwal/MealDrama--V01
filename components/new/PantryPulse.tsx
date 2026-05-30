@@ -44,6 +44,7 @@ const PantryPulse: React.FC = () => {
     const [showAllWeekMeals, setShowAllWeekMeals] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
 
     const tomorrowISO = getTomorrowISO();
     const weekEndISO = getWeekEndISO();
@@ -321,7 +322,7 @@ const PantryPulse: React.FC = () => {
 
             <header className="px-6 pt-14 pb-4">
                 <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-4xl font-bold tracking-tight">What's in the Kitchen</h2>
+                    <h2 className="text-3xl font-bold tracking-tight">What's in the Kitchen</h2>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={() => {
@@ -531,7 +532,7 @@ const PantryPulse: React.FC = () => {
                                         {item.name}
                                     </span>
                                     <span className="text-[10px] text-gray-400">
-                                        {item.totalQuantity} {item.unit} · from {item.sources.join(', ')}
+                                        {item.totalQuantity} {item.unit} · from {item.sources.length <= 2 || expandedSources.has(item.id) ? <>{item.sources.join(', ')} {item.sources.length > 2 && <button onClick={() => { const s = new Set(expandedSources); s.delete(item.id); setExpandedSources(s); }} className="text-[#FF385C] font-bold underline">less</button>}</> : <>{item.sources.slice(0, 2).join(', ')} <button onClick={() => setExpandedSources(prev => new Set(prev).add(item.id))} className="text-[#FF385C] font-bold underline">+{item.sources.length - 2} more</button></>}
                                     </span>
                                 </div>
                             </div>

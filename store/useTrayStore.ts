@@ -1334,204 +1334,25 @@ export const useTrayStore = create<TrayStore>()(
       },
 
       applyLoopConfig: (config, pool, dishes) => {
-        // Clear auto-fill cache so useLoopAutoFill retries all slots
         clearAutoFillCache();
 
         set((s) => {
-          let queue: RotationQueueItem[];
-          let loopAssignments: MealLoopAssignment[];
-          let hasNewDishes = false;
-
-          // Compute new cycle date range BEFORE calling assignFromQueue
-          const cycleStart = new Date(config.startDate);
-          const newCycleDates = new Set<string>();
-          let activeDays = 0;
-          let day = 0;
-          while (activeDays < config.cycleLength && day < 365) {
-            const d = new Date(cycleStart);
-            d.setDate(d.getDate() + day);
-            const ds = getISODate(d);
-            day++;
-            if (isSkippedDay(ds, config.skipDays)) continue;
-            newCycleDates.add(ds);
-            activeDays++;
-          }
-
-          // Filter existing assignments to only dates within the new cycle window
-          // This prevents old assignments outside the new cycle from blocking new ones
-          const existingInCycle = s.mealLoop.assignments.filter(a => newCycleDates.has(a.date));
-
-          // Read all mealLoop state from live `s` inside set() to avoid races
-          // with removeMealFromSlot or other concurrent mutations.
-          if (s.mealLoop.config) {
-            const oldIds = s.mealLoop.sourceDishIds;
-            const newIds = Object.values(pool).flat().map((d: Dish) => d.id);
-            hasNewDishes = newIds.some(id => !oldIds.includes(id));
-            if (hasNewDishes) {
-              const result = handleMidCycleAdd(
-                oldIds, newIds, pool, config,
-                s.mealLoop.rotationQueue, s.mealLoop.next_index,
-                existingInCycle, dishes,
-              );
-              queue = result.queue;
-              loopAssignments = result.assignments;
-            } else {
-              queue = buildRotationQueue(pool, dishes);
-              const gapFill = assignFromQueue(queue, config, s.mealLoop.next_index, existingInCycle);
-              loopAssignments = [...existingInCycle, ...gapFill];
-            }
-          } else {
-            const full = buildAssignments(pool, config, dishes);
-            queue = full.queue;
-            loopAssignments = full.assignments;
-          }
-
+          // Build rotation queue and state from current pool
+          const queue = buildRotationQueue(pool, dishes);
           const rotationState = buildRotationState(pool, dishes);
 
-          const _today = getISODate(new Date());
-          const nonTodayAssignments = loopAssignments.filter(a => a.date === _today ? false : true);
-
-          // Incremental cleanup: remove loop-source items from dates
-          // that are OUTSIDE the new cycle window OR are newly skipped
-          const oldLoopDates = new Set(s.mealLoop.assignments.map(a => a.date));
-          const datesToClear = [...oldLoopDates].filter(d => !newCycleDates.has(d));
-          const datesToClearSet = new Set(datesToClear);
-
-          // Also clear assignments on dates that are now in skipDays (newly skipped)
-          const oldSkipDays = s.mealLoop.config?.skipDays || [];
-          const newSkipDays = config.skipDays || [];
-          const newlySkipped = newSkipDays.filter(d => !oldSkipDays.includes(d));
-          if (newlySkipped.length > 0) {
-            // Find dates within the old cycle that match newly skipped days
-            for (const a of s.mealLoop.assignments) {
-              const dow = new Date(a.date).getDay();
-              if (newlySkipped.includes(dow)) {
-                datesToClearSet.add(a.date);
-              }
-            }
-          }
-
-          const newDays: Record<string, DayMeals> = {};
-          for (const a of nonTodayAssignments) {
-            const date = a.date;
-            const mealType = a.mealType;
-            // FIX: Always populate newDays from assignments — don't skip existing loop items
-            // The merge step below will deduplicate and replace stale loop items
-            if (!newDays[date]) {
-              newDays[date] = emptyDayMeals();
-            }
-            if (dishes) {
-              const dish = dishes.find(d => d.id === a.dishId);
-              if (dish) {
-                const meal = dishToMeal(dish);
-                const defaults = applySmartDefaults(meal, mealType, undefined, { useSmartSuggestions: true });
-                const timeDef = getTimeDef(mealType);
-                const loopCarb = defaults.roti ?? defaults.rice ?? undefined;
-                const loopTitle = generateMealTitle(meal.name, defaults.sides, defaults.beverages, loopCarb);
-                newDays[date][mealType].push({
-                  id: uid(),
-                  meal_id: meal.id,
-                  name: meal.name,
-                  title: loopTitle,
-                  icon: meal.icon,
-                  quantity: 1,
-                  servings: 1,
-                  smartVersion: 1,
-                  style: getDishStyle(meal.id),
-                  gravy: defaults.gravy,
-                  roti: defaults.roti,
-                  rice: defaults.rice,
-                  sides: defaults.sides,
-                  beverages: defaults.beverages,
-                  dessert: defaults.dessert,
-                  itemQtys: defaults.itemQtys,
-                  start_time: timeDef.start,
-                  end_time: timeDef.end,
-                  source: 'loop',
-                });
-              }
-            }
-          }
-
-          // Remove stale loop dates from plan before merging new ones
-          // Only clear loop-source items from dates OUTSIDE the new cycle
-          const cleanedDays: Record<string, DayMeals> = {};
-
-          for (const [date, dayMeals] of Object.entries(s.plan.days)) {
-            const newDay: DayMeals = { breakfast: [], lunch: [], snacks: [], dinner: [] };
-            let hasAnyItems = false;
-
-            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
-              const keptItems = dayMeals[mt].filter(item => {
-                // Keep user-source meals always
-                if (item.source === 'user') return true;
-                // Keep suggestion-source meals
-                if (item.source === 'suggestion') return true;
-                // Remove loop-source meals only if from dates outside new cycle
-                if (item.source === 'loop' && datesToClearSet.has(date)) return false;
-                // Remove legacy undefined-source meals on dates outside new cycle
-                if (datesToClearSet.has(date)) return false;
-                return true;
-              });
-              newDay[mt] = keptItems;
-              if (keptItems.length > 0) hasAnyItems = true;
-            }
-
-            // Only keep the day if it has items or is in newDays
-            if (hasAnyItems || newDays[date]) {
-              cleanedDays[date] = newDay;
-            }
-          }
-
-          // Tray-seeded fallback: if a loop-managed slot is empty after cleanup,
-          // seed from trayLibrary to prevent suggestion fallback
-          const trayLibrary = useStore.getState().trayLibrary;
-          if (trayLibrary) {
-            for (const a of nonTodayAssignments) {
-              const date = a.date;
-              const mealType = a.mealType;
-              const existingItems = (cleanedDays[date]?.[mealType] || s.plan.days[date]?.[mealType] || []);
-              if (existingItems.length === 0 && trayLibrary[mealType]?.length > 0) {
-                const trayItem = trayLibrary[mealType][0];
-                if (trayItem) {
-                  if (!cleanedDays[date]) cleanedDays[date] = emptyDayMeals();
-                  const timeDef = getTimeDef(mealType);
-                  cleanedDays[date][mealType].push({
-                    id: uid(),
-                    meal_id: trayItem.dishId || trayItem.id,
-                    name: trayItem.name,
-                    title: trayItem.name,
-                    icon: trayItem.icon,
-                    quantity: 1,
-                    servings: 1,
-                    smartVersion: 1,
-                    gravy: null,
-                    roti: null,
-                    rice: null,
-                    sides: [],
-                    beverages: [],
-                    dessert: [],
-                    itemQtys: {},
-                    start_time: timeDef.start,
-                    end_time: timeDef.end,
-                    source: 'loop',
-                  });
-                }
-              }
-            }
-          }
+          // Keep existing assignments — never reshuffle existing meals
+          const existingAssignments = s.mealLoop.assignments;
 
           // Queue loop changes for offline sync
           enqueueUtil('loop_save', {
             config,
             sourceDishIds: Object.values(pool).flat().map((d: Dish) => d.id),
-            assignments: nonTodayAssignments,
+            assignments: existingAssignments,
           });
           window.dispatchEvent(new Event('pantry:invalidate'));
 
-          // FIX 1: Compute correct next_index based on new cycle length
-          // Use per-slot pointers from rotationState to track position accurately
-          const newNextIndex = Math.min(nonTodayAssignments.length, queue.length);
+          const newNextIndex = Math.min(existingAssignments.length, queue.length);
 
           return {
             mealLoop: {
@@ -1540,11 +1361,9 @@ export const useTrayStore = create<TrayStore>()(
               pool_version: 1,
               rotationQueue: queue,
               next_index: newNextIndex,
-              assignments: nonTodayAssignments,
+              assignments: existingAssignments,
               overrides: s.mealLoop.overrides,
               rotationState,
-              // FIX 3: Push current state to undo stack (max 5 levels)
-              // FIX 6: Lightweight undo — don't store assignments, regenerate on undo
               undoStack: s.mealLoop.config
                 ? [{
                     config: s.mealLoop.config,
@@ -1552,72 +1371,13 @@ export const useTrayStore = create<TrayStore>()(
                     rotationQueue: s.mealLoop.rotationQueue,
                     rotationState: s.mealLoop.rotationState,
                     analytics: s.mealLoop.analytics,
-                    // FIX 3: Store plan.days snapshot for restore on undo
-                    planDaysSnapshot: JSON.parse(JSON.stringify(s.plan.days)),
                   }, ...s.mealLoop.undoStack].slice(0, 5)
                 : s.mealLoop.undoStack,
-              // Only increment cyclesCompleted when the pointer actually wraps around
-              // A cycle = when next_index reaches queue.length (all dishes assigned once)
-              analytics: {
-                ...s.mealLoop.analytics,
-                cyclesCompleted: (() => {
-                  if (!hasNewDishes) return s.mealLoop.analytics.cyclesCompleted;
-                  const oldPtr = s.mealLoop.next_index;
-                  const newPtr = newNextIndex;
-                  const queueLen = queue.length;
-                  if (queueLen === 0) return s.mealLoop.analytics.cyclesCompleted;
-                  if (newPtr < oldPtr) return s.mealLoop.analytics.cyclesCompleted + 1;
-                  return s.mealLoop.analytics.cyclesCompleted;
-                })(),
-                mealsAutoFilled: s.mealLoop.analytics.mealsAutoFilled + (() => {
-                  if (!hasNewDishes) return 0;
-                  const keys = new Set<string>();
-                  for (const [d, dm] of Object.entries(s.plan.days)) {
-                    for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
-                      for (const item of dm[mt]) keys.add(`${d}|${item.meal_id}`);
-                    }
-                  }
-                  return nonTodayAssignments.filter(a => !keys.has(`${a.date}|${a.dishId}`)).length;
-                })(),
-              },
-              // Preserve rate limit flags
+              analytics: s.mealLoop.analytics,
               refreshing: s.mealLoop.refreshing,
               lastRefreshStart: s.mealLoop.lastRefreshStart,
             },
-            plan: {
-              ...s.plan,
-              days: (() => {
-                const merged: Record<string, DayMeals> = {};
-                const allDates = new Set([...Object.keys(cleanedDays), ...Object.keys(newDays)]);
-                for (const date of allDates) {
-                  const clean = cleanedDays[date];
-                  const next = newDays[date];
-                  if (!clean) { merged[date] = next ?? emptyDayMeals(); continue; }
-                  if (!next) { merged[date] = clean; continue; }
-                  const day: DayMeals = { breakfast: [], lunch: [], snacks: [], dinner: [] };
-                  for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
-                    // FIX: Strip loop items from cleanedDays — newDays loop items take precedence
-                    const nonLoopItems = clean[mt].filter(m => m.source !== 'loop');
-                    // Preserve custom titles from existing loop items
-                    const customTitleMap = new Map<string, { title: string; ownership: 'custom' }>();
-                    for (const m of clean[mt]) {
-                      if (m.source === 'loop' && m.titleOwnership === 'custom' && m.title) {
-                        customTitleMap.set(m.meal_id, { title: m.title, ownership: 'custom' });
-                      }
-                    }
-                    // Apply custom titles to new loop items
-                    const loopItemsWithCustomTitles = next[mt].map(item => {
-                      const custom = customTitleMap.get(item.meal_id);
-                      return custom ? { ...item, title: custom.title, titleOwnership: custom.ownership } : item;
-                    });
-                    // Keep user/suggestion items, replace loop items with new assignments
-                    day[mt] = [...nonLoopItems, ...loopItemsWithCustomTitles];
-                  }
-                  merged[date] = day;
-                }
-                return merged;
-              })(),
-            },
+            plan: s.plan,
           };
         });
 
@@ -1694,7 +1454,6 @@ export const useTrayStore = create<TrayStore>()(
 
       // FIX 3: Undo loop config change — restores from undo stack
       undoLoopChange: () => {
-        // FIX 3: Haptic feedback for critical mobile action
         if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           navigator.vibrate(15);
         }
@@ -1703,69 +1462,21 @@ export const useTrayStore = create<TrayStore>()(
           const prev = s.mealLoop.undoStack[0];
           if (!prev) return s;
 
-          // FIX 6: Regenerate assignments from restored config + rotationState
           const cfg = prev.config;
-          if (!cfg) {
-            useStore.getState().setToast({ message: '↩️ Loop settings restored.', type: 'info' });
-            return {
-              mealLoop: {
-                ...s.mealLoop,
-                config: null,
-                sourceDishIds: prev.sourceDishIds,
-                rotationQueue: prev.rotationQueue,
-                assignments: [],
-                rotationState: prev.rotationState,
-                analytics: prev.analytics,
-                undoStack: s.mealLoop.undoStack.slice(1),
-              },
-            };
-          }
+          if (!cfg) return s;
 
-          const loopEndDate = new Date(cfg.startDate);
-          loopEndDate.setDate(loopEndDate.getDate() + cfg.cycleLength * 7);
-          const loopEndStr = getISODate(loopEndDate);
-
-          // Collect existing non-loop items in the loop window
-          const existingItems: Array<{ date: string; mealType: MealType; source?: string }> = [];
-          for (const [date, day] of Object.entries(s.plan.days)) {
-            if (date < cfg.startDate || date > loopEndStr) continue;
-            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
-              for (const item of day[mt]) {
-                existingItems.push({ date, mealType: mt, source: item.source });
-              }
-            }
-          }
-
-          const result = autoFillLoopEngine(cfg, prev.rotationState, existingItems);
-
-          // FIX 5: Handle regeneration failure — fallback to previous assignments
-          if (result.assignments.length === 0 && s.mealLoop.assignments.length > 0) {
-            useStore.getState().setToast({ message: '⚠️ Could not regenerate loop assignments. Keeping current state.', type: 'error' });
-            return s;
-          }
-
-          useStore.getState().setToast({ message: '↩️ Loop settings restored to previous version.', type: 'info' });
-
-          // FIX 3: Restore plan.days from snapshot if available
-          const restoredPlanDays = prev.planDaysSnapshot
-            ? { ...s.plan.days, ...prev.planDaysSnapshot }
-            : s.plan.days;
-
+          // Restore old config — existing meals are never touched
           return {
             mealLoop: {
               ...s.mealLoop,
               config: prev.config,
               sourceDishIds: prev.sourceDishIds,
               rotationQueue: prev.rotationQueue,
-              assignments: result.assignments,
-              rotationState: result.rotationState,
+              rotationState: prev.rotationState,
               analytics: prev.analytics,
               undoStack: s.mealLoop.undoStack.slice(1),
             },
-            plan: {
-              ...s.plan,
-              days: restoredPlanDays,
-            },
+            plan: s.plan,
           };
         });
       },
