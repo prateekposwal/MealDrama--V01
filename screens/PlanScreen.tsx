@@ -540,7 +540,11 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const upcomingDates = useMemo(() => {
         if (mealLoop.config && planDayKeys.length > 0) {
-            return planDayKeys.split(',').filter(d => d > today);
+            const start = mealLoop.config.startDate;
+            const endDate = new Date(start);
+            endDate.setDate(endDate.getDate() + mealLoop.config.cycleLength * 7);
+            const end = endDate.toISOString().slice(0, 10);
+            return planDayKeys.split(',').filter(d => d > today && d >= start && d < end);
         }
         return weekDates.filter(d => d > today);
     }, [weekDates, today, mealLoop.config, planDayKeys]);
