@@ -583,10 +583,9 @@ export const useTrayStore = create<TrayStore>()(
           source: overrides?.source || 'user',
         };
 
-        // Optimistic update (with dedup: same meal_id OR same name → increment quantity + merge sides)
+        // Optimistic update (with dedup: same meal_id OR same name → update chips, keep quantity)
         set((s) => {
           const day = s.plan.days[date] || emptyDayMeals();
-          // FIX: Check both meal_id AND name (case-insensitive) to catch cross-source duplicates
           const existing = day[mealType].find(m => m.meal_id === newItem.meal_id || m.name.toLowerCase() === newItem.name.toLowerCase());
           if (existing) {
             return {
@@ -595,8 +594,12 @@ export const useTrayStore = create<TrayStore>()(
                 days: { ...s.plan.days, [date]: { ...day, [mealType]: day[mealType].map(m =>
                   m.id === existing.id ? {
                     ...m,
-                    quantity: (m.quantity || 1) + (newItem.quantity || 1),
                     sides: [...new Set([...(m.sides || []), ...(newItem.sides || [])])],
+                    beverages: [...new Set([...(m.beverages || []), ...(newItem.beverages || [])])],
+                    dessert: [...new Set([...(m.dessert || []), ...(newItem.dessert || [])])],
+                    roti: newItem.roti ?? m.roti,
+                    rice: newItem.rice ?? m.rice,
+                    gravy: newItem.gravy ?? m.gravy,
                     variant: newItem.variant || m.variant,
                     variantId: newItem.variantId || m.variantId,
                     addon: newItem.addon || m.addon,

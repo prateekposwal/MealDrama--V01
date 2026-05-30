@@ -22,7 +22,7 @@ import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOTS } from '../utils/continuity';
-import { getSkipUndoWindowExpiry } from '../types/tray';
+import { getSkipUndoWindowExpiry, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
 import { getISODate, getISTDayOfWeek, parseISODate } from '../utils/dateUTC';
 import { computeStyleWarnings } from '../constants/dishStyles';
 
@@ -880,28 +880,48 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
                         {/* Slots */}
                         <div className="space-y-2">
-                            {ACTIVE_SLOTS.map(({ key, label }) => (
-                                <button
-                                    key={key}
-                                    onClick={() => {
-                                        setAddDishSlot(key.toLowerCase() as MealType);
-                                        setAddDishDate(quickAddDate);
-                                        setAddDishOpen(true);
-                                        setShowSlotPicker(false);
-                                    }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 active:scale-[0.98] transition-all hover:bg-gray-50"
-                                >
-                                    <span className="text-2xl w-10 h-10 flex items-center justify-center">
-                                        {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
-                                    </span>
-                                    <div className="text-left">
-                                        <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                        <span className="text-[10px] text-gray-400">
-                                            {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                            {ACTIVE_SLOTS.map(({ key, label }) => {
+                                const dateIsPast = quickAddDate < today;
+                                const { start, end } = getSlotDefaultTimes(key.toLowerCase() as MealType, stablePreferences);
+                                const expired = dateIsPast || (quickAddDate === today && isAfterEnd(start, end));
+                                return expired ? (
+                                    <div
+                                        key={key}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 opacity-50 cursor-default"
+                                    >
+                                        <span className="text-2xl w-10 h-10 flex items-center justify-center">
+                                            {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
                                         </span>
+                                        <div className="text-left">
+                                            <span className="text-sm font-bold text-gray-900 block">{label}</span>
+                                            <span className="text-[10px] text-gray-400">
+                                                {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                                            </span>
+                                        </div>
                                     </div>
-                                </button>
-                            ))}
+                                ) : (
+                                    <button
+                                        key={key}
+                                        onClick={() => {
+                                            setAddDishSlot(key.toLowerCase() as MealType);
+                                            setAddDishDate(quickAddDate);
+                                            setAddDishOpen(true);
+                                            setShowSlotPicker(false);
+                                        }}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 active:scale-[0.98] transition-all hover:bg-gray-50"
+                                    >
+                                        <span className="text-2xl w-10 h-10 flex items-center justify-center">
+                                            {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
+                                        </span>
+                                        <div className="text-left">
+                                            <span className="text-sm font-bold text-gray-900 block">{label}</span>
+                                            <span className="text-[10px] text-gray-400">
+                                                {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                                            </span>
+                                        </div>
+                                    </button>
+                                );
+                            })}
                         </div>
                         <button
                             onClick={() => setShowSlotPicker(false)}

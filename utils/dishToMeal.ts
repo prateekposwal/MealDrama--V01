@@ -71,11 +71,38 @@ const TEMPLATES: TemplateRule[] = [
     match: (tags) => tags.some(t => ['sandwich', 'toast'].includes(t)),
     pairings: { sides: ['Ketchup', 'Green Chutney'], beverages: ['Masala Chai'] },
   },
+  // ─── Tea template (all tea varieties: masala, butter, elaichi, ginger, etc.) ───
+  {
+    match: (tags) => tags.includes('tea'),
+    pairings: { sides: ['Biscuits', 'Cookies', 'Namkeen', 'Roasted Peanuts'], beverages: [] },
+  },
+  // ─── Milk beverage template (kesar milk, doodh soda, haldi doodh, etc.) ───
+  {
+    match: (tags) => tags.includes('milk') && tags.includes('beverage'),
+    pairings: { sides: ['Rusk', 'Biscuits', 'Dry Fruit Mix'], beverages: [] },
+  },
+  // ─── Kheer template (all kheer/payasam desserts) ───
+  {
+    match: (tags) => tags.includes('kheer'),
+    pairings: { sides: ['Saffron', 'Dry Fruit Mix'], beverages: ['Filter Coffee'] },
+  },
+  // ─── Indian mains fallback (sabzi/curry/gravy — catches ~207 dishes) ───
+  {
+    match: (tags) => tags.some(t => [
+      'sabzi', 'curry', 'gravy', 'dry', 'roast', 'stir-fry', 'smoked',
+      'tandoori', 'kebab', 'tikka', 'kofta', 'bhuna',
+      'malai', 'korma', 'pasanda', 'lababdar', 'jalfrezi', 'achari',
+      'do-pyaza', 'jhol', 'kalia', 'kosha', 'tawa', 'bharta', 'pickle',
+      'keema', 'soya', 'chaap', 'mushroom', 'paneer',
+      'chicken', 'mutton', 'fish', 'prawn', 'egg',
+    ].includes(t)),
+    pairings: { sides: ['Pickle', 'Raita'], beverages: ['Chaas'] },
+  },
 ];
 
 const SAFE_FALLBACK: NonNullable<Meal['defaultPairings']> = {
   sides: ['Side Salad', 'Lemon Wedge'],
-  beverages: ['Water', 'Tea'],
+  beverages: ['Tea'],
 };
 
 function findTemplatePairings(dish: Dish): Meal['defaultPairings'] | null {
@@ -109,8 +136,12 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
       gravyOptions: dish.gravyType
         ? Object.values(GravyType).filter(g => g !== 'DEFAULT').map(g => g.charAt(0) + g.slice(1).toLowerCase())
         : undefined,
-      rotiOptions: dish.defaultPairings.roti ? [dish.defaultPairings.roti] : undefined,
-      riceOptions: dish.defaultPairings.rice ? [dish.defaultPairings.rice] : undefined,
+      rotiOptions: dish.defaultPairings.roti
+        ? [dish.defaultPairings.roti]
+        : (isLunchOrDinner && !isSelfRice && !isSelfBread ? ['Roti', 'Naan', 'Paratha'] : undefined),
+      riceOptions: dish.defaultPairings.rice
+        ? [dish.defaultPairings.rice]
+        : (isLunchOrDinner && !isSelfBread && !isSelfRice ? ['Steamed Rice', 'Jeera Rice'] : undefined),
       sideOptions: dish.defaultPairings.sides?.length ? dish.defaultPairings.sides : undefined,
       beverageOptions: undefined,
       defaultPairings: dish.defaultPairings,

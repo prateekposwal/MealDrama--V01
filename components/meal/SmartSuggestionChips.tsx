@@ -6,7 +6,6 @@ import { DISH_LIBRARY } from '../../constants/dishLibrary';
 import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
-import { QuickFilters, type DietFilter, type SlotFilter } from './QuickFilters';
 import { useAsyncGuard, requestDedupCache } from '../../utils/asyncGuard';
 
 interface SmartSuggestionChipsProps {
@@ -53,14 +52,6 @@ function suggestionToMeal(s: SuggestionMeal): Meal {
   };
 }
 
-function computeDietScoreSimple(mealType: string, userDiet: string): number {
-  if (userDiet === 'all' || userDiet === 'non-veg') return 1;
-  if (userDiet === 'veg' && (mealType === 'veg' || mealType === 'vegan' || mealType === 'eggitarian')) return 1;
-  if (userDiet === 'vegan' && mealType === 'vegan') return 1;
-  if (userDiet === 'eggitarian' && (mealType === 'veg' || mealType === 'eggitarian' || mealType === 'vegan')) return 1;
-  return 0;
-}
-
 export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.memo(({
   date,
   mealType,
@@ -73,9 +64,6 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
   const [suggestions, setSuggestions] = useState<SuggestionMeal[]>([]);
   const [loading, setLoading] = useState(true);
   const [source, setSource] = useState<'api' | 'cache' | 'error'>('api');
-  const [dietFilter, setDietFilter] = useState<DietFilter>('all');
-  const [slotFilter, setSlotFilter] = useState<SlotFilter>('all');
-
   const header = SLOT_HEADER[mealType] ?? { emoji: '🍽️', hinglish: 'Add a meal?' };
   const asyncGuard = useAsyncGuard();
 
@@ -108,16 +96,6 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
 
   const scoredSuggestions = useMemo(() => {
     return suggestions
-      .filter(s => {
-        if (dietFilter !== 'all') {
-          const dietScore = computeDietScoreSimple(s.type, dietFilter);
-          if (dietScore === 0) return false;
-        }
-        if (slotFilter !== 'all') {
-          if (slotFilter !== mealType) return false;
-        }
-        return true;
-      })
       .map(s => {
         const meal = suggestionToMeal(s);
         const ctx = {
@@ -132,7 +110,7 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
         return { suggestion: s, scored };
       })
       .sort((a, b) => b.scored.score - a.scored.score);
-  }, [suggestions, dietFilter, slotFilter, mealType, userDiet, userRegion, pantryStaples]);
+  }, [suggestions, mealType, userDiet, userRegion, pantryStaples]);
 
   const handleAdd = useCallback((meal: SuggestionMeal) => {
     onAddMeal(meal);
@@ -155,18 +133,6 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
         </span>
       </div>
 
-      {/* Quick Filters */}
-      {suggestions.length > 0 && (
-        <div className="mb-3">
-          <QuickFilters
-            diet={dietFilter}
-            slot={slotFilter}
-            onDietChange={setDietFilter}
-            onSlotChange={setSlotFilter}
-          />
-        </div>
-      )}
-
       {/* Offline indicator */}
       {source === 'cache' && (
         <div className="flex items-center gap-1 mb-3 px-2 py-1 rounded-lg bg-amber-50 text-amber-600">
@@ -188,7 +154,7 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
           <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1" role="list" aria-label="Meal suggestions">
             {scoredSuggestions.length === 0 && suggestions.length > 0 && (
               <div className="w-full py-4 text-center">
-                <p className="text-[11px] font-medium text-gray-400">No suggestions match your filters</p>
+                <p className="text-[11px] font-medium text-gray-400">No suitable suggestions</p>
               </div>
             )}
             {scoredSuggestions.length === 0 && suggestions.length === 0 && source !== 'error' && (

@@ -326,6 +326,28 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   const showAggregated = !isUserCompleted && meals.length > 0;
   const [aggregatedExpanded, setAggregatedExpanded] = useState(false);
 
+  // ─── Badge counter, scroll-into-view, and pulse for new item additions ──
+  const [newItemsCount, setNewItemsCount] = useState(0);
+  const [pulse, setPulse] = useState(false);
+  const prevMealsLenRef = useRef(meals.length);
+  const aggregationRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const prev = prevMealsLenRef.current;
+    if (meals.length > prev) {
+      const added = meals.length - prev;
+      setNewItemsCount(c => c + added);
+      setPulse(true);
+      const timer = setTimeout(() => setPulse(false), 600);
+      aggregationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return () => clearTimeout(timer);
+    }
+  }, [meals.length]);
+
+  useEffect(() => {
+    prevMealsLenRef.current = meals.length;
+  });
+
   const slotMicrocopy = useMemo(() => {
     const options: Record<MealType, string[]> = {
       breakfast: ['Balanced for your morning ☀️', 'Light & energizing choices', 'Fresh start'],
@@ -524,10 +546,13 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
       {/* ─── Aggregated slot items per category (collapsible) ─── */}
       {showAggregated && (
-        <div className="aggregated-categories">
-          <div className={`group flex items-center justify-between rounded-xl border-2 ${SLOT_META[slotLabel]?.color || 'border-emerald-200'} ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/80'} px-3 py-2.5`}>
+        <div ref={aggregationRef} className="aggregated-categories scroll-mt-24">
+          <div className={`group flex items-center justify-between rounded-xl border-2 ${SLOT_META[slotLabel]?.color || 'border-emerald-200'} ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/80'} px-3 py-2.5 ${pulse ? 'animate-pulse-ring' : ''}`}>
             <button
-              onClick={() => setAggregatedExpanded(prev => !prev)}
+              onClick={() => {
+                setAggregatedExpanded(prev => !prev);
+                if (!aggregatedExpanded) setNewItemsCount(0);
+              }}
               className="flex-1 flex items-center gap-2 text-left hover:brightness-95 active:scale-[0.98] transition-all -m-2 p-2"
             >
               <div className="flex items-center -space-x-2">
@@ -541,6 +566,11 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 <span className="block text-[10px] font-medium text-gray-600 group-hover:hidden">Flavor Flow Mapping</span>
                 <span className="hidden group-hover:block text-[10px] font-semibold text-gray-700">Build your ideal {slotLabel.toLowerCase()}</span>
               </div>
+              {newItemsCount > 0 && (
+                <span className="ml-auto mr-1 flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-full bg-[#FF385C] text-white text-[9px] font-bold leading-none animate-in fade-in zoom-in">
+                  +{newItemsCount}
+                </span>
+              )}
             </button>
           </div>
           {aggregatedExpanded && (
@@ -601,7 +631,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           userDiet={userDiet}
           pantryStaples={pantryStaples}
           onAddMeal={stableSuggestionAdd}
-          onOpenSearch={onOpenSearch}
+          onOpenSearch={() => setAddDishOpen(true)}
         />
       )}
       {!isUserCompleted && meals.length === 0 && showSuggestions && !isLocked && editable && onAddAnother && (
@@ -734,6 +764,14 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         @keyframes cardIn {
           from { opacity: 0; transform: translateY(12px) scale(0.97); }
           to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes pulseRing {
+          0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+          70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .animate-pulse-ring {
+          animation: pulseRing 0.6s ease-out 2;
         }
         @media (prefers-reduced-motion: reduce) {
           .card-section-enter,

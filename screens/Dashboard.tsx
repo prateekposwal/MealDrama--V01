@@ -29,7 +29,7 @@ import { suggestionToMeal } from '../utils/suggestionUtils';
 import { getShareStrings, ShareLanguage, SLOT_LABELS, COMPONENT_LABELS } from '../utils/share';
 
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
-import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd } from '../types/tray';
+import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
 import { getISODate } from '../utils/dateUTC';
 
 /** Fallback whole-grain keywords matched against dish/component names when health maps are missing */
@@ -698,6 +698,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
         const categories: string[] = [];
         const tags: string[] = [];
+        const components: { name: string; healthCategories: string[]; tags: string[]; type: 'roti' | 'rice' | 'side' | 'beverage' | 'gravy' | 'dessert' }[] = [];
 
         for (const m of meals) {
           const meta = DISH_HEALTH_MAP[m.meal_id];
@@ -716,28 +717,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
         const seen = new Set<string>();
         for (const m of meals) {
-          const names = [
-            m.roti, m.rice, m.gravy,
-            ...(m.sides ?? []),
-            ...(m.beverages ?? []),
-            ...(m.dessert ?? []),
-          ].filter(Boolean) as string[];
-          for (const name of names) {
+          const comps: [string | null, 'roti' | 'rice' | 'side' | 'beverage' | 'gravy' | 'dessert'][] = [
+            [m.roti, 'roti'],
+            [m.rice, 'rice'],
+            [m.gravy, 'gravy'],
+            ...(m.sides ?? []).map(s => [s, 'side'] as [string, 'side']),
+            ...(m.beverages ?? []).map(b => [b, 'beverage'] as [string, 'beverage']),
+            ...(m.dessert ?? []).map(d => [d, 'dessert'] as [string, 'dessert']),
+          ];
+          for (const [name, type] of comps) {
+            if (!name) continue;
             const key = name.trim().toLowerCase();
             if (!seen.has(key)) {
               seen.add(key);
               const componentMeta = COMPONENT_HEALTH_MAP[name];
+              const hc = componentMeta ? [...componentMeta.healthCategories] : [];
+              const tg = componentMeta ? [...componentMeta.tags] : [];
+              if (!hc.some(c => c === 'whole-grain' || c === 'refined-grain')) {
+                const inferred = inferGrainCategory(name);
+                if (inferred) hc.push(inferred);
+              }
               if (componentMeta) {
                 categories.push(...componentMeta.healthCategories);
                 tags.push(...componentMeta.tags);
-                if (!componentMeta.healthCategories.some(c => c === 'whole-grain' || c === 'refined-grain')) {
-                  const inferred = inferGrainCategory(name);
-                  if (inferred) categories.push(inferred);
-                }
               } else {
                 const inferred = inferGrainCategory(name);
                 if (inferred) categories.push(inferred);
               }
+              components.push({ name, healthCategories: hc, tags: tg, type });
             }
           }
         }
@@ -800,6 +807,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
           healthCategories: categories,
           tags,
           quantity: 1,
+          components,
           hasCarbBase,
           hasProteinCore,
           hasFiberSide,
@@ -860,7 +868,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
       result.categories.healthyFat = Math.min(10, healthyFatsCount);
       result.categories.limitSugary = Math.min(5, lowSugarCount);
-      result.total = Math.max(0, result.categories.vegFruit + result.categories.wholeGrain + result.categories.protein + result.categories.healthyFat + result.categories.limitSugary + result.categories.limitRedMeat);
+      result.total = Math.max(0, result.categories.vegFruit + result.categories.wholeGrain + result.categories.protein + result.categories.healthyFat + result.categories.limitSugary + result.categories.limitRedMeat + result.categories.sidePairing);
 
       return result;
     }, [today, getMeals]);
@@ -1269,27 +1277,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             {new Date(today).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                         </p>
                         <div className="space-y-2">
-                            {ACTIVE_SLOTS.map(({ label, key }) => (
-                                <button
-                                    key={key}
-                                    onClick={() => {
-                                        setAddDishSlot(key.toLowerCase() as MealType);
-                                        setAddDishOpen(true);
-                                        setShowSlotPicker(false);
-                                    }}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 active:scale-[0.98] transition-all hover:bg-gray-50"
-                                >
-                                    <span className="text-2xl w-10 h-10 flex items-center justify-center">
-                                        {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
-                                    </span>
-                                    <div className="text-left">
-                                        <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                        <span className="text-[10px] text-gray-400">
-                                            {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                            {ACTIVE_SLOTS.map(({ label, key }) => {
+                                const { start, end } = getSlotDefaultTimes(key.toLowerCase() as MealType, preferences);
+                                const expired = isAfterEnd(start, end);
+                                return expired ? (
+                                    <div
+                                        key={key}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 opacity-50 cursor-default"
+                                    >
+                                        <span className="text-2xl w-10 h-10 flex items-center justify-center">
+                                            {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
                                         </span>
+                                        <div className="text-left">
+                                            <span className="text-sm font-bold text-gray-900 block">{label}</span>
+                                            <span className="text-[10px] text-gray-400">
+                                                {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                                            </span>
+                                        </div>
                                     </div>
-                                </button>
-                            ))}
+                                ) : (
+                                    <button
+                                        key={key}
+                                        onClick={() => {
+                                            setAddDishSlot(key.toLowerCase() as MealType);
+                                            setAddDishOpen(true);
+                                            setShowSlotPicker(false);
+                                        }}
+                                        className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 active:scale-[0.98] transition-all hover:bg-gray-50"
+                                    >
+                                        <span className="text-2xl w-10 h-10 flex items-center justify-center">
+                                            {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
+                                        </span>
+                                        <div className="text-left">
+                                            <span className="text-sm font-bold text-gray-900 block">{label}</span>
+                                            <span className="text-[10px] text-gray-400">
+                                                {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                                            </span>
+                                        </div>
+                                    </button>
+                                );
+                            })}
                         </div>
                         <button
                             onClick={() => setShowSlotPicker(false)}

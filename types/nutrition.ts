@@ -57,6 +57,7 @@ export interface PlateBalanceScore {
     healthyFat: number;
     limitSugary: number;
     limitRedMeat: number;
+    sidePairing: number;
   };
   breakdown: string[];
   suggestions: string[];

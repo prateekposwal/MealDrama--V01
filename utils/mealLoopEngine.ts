@@ -248,18 +248,25 @@ export function assignFromQueue(
       const key = `${dateStr}:${slot}`;
       if (existingSet.has(key)) continue;
 
-      // Anti-repetition: skip dishes served within last 5 days
+      // Anti-repetition: gap scales with pool size — small pool = bigger gap
+      const gap = Math.max(3, Math.floor(config.cycleLength / sq.length));
       let ptr = pointers[slot] % sq.length;
       let attempts = 0;
       let item = sq[ptr]!;
+      let found = false;
       while (attempts < sq.length) {
         const lastDate = lastServed.get(item.dishId);
-        if (!lastDate || daysBetweenISO(lastDate, dateStr) >= 5) break;
+        if (!lastDate || daysBetweenISO(lastDate, dateStr) >= gap) {
+          found = true;
+          break;
+        }
         pointers[slot]++;
         ptr = pointers[slot] % sq.length;
         item = sq[ptr]!;
         attempts++;
       }
+
+      if (!found) continue; // No eligible dish — skip this slot
 
       pointers[slot]++;
       assignments.push({
@@ -514,7 +521,6 @@ export function autoFillLoop(
 ): AutoFillResult {
   const existingSet = new Set(
     existingItems
-      .filter(item => item.source !== 'loop')
       .map(item => `${item.date}:${item.mealType}`),
   );
 

@@ -81,10 +81,12 @@ const PantryPulse: React.FC = () => {
 
     const groups = useMemo((): PantryGroup[] => {
         const allIngredients: { ing: Ingredient; source: string }[] = [];
-        const processSlot = (date: string, slot: string) => {
+        const processSlot = (date: string, slot: string, seenMealIds: Set<string>) => {
             const mealType = slot.toLowerCase() as MealType;
             const meals = getMeals(date, mealType);
             for (const item of meals) {
+                if (seenMealIds.has(item.meal_id)) continue;
+                seenMealIds.add(item.meal_id);
                 const catSelections: CategorySelection = {
                     gravy: item.gravy ? { id: item.gravy, name: item.gravy } : null,
                     roti: item.roti ? { id: item.roti, name: item.roti } : null,
@@ -124,16 +126,18 @@ const PantryPulse: React.FC = () => {
             }
         };
         if (viewMode === 'tomorrow') {
+            const dtSeen = new Set<string>();
             for (const slot of allSlots) {
-                processSlot(tomorrowISO, slot);
+                processSlot(tomorrowISO, slot, dtSeen);
             }
         } else {
             const start = new Date(tomorrowISO + 'T00:00:00');
             const end = new Date(weekEndISO + 'T00:00:00');
             for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
                 const isoDate = getISODate(d);
+                const dtSeen = new Set<string>();
                 for (const slot of allSlots) {
-                    processSlot(isoDate, slot);
+                    processSlot(isoDate, slot, dtSeen);
                 }
             }
         }

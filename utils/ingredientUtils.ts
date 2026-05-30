@@ -487,11 +487,11 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
     // INF-07: Aloo/Potato inference
     if (idLower.includes('aloo') || idLower.includes('potato')) {
-        result.push({ name: 'Potatoes', quantity: 3, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Potatoes', quantity: 0.5, unit: 'pc', category: 'produce', inStock: false });
     }
     // INF-07: Gobhi/Cauliflower inference
     if (idLower.includes('gobhi') || idLower.includes('cauliflower')) {
-        result.push({ name: 'Cauliflower', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Cauliflower', quantity: 0.33, unit: 'pc', category: 'produce', inStock: false });
     }
     // INF-08: Sarson ka Saag inference (Punjabi specialty)
     if (idLower.includes('sarson') || idLower.includes('saag')) {
@@ -1305,9 +1305,9 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
     if ((nameLower.includes('bhindi') || nameLower.includes('sabzi')) && !existingNames.has('tomatoes'))
         result.push({ name: 'Tomatoes', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
     if ((nameLower.includes('aloo') || nameLower.includes('potato')) && !existingNames.has('potatoes'))
-        result.push({ name: 'Potatoes', quantity: 3, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Potatoes', quantity: 0.5, unit: 'pc', category: 'produce', inStock: false });
     if (nameLower.includes('gobhi') || nameLower.includes('cauliflower'))
-        result.push({ name: 'Cauliflower', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Cauliflower', quantity: 0.33, unit: 'pc', category: 'produce', inStock: false });
 
     if ((nameLower.includes('dahi') || nameLower.includes('bhalla') || nameLower.includes('chaat')) && !existingNames.has('yogurt'))
         result.push({ name: 'Yogurt', quantity: 100, unit: 'g', category: 'dairy', inStock: false });

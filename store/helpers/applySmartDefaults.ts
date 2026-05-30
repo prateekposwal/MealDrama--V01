@@ -42,14 +42,21 @@ export function applySmartDefaults(
     const sides = dp.sides ?? [];
     const beverages = dp.beverages ?? [];
     const dessert = dp.dessert ?? [];
+    // ─── GUARDRAIL: Seed carb from meal options when not in explicit defaults ──
+    // 1. Only for lunch/dinner dishes (meal.rotiOptions/riceOptions are set)
+    // 2. Never override explicitly set dp.roti/dp.rice
+    // 3. Self-bread/self-rice dishes have options undefined → skipped automatically
+    const seededRoti = dp.roti ?? (meal.rotiOptions?.length ? normalizeCategory(meal.rotiOptions[0]!) : null);
+    const seededRice = dp.rice ?? (!seededRoti && meal.riceOptions?.length ? normalizeCategory(meal.riceOptions[0]!) : null);
+
     const itemQtys: Record<string, number> = {};
-    for (const item of [dp.roti, dp.rice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
+    for (const item of [seededRoti, seededRice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
       itemQtys[item] = 1;
     }
     return {
       gravy: dp.gravy ?? null,
-      roti: dp.roti ?? null,
-      rice: dp.rice ?? null,
+      roti: seededRoti,
+      rice: seededRice,
       sides,
       beverages,
       dessert,

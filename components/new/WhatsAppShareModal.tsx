@@ -65,7 +65,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-end justify-center p-4">
+        <div className="fixed inset-0 z-[70] bg-black/40 backdrop-blur-sm flex items-end justify-center p-4">
             <div className="w-full max-w-lg rounded-[28px] bg-white shadow-2xl border border-gray-100 overflow-hidden">
                 <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-4">
                     <div>

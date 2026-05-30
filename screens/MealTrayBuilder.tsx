@@ -19,8 +19,6 @@ import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOT_TIME_DEFAULTS } from '../types/tray';
-import type { AggregatedCategory } from '../types/tray';
-import { useNormalizedComposition } from '../components/meal/useNormalizedComposition';
 import { getISODate } from '../utils/dateUTC';
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
@@ -278,34 +276,6 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         return unique.size >= s.minRequired;
     });
 
-    // Slot-level aggregation: deduplicate and merge quantities across all dishes in this slot
-    const aggregated = useNormalizedComposition(displayMeals);
-
-    const handleAggregatedQty = useCallback((name: string, delta: number) => {
-        const planItems = planDays[today]?.[currentSlot.mealType] || [];
-        const hasItem = (item: TrayItem) =>
-            item.roti === name || item.rice === name || item.gravy === name ||
-            item.sides?.includes(name) || item.beverages?.includes(name) || item.dessert?.includes(name);
-        const targets = planItems.filter(hasItem);
-        if (targets.length === 0) return;
-        let remaining = Math.abs(delta);
-        const sign = delta > 0 ? 1 : -1;
-        for (const item of targets) {
-            if (remaining <= 0) break;
-            const current = item.itemQtys?.[name] ?? 1;
-            const next = Math.max(1, current + sign);
-            if (next !== current) {
-                const capped = sign > 0 ? Math.min(remaining, next - current) : -Math.min(remaining, current - 1);
-                if (capped !== 0) {
-                    updateItemInline(today, currentSlot.mealType, item.id, {
-                        itemQtys: { ...item.itemQtys, [name]: current + capped },
-                    });
-                    remaining -= Math.abs(capped);
-                }
-            }
-        }
-    }, [planDays, today, updateItemInline, currentSlot.mealType]);
-
     const handleSwapSelect = useCallback((date: string, mealType: MealType, itemId: string) => {
         return (newMealId: string, chipOverrides?: Record<string, unknown>) => {
             const dish = dishes.find(d => d.id === newMealId);
@@ -485,6 +455,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     }, [slotTimes, currentSlot.mealType]);
 
     return (
+        <>
         <div className="min-h-screen flex flex-col bg-white">
             {/* Header */}
             <div className="sticky top-0 z-20 px-6 pt-14 pb-3 bg-white">
@@ -589,13 +560,6 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         </div>
 
                         {/* Quick Add trigger — opens SwapCustomizeModal in add mode */}
-                        <button
-                            onClick={() => setAddDishOpen(true)}
-                            className="w-full flex items-center gap-2 p-3 rounded-xl border-2 border-dashed transition-all active:scale-[0.98] border-gray-200 text-gray-500"
-                        >
-                            <Sparkles size={14} className="text-[#FF385C]" />
-                            <span className="text-sm font-bold">Add another {currentSlot.label.toLowerCase()} dish</span>
-                        </button>
 
                         {displayMeals.map((item: TrayItem) => (
                             <MealCard
@@ -633,45 +597,8 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                                 userDiet={userDiet}
                                 pantryStaples={userPantryStaples}
                                 onAddMeal={suggestionAddHandler}
-                                onOpenSearch={handleOpenSearch}
+                                onOpenSearch={() => setAddDishOpen(true)}
                             />
-                        )}
-
-                        {/* Aggregated slot items: deduplicated across all dishes */}
-                        {displayMeals.length > 0 && (
-                            <div className="px-2 pt-2 pb-1 space-y-2">
-                                <p className="text-xs font-black uppercase tracking-widest text-gray-400">
-                                    {currentSlot.label} Total
-                                </p>
-                                {[
-                                    { items: aggregated.gravy, label: 'Gravy', color: 'bg-amber-50 text-amber-700 border-amber-100' },
-                                    { items: aggregated.roti, label: 'Bread', color: 'bg-orange-50 text-orange-700 border-orange-100' },
-                                    { items: aggregated.rice, label: 'Rice', color: 'bg-blue-50 text-blue-700 border-blue-100' },
-                                    { items: aggregated.sides, label: 'Sides', color: 'bg-gray-50 text-gray-500 border-gray-100' },
-                                    { items: aggregated.beverages, label: 'Beverages', color: 'bg-gray-50 text-gray-500 border-gray-100' },
-                                    { items: aggregated.dessert, label: 'Dessert', color: 'bg-pink-50 text-pink-700 border-pink-100' },
-                                ].map(cat => cat.items.length > 0 && (
-                                    <div key={cat.label} className="flex flex-wrap items-center gap-2">
-                                        {cat.items.map((agg: AggregatedCategory) => (
-                                            <span key={agg.name} className={`text-xs font-bold px-3 py-1 rounded-full border ${cat.color} inline-flex items-center gap-1.5`}>
-                                                {cat.label === 'Dessert' && '🍨 '}{agg.name}
-                                                <span className="inline-flex items-center gap-1 ml-1.5">
-                                                    <button
-                                                        onClick={() => handleAggregatedQty(agg.name, -1)}
-                                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600 active:bg-gray-200 leading-none"
-                                                    >−</button>
-                                                    <span className="text-xs font-bold text-gray-700 min-w-[12px] text-center tabular-nums">{agg.totalQty}</span>
-                                                    <button
-                                                        onClick={() => handleAggregatedQty(agg.name, 1)}
-                                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-600 active:bg-gray-200 leading-none"
-                                                    >+</button>
-                                                    <span className="text-[9px] text-gray-400 ml-0.5">{agg.unit}</span>
-                                                </span>
-                                            </span>
-                                        ))}
-                                    </div>
-                                ))}
-                            </div>
                         )}
 
                     </>
@@ -691,6 +618,15 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         <Clock size={14} />
                         {timeValidation.message}
                     </div>
+                )}
+                {!isLoading && displayMeals.length > 0 && (
+                        <button
+                            onClick={() => setAddDishOpen(true)}
+                            className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed transition-all active:scale-[0.98] border-gray-200 text-gray-500 mb-3"
+                        >
+                            <Sparkles size={18} className="text-[#FF385C]" />
+                            <span className="text-base font-bold">Add another {currentSlot.label.toLowerCase()} dish</span>
+                        </button>
                 )}
                 <button
                     onClick={handleNextSlot}
@@ -812,6 +748,11 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 />
             )}
         </div>
+        <style>{`
+            .scrollbar-hide::-webkit-scrollbar { display: none; }
+            .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        `}</style>
+        </>
     );
 };
 
