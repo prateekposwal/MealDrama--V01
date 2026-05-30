@@ -935,6 +935,67 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     return (
         <PullToRefresh onRefresh={() => useTrayStore.getState().syncOfflineQueue()}>
         <div className="pb-40 animate-in fade-in duration-300 bg-white">
+            <style>{`
+        .card-section-enter {
+          animation: fadeInUp 0.45s ease-out both;
+        }
+        .card-enter {
+          animation: cardIn 0.35s ease-out calc(var(--i, 0) * 0.07s) both;
+        }
+        .extra-card-enter {
+          animation: fadeInUp 0.3s ease-out calc(var(--i, 0) * 0.05s) both;
+        }
+        .card-enter:hover {
+          transform: scale(1.02);
+          box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .card-enter {
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          border-radius: 28px;
+        }
+        .aggregated-category {
+          transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .aggregated-chip {
+          touch-action: manipulation;
+          transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        .aggregated-chip:hover {
+          transform: scale(1.02);
+        }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes cardIn {
+          from { opacity: 0; transform: translateY(12px) scale(0.97); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes pulseRing {
+          0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+          70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+        .animate-pulse-ring {
+          animation: pulseRing 0.6s ease-out 2;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .card-section-enter,
+          .card-enter,
+          .extra-card-enter,
+          .aggregated-category,
+          .aggregated-chip {
+            animation: none !important;
+            transition: none !important;
+            transform: none !important;
+          }
+          .card-enter:hover {
+            transform: none !important;
+            box-shadow: none !important;
+          }
+        }
+      `}</style>
             {/* Header */}
             <header className="flex justify-between items-end px-6 pt-4 pb-2">
                 <div>
