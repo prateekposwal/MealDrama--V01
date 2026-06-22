@@ -15,6 +15,8 @@ import { buildLoopAssignments as buildAssignments, buildRotationQueue, assignFro
 import { dishToMeal } from '../utils/dishToMeal';
 import { generateMealTitle } from '../utils/generateMealTitle';
 import { getDishStyle } from '../constants/dishStyles';
+import { getIngredientsForMealOption } from '../utils/ingredientUtils';
+import { GENERATED_INGREDIENTS } from '../constants/generatedIngredients';
 import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../constants/dishLibrary';
 import { useStore, type TrayLibrary } from './useStore';
@@ -466,6 +468,25 @@ const emptyDayMeals = (): DayMeals => ({
 // M2: nanoid(16) — collision risk drops to ~1% at 1.8B items (vs 85M for 10 chars)
 const uid = () => `item_${nanoid(16)}`;
 
+/** Extract unique ingredient names from a dish for pantry auto-add.
+ *  Priority: 1) Generated ingredient map (covers variants without explicit ingredients),
+ *  2) getIngredientsForMealOption (explicit variant ingredients + inference fallback). */
+function getIngredientNamesForMeal(dishId: string, variantId?: string): string[] {
+  const key = `${dishId}::${variantId || ''}`;
+  const generated = GENERATED_INGREDIENTS[key];
+  if (generated) return [...new Set(generated.map(i => i.name))];
+  const store = useStore.getState();
+  let dishPool = store.dishes;
+  // Fallback to DISH_LIBRARY if store dishes aren't loaded yet (race condition on initial add)
+  if (!dishPool.length) {
+    const { DISH_LIBRARY } = require('../constants/dishLibrary');
+    dishPool = DISH_LIBRARY;
+  }
+  if (!dishPool.length) return [];
+  const ingredients = getIngredientsForMealOption(dishId, variantId || '', dishPool);
+  return [...new Set(ingredients.map(i => i.name))];
+}
+
 export const useTrayStore = create<TrayStore>()(
   persist(
     (set, get) => ({
@@ -545,11 +566,17 @@ export const useTrayStore = create<TrayStore>()(
          const pantryAccompaniments = defaults.sides.filter(s =>
            EMOJI_ACCOMPANIMENTS.test(s) || PANTRY_SIDES.includes(s)
          );
-         if (pantryAccompaniments.length > 0) {
-           useStore.getState().addToPantry(pantryAccompaniments);
-         }
+          if (pantryAccompaniments.length > 0) {
+            useStore.getState().addToPantry(pantryAccompaniments);
+          }
 
-         const timeDef = getTimeDef(mealType);
+          // Auto-add dish ingredient names to pantry
+          const mealIngredients = getIngredientNamesForMeal(meal.id, overrides?.variantId);
+          if (mealIngredients.length > 0) {
+            useStore.getState().addToPantry(mealIngredients);
+          }
+
+          const timeDef = getTimeDef(mealType);
          const embeddedCarb = defaults.roti ?? defaults.rice ?? undefined;
          const autoTitle = overrides?.title ?? generateMealTitle(meal.name, defaults.sides, defaults.beverages, embeddedCarb);
          const newItem: TrayItem = {
@@ -612,7 +639,7 @@ export const useTrayStore = create<TrayStore>()(
           return {
             plan: {
               ...s.plan,
-              days: { ...s.plan.days, [date]: { ...day, [mealType]: [...day[mealType], newItem] } },
+              days: { ...s.plan.days, [date]: { ...day, [mealType]: [newItem, ...day[mealType]] } },
             },
             saveStatus: { ...s.saveStatus, [newItem.id]: 'saving' },
           };
@@ -798,6 +825,12 @@ export const useTrayStore = create<TrayStore>()(
             ],
           };
         });
+
+        // Auto-add new meal ingredient names to pantry
+        const swappedIngredients = getIngredientNamesForMeal(newMeal.id);
+        if (swappedIngredients.length > 0) {
+          useStore.getState().addToPantry(swappedIngredients);
+        }
 
         // FIX 1: Sync swap to loop queue — replace oldDishId with newDishId
         set((s) => {
@@ -1337,22 +1370,167 @@ export const useTrayStore = create<TrayStore>()(
         clearAutoFillCache();
 
         set((s) => {
-          // Build rotation queue and state from current pool
-          const queue = buildRotationQueue(pool, dishes);
+          // When a loop already exists, use mid-cycle path to preserve existing assignments
+          if (s.mealLoop.config) {
+            const oldIds = s.mealLoop.sourceDishIds;
+            const newIds = Object.values(pool).flat().map((d: Dish) => d.id);
+            const result = handleMidCycleAdd(
+              oldIds, newIds, pool, config,
+              s.mealLoop.rotationQueue, s.mealLoop.next_index,
+              s.mealLoop.assignments, dishes,
+            );
+            const rotationState = buildRotationState(pool, dishes);
+
+            // Only fill new assignments — DON'T clear existing meals
+            const newDays = { ...s.plan.days };
+            for (const a of result.assignments) {
+              if (!newDays[a.date]) {
+                newDays[a.date] = emptyDayMeals();
+              }
+              // Skip if slot already has a meal (handleMidCycleAdd dedupes via existingSet, but ensure)
+              if (newDays[a.date][a.mealType].length > 0) continue;
+              if (dishes) {
+                const dish = dishes.find(d => d.id === a.dishId);
+                if (dish) {
+                  const meal = dishToMeal(dish);
+                  const defaults = applySmartDefaults(meal, a.mealType, undefined, { useSmartSuggestions: true });
+                  const timeDef = getTimeDef(a.mealType);
+                  const loopCarb = defaults.roti ?? defaults.rice ?? undefined;
+                  const loopTitle = generateMealTitle(meal.name, defaults.sides, defaults.beverages, loopCarb);
+                  newDays[a.date][a.mealType].push({
+                    id: uid(),
+                    meal_id: meal.id,
+                    name: meal.name,
+                    title: loopTitle,
+                    icon: meal.icon,
+                    quantity: 1,
+                    servings: 1,
+                    smartVersion: 1,
+                    style: getDishStyle(meal.id),
+                    gravy: defaults.gravy,
+                    roti: defaults.roti,
+                    rice: defaults.rice,
+                    sides: defaults.sides,
+                    beverages: defaults.beverages,
+                    dessert: defaults.dessert,
+                    itemQtys: defaults.itemQtys,
+                    start_time: timeDef.start,
+                    end_time: timeDef.end,
+                    source: 'loop',
+                  });
+                }
+              }
+            }
+
+            // Clamp rotationState pointers
+            const buildPerSlotQueues = (queue: typeof s.mealLoop.rotationQueue) => {
+              const perSlot: Record<MealType, string[]> = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+              for (const item of queue) {
+                perSlot[item.mealType].push(item.dishId);
+              }
+              return perSlot;
+            };
+            const newPerSlot = buildPerSlotQueues(result.queue);
+            const clampedRotationState = {
+              breakfast: { queue: newPerSlot.breakfast, pointer: Math.min(rotationState.breakfast.pointer, newPerSlot.breakfast.length) },
+              lunch: { queue: newPerSlot.lunch, pointer: Math.min(rotationState.lunch.pointer, newPerSlot.lunch.length) },
+              snacks: { queue: newPerSlot.snacks, pointer: Math.min(rotationState.snacks.pointer, newPerSlot.snacks.length) },
+              dinner: { queue: newPerSlot.dinner, pointer: Math.min(rotationState.dinner.pointer, newPerSlot.dinner.length) },
+            };
+
+            enqueueUtil('loop_save', {
+              config,
+              sourceDishIds: newIds,
+              assignments: result.assignments,
+            });
+            window.dispatchEvent(new Event('pantry:invalidate'));
+
+            return {
+              mealLoop: {
+                ...s.mealLoop,
+                config,
+                sourceDishIds: newIds,
+                pool_version: result.pool_version,
+                rotationQueue: result.queue,
+                next_index: Math.min(result.assignments.length, result.queue.length),
+                assignments: result.assignments,
+                rotationState: clampedRotationState,
+                undoStack: [{
+                  config: s.mealLoop.config,
+                  sourceDishIds: s.mealLoop.sourceDishIds,
+                  rotationQueue: s.mealLoop.rotationQueue,
+                  rotationState: s.mealLoop.rotationState,
+                  analytics: s.mealLoop.analytics,
+                }, ...s.mealLoop.undoStack].slice(0, 5),
+                refreshing: false,
+                lastRefreshStart: undefined,
+              },
+              plan: { ...s.plan, days: newDays },
+            };
+          }
+
+          // Fresh build for first-time setup
+          const { queue, assignments: newAssignments } = buildAssignments(pool, config, dishes);
           const rotationState = buildRotationState(pool, dishes);
 
-          // Keep existing assignments — never reshuffle existing meals
-          const existingAssignments = s.mealLoop.assignments;
+          // Clear old meals, completions, and skips for each targeted slot
+          const newDays = { ...s.plan.days };
+          const newCompletions = { ...s.completions };
+          const newSkipped = { ...s.skipped };
+          for (const a of newAssignments) {
+            const key = `${a.date}::${a.mealType}`;
+            if (newDays[a.date]) {
+              newDays[a.date] = { ...newDays[a.date], [a.mealType]: [] };
+            }
+            delete newCompletions[key];
+            delete newSkipped[key];
+          }
+
+          // Fill new meals
+          for (const a of newAssignments) {
+            if (!newDays[a.date]) {
+              newDays[a.date] = emptyDayMeals();
+            }
+            if (dishes) {
+              const dish = dishes.find(d => d.id === a.dishId);
+              if (dish) {
+                const meal = dishToMeal(dish);
+                const defaults = applySmartDefaults(meal, a.mealType, undefined, { useSmartSuggestions: true });
+                const timeDef = getTimeDef(a.mealType);
+                const loopCarb = defaults.roti ?? defaults.rice ?? undefined;
+                const loopTitle = generateMealTitle(meal.name, defaults.sides, defaults.beverages, loopCarb);
+                newDays[a.date][a.mealType].push({
+                  id: uid(),
+                  meal_id: meal.id,
+                  name: meal.name,
+                  title: loopTitle,
+                  icon: meal.icon,
+                  quantity: 1,
+                  servings: 1,
+                  smartVersion: 1,
+                  style: getDishStyle(meal.id),
+                  gravy: defaults.gravy,
+                  roti: defaults.roti,
+                  rice: defaults.rice,
+                  sides: defaults.sides,
+                  beverages: defaults.beverages,
+                  dessert: defaults.dessert,
+                  itemQtys: defaults.itemQtys,
+                  start_time: timeDef.start,
+                  end_time: timeDef.end,
+                  source: 'loop',
+                });
+              }
+            }
+          }
 
           // Queue loop changes for offline sync
           enqueueUtil('loop_save', {
             config,
             sourceDishIds: Object.values(pool).flat().map((d: Dish) => d.id),
-            assignments: existingAssignments,
+            assignments: newAssignments,
           });
           window.dispatchEvent(new Event('pantry:invalidate'));
-
-          const newNextIndex = Math.min(existingAssignments.length, queue.length);
 
           return {
             mealLoop: {
@@ -1360,8 +1538,8 @@ export const useTrayStore = create<TrayStore>()(
               sourceDishIds: Object.values(pool).flat().map((d: Dish) => d.id),
               pool_version: 1,
               rotationQueue: queue,
-              next_index: newNextIndex,
-              assignments: existingAssignments,
+              next_index: Math.min(newAssignments.length, queue.length),
+              assignments: newAssignments,
               overrides: s.mealLoop.overrides,
               rotationState,
               undoStack: s.mealLoop.config
@@ -1374,10 +1552,12 @@ export const useTrayStore = create<TrayStore>()(
                   }, ...s.mealLoop.undoStack].slice(0, 5)
                 : s.mealLoop.undoStack,
               analytics: s.mealLoop.analytics,
-              refreshing: s.mealLoop.refreshing,
-              lastRefreshStart: s.mealLoop.lastRefreshStart,
+              refreshing: false,
+              lastRefreshStart: undefined,
             },
-            plan: s.plan,
+            plan: { ...s.plan, days: newDays },
+            completions: newCompletions,
+            skipped: newSkipped,
           };
         });
 
@@ -1497,23 +1677,44 @@ export const useTrayStore = create<TrayStore>()(
           const cfg = s.mealLoop.config;
           if (!cfg) return s;
 
-          // FIX 10: Detect empty rotationState queues and bail gracefully
-          const totalQueueSize =
-            s.mealLoop.rotationState.breakfast.queue.length +
-            s.mealLoop.rotationState.lunch.queue.length +
-            s.mealLoop.rotationState.snacks.queue.length +
-            s.mealLoop.rotationState.dinner.queue.length;
-          if (totalQueueSize === 0) {
-            useStore.getState().setToast({ message: '⚠️ Loop queue is empty. Add dishes to Tray first, then configure loop.', type: 'error' });
-            return s;
-          }
-
-          // Rebuild assignments from current rotationState
-          // FIX 4: Only scan dates within the loop's cycle window, not all 365 plan days
+          // Rebuild rotation state from current plan dishes (picks up newly added dishes)
           const loopStartDate = new Date(cfg.startDate);
           const loopEndDate = new Date(loopStartDate);
           loopEndDate.setDate(loopEndDate.getDate() + cfg.cycleLength * 7);
           const loopEndStr = getISODate(loopEndDate);
+
+          const currentDishIds: Record<MealType, Set<string>> = {
+            breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set(),
+          };
+          for (const [date, day] of Object.entries(s.plan.days)) {
+            if (date < cfg.startDate || date > loopEndStr) continue;
+            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+              for (const item of day[mt]) {
+                if (item.meal_id) currentDishIds[mt].add(item.meal_id);
+              }
+            }
+          }
+
+          const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+          if (dishes) {
+            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+              for (const id of currentDishIds[mt]) {
+                const dish = dishes.find(d => d.id === id);
+                if (dish) pool[mt].push(dish);
+              }
+            }
+          }
+          const newRotationState = buildRotationState(pool, dishes);
+
+          const totalQueueSize =
+            newRotationState.breakfast.queue.length +
+            newRotationState.lunch.queue.length +
+            newRotationState.snacks.queue.length +
+            newRotationState.dinner.queue.length;
+          if (totalQueueSize === 0) {
+            useStore.getState().setToast({ message: '⚠️ Loop queue is empty. Add dishes to Tray first, then configure loop.', type: 'error' });
+            return s;
+          }
 
           const existingItems: Array<{ date: string; mealType: MealType; source?: string }> = [];
           for (const [date, day] of Object.entries(s.plan.days)) {
@@ -1525,11 +1726,17 @@ export const useTrayStore = create<TrayStore>()(
             }
           }
 
-          const result = autoFillLoopEngine(cfg, s.mealLoop.rotationState, existingItems);
+          const result = autoFillLoopEngine(cfg, newRotationState, existingItems);
 
-          // FIX 13: Surface errors if assignment fails silently
-          if (result.assignments.length === 0 && totalQueueSize > 0) {
-            useStore.getState().setToast({ message: '⚠️ Loop assignment failed. No meals could be scheduled.', type: 'error' });
+          // FIX 8: Deduplicate assignments — prevent bloat from repeated refreshes
+          const existingKeys = new Set(s.mealLoop.assignments.map(a => `${a.date}|${a.mealType}`));
+          const dedupedNew = result.assignments.filter(a => !existingKeys.has(`${a.date}|${a.mealType}`));
+
+          if (dedupedNew.length === 0) {
+            useStore.getState().setToast({
+              message: '✅ All future slots are already filled — nothing to refresh.',
+              type: 'info',
+            });
             return {
               ...s,
               mealLoop: {
@@ -1539,10 +1746,6 @@ export const useTrayStore = create<TrayStore>()(
               },
             };
           }
-
-          // FIX 8: Deduplicate assignments — prevent bloat from repeated refreshes
-          const existingKeys = new Set(s.mealLoop.assignments.map(a => `${a.date}|${a.mealType}`));
-          const dedupedNew = result.assignments.filter(a => !existingKeys.has(`${a.date}|${a.mealType}`));
 
           const newDays: Record<string, DayMeals> = {};
           for (const a of dedupedNew) {
@@ -1589,10 +1792,11 @@ export const useTrayStore = create<TrayStore>()(
           return {
             mealLoop: {
               ...s.mealLoop,
+              sourceDishIds: Object.values(pool).flat().map((d: Dish) => d.id),
               rotationState: result.rotationState,
               assignments: [...s.mealLoop.assignments, ...dedupedNew],
-              refreshing: false, // Reset rate limit flag
-              lastRefreshStart: undefined, // Clear loading state
+              refreshing: false,
+              lastRefreshStart: undefined,
             },
             plan: {
               ...s.plan,

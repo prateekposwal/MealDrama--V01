@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, Phone, X, Check } from 'lucide-react';
 import { getShareStrings, LANGUAGE_OPTIONS, SLOT_LABELS, ShareLanguage } from '../../utils/share';
+import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 
 interface WhatsAppShareModalProps {
     isOpen: boolean;
@@ -23,6 +25,8 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     completedSlots = [],
     preselectedSlot,
 }) => {
+    useLockBodyScroll(isOpen);
+    useBackButtonClose(isOpen, onClose);
     const [phone, setPhone] = useState(defaultPhone || '');
     const [language, setLanguage] = useState<ShareLanguage>('en');
     const [selectedSlots, setSelectedSlots] = useState<string[]>(
@@ -65,9 +69,9 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[70] bg-black/40 backdrop-blur-sm flex items-end justify-center p-4">
-            <div className="w-full max-w-lg rounded-[28px] bg-white shadow-2xl border border-gray-100 overflow-hidden">
-                <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-4">
+        <div className="fixed inset-0 z-[70] bg-black/40 backdrop-blur-sm flex items-end justify-center p-4 pt-12">
+            <div className="w-full max-w-lg rounded-[28px] bg-white shadow-2xl border border-gray-100 max-h-[85dvh] flex flex-col">
+                <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-4 flex-shrink-0">
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-2">WhatsApp preview</p>
                         <h3 className="text-xl font-bold text-gray-900">{title}</h3>
@@ -78,7 +82,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                     </button>
                 </div>
 
-                <div className="px-5 py-4 space-y-4">
+                <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
                     {/* Language picker */}
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Regional language</p>
@@ -155,7 +159,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                     </div>
                 </div>
 
-                <div className="px-5 pb-5">
+                <div className="px-5 pb-5 flex-shrink-0">
                     <button
                         onClick={shareNow}
                         className="w-full py-4 rounded-[20px] bg-[#25D366] text-white font-bold text-base flex items-center justify-center gap-3 shadow-xl shadow-green-500/20 active:scale-[0.98] transition-all"

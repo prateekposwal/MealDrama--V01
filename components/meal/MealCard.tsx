@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { TrayItem, SaveStatus, MealType } from '../../store/useTrayStore';
 import {
-    X, Sparkles, MessageCircle,
+    X, MessageCircle,
 } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import type { Dish } from '../../constants/dishLibrary';
@@ -120,14 +120,6 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                     {!hideSlotLabel && (
                         <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">{slot}</span>
                     )}
-                    {onShareSlot && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onShareSlot(); }}
-                            className="w-5 h-5 rounded-md bg-[#25D366]/10 flex items-center justify-center text-[#25D366] active:scale-90 transition-all"
-                        >
-                            <MessageCircle size={10} />
-                        </button>
-                    )}
                     {!hideTime && (
                         <span className="ml-auto">
                             {editingTime ? (
@@ -149,19 +141,19 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
 
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={onSwapCustomizeOpen}
-                        className="group h-8 rounded-xl border border-dashed border-emerald-400 text-emerald-600 active:scale-90 transition-all flex items-center gap-1 px-2.5"
-                        aria-label={`Build Plate ${item.name}`}
-                        title="Build Plate"
-                    >
-                        <Sparkles size={13} className="transition-transform duration-200 group-hover:scale-110" />
-                        <span className="text-[10px] font-bold">Build Plate</span>
-                    </button>
+                    {onShareSlot && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onShareSlot(); }}
+                            className="w-8 h-8 rounded-xl bg-[#25D366]/10 flex items-center justify-center text-[#25D366] active:scale-90 transition-all hover:ring-2 hover:ring-[#25D366]/30 hover:ring-offset-1"
+                            aria-label="Share meal via WhatsApp"
+                        >
+                            <MessageCircle size={14} />
+                        </button>
+                    )}
                     {!isLocked && !isMissed && editable && (
                         <button
                             onClick={onRemove}
-                            className="w-8 h-8 rounded-xl border flex items-center justify-center active:scale-90 transition-all bg-gray-50 border-gray-200 text-gray-500"
+                            className="w-8 h-8 rounded-xl border flex items-center justify-center active:scale-90 transition-all bg-gray-50 border-gray-200 text-gray-500 hover:ring-2 hover:ring-red-300 hover:ring-offset-1"
                             aria-label={`Remove ${item.name}`}
                         >
                             <X size={14} />
@@ -171,14 +163,38 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
             </div>
 
             <div className="flex items-center gap-4">
-                <DishImage name={item.name} slot={slot} size="lg" />
+                {editable ? (
+                    <button onClick={onSwapCustomizeOpen} className="shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl active:scale-90 transition-all">
+                        <DishImage name={item.name} slot={slot} size="lg" />
+                    </button>
+                ) : (
+                    <div className="shrink-0">
+                        <DishImage name={item.name} slot={slot} size="lg" />
+                    </div>
+                )}
                 <div className="flex-1 min-w-0">
-                    <h4 className="font-extrabold text-xl tracking-tight leading-tight flex items-center flex-wrap gap-1.5 text-gray-900">
-                        <span className="text-sm leading-snug line-clamp-2">{item.title || item.name}</span>
+                    <h4 className="font-extrabold text-xl tracking-tight leading-tight text-gray-900">
+                        <span className="text-sm leading-snug line-clamp-2">{(item.title || item.name).replace(/ \+ /g, ' ')}</span>
+                    </h4>
+                    <div className="flex items-center gap-1.5 mt-1">
                         {item.quantity > 1 && (
                             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
                                 x{item.quantity}
                             </span>
+                        )}
+                        {editable && onUpdateInline && (
+                            <div className="flex items-center gap-1 ml-0.5">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: Math.max(1, item.quantity - 1) }); }}
+                                    disabled={item.quantity <= 1}
+                                    className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 disabled:opacity-30 text-[10px] font-bold leading-none"
+                                >−</button>
+                                <span className="text-xs font-bold text-gray-700 tabular-nums w-4 text-center">{item.quantity}</span>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity + 1 }); }}
+                                    className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
+                                >+</button>
+                            </div>
                         )}
                         {item.addon && (
                             <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
@@ -191,7 +207,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                             </span>
                         )}
                         <HealthScoreBadge score={healthScore} size="sm" />
-                    </h4>
+                    </div>
 
                 </div>
             </div>

@@ -121,14 +121,14 @@ function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals:
       isMissed = false;
       editable = false;
       showSuggestions = false;
-      cardClass = 'rounded-[28px] opacity-40 pointer-events-none select-none';
+      cardClass = '';
       break;
     case 'history':
       isLocked = false;
       isMissed = false;
       editable = false;
       showSuggestions = false;
-      cardClass = 'rounded-[28px] opacity-60 pointer-events-none select-none';
+      cardClass = '';
       break;
     case 'builder':
       isLocked = false;
@@ -467,36 +467,67 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
               <div className="px-5 pb-4 -mt-2 space-y-1.5">
                 {(slotMeals.slice(1) as TrayItem[]).map(extra => (
                   <div key={extra.id} style={_ANIM_STYLE_1} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100 extra-card-enter">
-                    <DishImage name={extra.name} slot={slotLabel} size="sm" />
+                    <button onClick={() => onSwapCustomizeOpen?.(extra.id)} className="shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl active:scale-90 transition-all">
+                      <DishImage name={extra.name} slot={slotLabel} size="sm" />
+                    </button>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-bold text-gray-700 truncate">
-                          {extra.name}
+                          {extra.style ? `${extra.style} ${extra.name}` : extra.name}
                         </span>
-                        {extra.quantity > 1 && (
+                        {editable ? (
+                          <div className="flex items-center gap-1 ml-0.5">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: Math.max(1, extra.quantity - 1) }); }}
+                              disabled={extra.quantity <= 1}
+                              className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 disabled:opacity-30 text-[9px] font-bold leading-none"
+                            >−</button>
+                            <span className="text-xs font-bold text-gray-700 tabular-nums w-4 text-center">{extra.quantity}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: extra.quantity + 1 }); }}
+                              className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[9px] font-bold leading-none"
+                            >+</button>
+                          </div>
+                        ) : extra.quantity > 1 && (
                           <span className="text-[8px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0">
                             x{extra.quantity}
                           </span>
                         )}
-                        {extra.style && (
-                          <span className="text-[8px] font-bold bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-full border border-indigo-100 flex-shrink-0">
-                            {extra.style}
-                          </span>
-                        )}
                       </div>
+                      {(() => {
+                        const seen = new Set<string>();
+                        const cats = [
+                          extra.gravy,
+                          extra.roti,
+                          extra.rice,
+                          ...(extra.sides ?? []),
+                          ...(extra.beverages ?? []),
+                          ...(extra.dessert ?? []),
+                        ].filter(Boolean).filter(s => {
+                          const key = (s as string).toLowerCase().trim();
+                          if (seen.has(key)) return false;
+                          seen.add(key);
+                          return true;
+                        });
+                        return cats.length > 0 ? (
+                          <span className="text-[9px] text-gray-400 font-medium leading-tight mt-0.5 block">
+                            ({cats.join(', ')})
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                     {editable && (
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => onSwapCustomizeOpen?.(extra.id)}
-                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-100 text-gray-400 active:scale-90 transition-all flex-shrink-0"
+                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-100 text-gray-400 active:scale-90 transition-all flex-shrink-0 hover:ring-2 hover:ring-emerald-300 hover:ring-offset-1"
                           aria-label={`Customize ${extra.name}`}
                         >
                           <Sparkles size={10} />
                         </button>
                         <button
                           onClick={onRemove(date, mealType, extra.id)}
-                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all flex-shrink-0"
+                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all flex-shrink-0 hover:ring-2 hover:ring-red-300 hover:ring-offset-1"
                           aria-label={`Remove ${extra.name}`}
                         >
                           <X size={10} />
@@ -556,19 +587,19 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
               className="flex-1 flex items-center gap-2 text-left hover:brightness-95 active:scale-[0.98] transition-all -m-2 p-2"
             >
               <div className="flex items-center -space-x-2">
-                <div className="relative">
+                <div className="relative hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl transition-all">
                   <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
                   {meals[0] && (() => {
                     const qty = meals[0].itemQtys ? Object.values(meals[0].itemQtys).reduce((a, b) => a + b, 0) : meals[0].quantity;
-                    return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center">×{qty}</span> : null;
+                      return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center z-10 shadow-lg">×{qty}</span> : null;
                   })()}
                 </div>
                 {meals.length > 1 && (
-                  <div className="relative">
+                  <div className="relative hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl transition-all">
                     <DishImage name={meals[1]?.name || slotLabel} slot={slotLabel} size="sm" />
                     {meals[1] && (() => {
                       const qty = meals[1].itemQtys ? Object.values(meals[1].itemQtys).reduce((a, b) => a + b, 0) : meals[1].quantity;
-                      return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center">×{qty}</span> : null;
+                    return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center z-10 shadow-lg">×{qty}</span> : null;
                     })()}
                   </div>
                 )}
@@ -624,8 +655,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         </div>
       )}
 
-      {/* ─── Add Dish button (slots with meals) ─── */}
-      {editable && onAddAnother && meals.length > 0 && (
+      {/* ─── Add Dish button (slots with meals) — hidden while customize modal is open ─── */}
+      {editable && onAddAnother && !swapCustomizeOpenKey && meals.length > 0 && (
         <button
           onClick={() => setAddDishOpen(true)}
           className="group w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-dashed border-emerald-300 text-emerald-500 hover:text-emerald-600 hover:border-emerald-400 hover:shadow-lg hover:shadow-emerald-200/50 active:scale-[0.98] transition-all text-[10px] font-bold"
@@ -704,7 +735,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
       {/* Swap Customize Modal — exclusive with Add Dish modal */}
       {activeCustomizeItem && onSwapCustomizeApply && !addDishOpen && (
-        <SwapCustomizeModal
+        <Suspense fallback={null}><SwapCustomizeModal
           key={`${slotLabel}_${date}`}
           isOpen={swapCustomizeOpenKey !== null}
           onClose={() => onSwapCustomizeClose?.()}
@@ -718,12 +749,12 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           onApply={handleModalApply}
           onAddAnother={onAddAnother}
           onChange={handleModalChange}
-        />
+        /></Suspense>
       )}
 
       {/* Add Dish Modal — exclusive with Customize modal */}
       {addDishOpen && onAddAnother && !swapCustomizeOpenKey && (
-        <SwapCustomizeModal
+        <Suspense fallback={null}><SwapCustomizeModal
           key={`add_${slotLabel}_${date}`}
           isOpen={addDishOpen}
           onClose={stableAddDishClose}
@@ -738,7 +769,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           onAddAnother={onAddAnother}
           initialAddMode={true}
           onChange={handleModalChange}
-        />
+        /></Suspense>
       )}
     </div>
   );

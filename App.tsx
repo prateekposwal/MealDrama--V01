@@ -13,6 +13,7 @@ import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
 import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
+import { hasOpenModals, closeTopModal } from './utils/modalStack';
 import { enqueue } from './utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
 import type { Dish, DishLibrary } from './constants/dishLibrary';
@@ -200,6 +201,36 @@ const App: React.FC = () => {
     }
   }, [isHydrated, isLoggedIn]);
 
+  // TITLE MIGRATION: Strip ` + ` from all persisted meal titles (one-time)
+  useEffect(() => {
+    if (!isHydrated) return;
+    const raw = localStorage.getItem('mealdrama-store');
+    if (!raw) return;
+    try {
+      const store = JSON.parse(raw);
+      let mutated = false;
+      const days = store.state?.plan?.days;
+      if (days) {
+        for (const date of Object.keys(days)) {
+          for (const mealType of Object.keys(days[date])) {
+            const meals = days[date][mealType] as any[];
+            if (!meals) continue;
+            for (const meal of meals) {
+              if (meal.title && meal.title.includes(' + ')) {
+                meal.title = meal.title.replace(/ \+ /g, ' ');
+                mutated = true;
+              }
+            }
+          }
+        }
+      }
+      if (mutated) {
+        localStorage.setItem('mealdrama-store', JSON.stringify(store));
+        console.log('[Migration] Stripped + from persisted meal titles');
+      }
+    } catch {}
+  }, [isHydrated]);
+
   // SYNC: Keep authStorage in sync with trayBuilt to prevent routing loops
   useEffect(() => {
     if (isHydrated && isLoggedIn) {
@@ -214,6 +245,11 @@ const App: React.FC = () => {
       try {
         const { App } = await import('@capacitor/app');
         const handler = await App.addListener('backButton', () => {
+          // Priority 0: Close open modal
+          if (hasOpenModals()) {
+            closeTopModal();
+            return;
+          }
           // Priority 1: Pop sub-view nav stack
           if (navStackRef.current.length > 0) {
             goBack();
@@ -563,7 +599,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 z-50" role="navigation" aria-label="Main navigation">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 z-50 pb-[env(safe-area-inset-bottom)]" role="navigation" aria-label="Main navigation">
         <div className="grid grid-cols-4 px-1 py-1">
           {TABS.map(({ key, label, Icon }) => {
             const active = activeTab === key;

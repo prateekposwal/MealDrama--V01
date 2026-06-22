@@ -8,17 +8,18 @@ import type { Meal } from '../../types/tray';
 import type { Dish, DishVariant, Region, Category } from '../../constants/dishLibrary';
 import { dishToMeal } from '../../utils/dishToMeal';
 import { resolveDisplayName } from '../../utils/resolveDisplayName';
+import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { scoreDish } from '../../utils/nutritionScore';
 import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import {
-  indian_meal_categories, getRecommendedCategories, getDishStyle,
+  indian_meal_categories, categoryGroups, getRecommendedCategories, getDishStyle,
   isStreetFood, isNutItem, getItemRegion, mergeCategoryOptions,
   CATEGORY_CONFIG, DISH_STYLES, STYLE_GROUP_ICONS, getPairingSuggestions,
   internalToStyleGroup, styleGroupToInternal,
 } from '../../constants/dishStyles';
 import type { IndianMealCategory, DishStyleGroup } from '../../constants/dishStyles';
 import { useStore } from '../../store/useStore';
-import { VirtualList } from '../new/VirtualList';
 import { HealthFilterBar } from '../health/HealthFilterBar';
 import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
 import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
@@ -169,6 +170,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   initialAddMode,
   onChange,
 }) => {
+  useLockBodyScroll(isOpen);
+  useBackButtonClose(isOpen, onClose);
   const slotMeals = useTrayStore(
     useShallow((state) => state.plan.days[date]?.[mealType] ?? [])
   );
@@ -225,6 +228,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const initRef = useRef<string | null>(null);
   const seededMealRef = useRef<string | null>(null);
   const explicitlyRemovedRef = useRef<Set<string>>(new Set());
+  const [showRegionHints, setShowRegionHints] = useState(false);
+  const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
   const [showCustomDishForm, setShowCustomDishForm] = useState(false);
   const [customDishName, setCustomDishName] = useState('');
   const [customDishStyle, setCustomDishStyle] = useState<string>('Gravy');
@@ -296,6 +301,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         setCustomDishStyle('Gravy');
         setCustomDishDiet('veg');
         setCustomDishName('');
+        setCustomInputs({});
+        setShowRegionHints(false);
         initRef.current = '__add_mode__';
         return;
       }
@@ -314,6 +321,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       setCustomDishStyle('Gravy');
       setCustomDishDiet('veg');
       setCustomDishName('');
+      setShowRegionHints(false);
       const allDishes = [...dishes, ...customDishes];
       const sourceDish = allDishes.find(d => d.id === item.meal_id) || allDishes.find(d => d.name === item.name);
       if (sourceDish) {
@@ -326,8 +334,14 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         if (restoredVariant) setSelectedVariant(restoredVariant);
         setDish(sourceDish);
         setMeal(m);
-        setQuantity(1);
-        setSelectedStyleGroup(style ? internalToStyleGroup(style) : null);
+        setQuantity(item.quantity || 1);
+        const validStyleGroups: DishStyleGroup[] = ['Gravy','Dry','Fry','Tadka','Roast','Steam','Rice','Breakfast','Beverage','Sweet','Bread','Side','Soup'];
+        const restoredStyle = item.style && validStyleGroups.includes(item.style as DishStyleGroup)
+          ? (item.style as DishStyleGroup)
+          : (style ? internalToStyleGroup(style) : null);
+        setSelectedStyleGroup(restoredStyle);
+        const breadSet = new Set(indian_meal_categories.bread.map(s => s.toLowerCase().trim()));
+        const riceSet = new Set(indian_meal_categories.rice.map(s => s.toLowerCase().trim()));
         if (seededMealRef.current !== item.meal_id) {
           seededMealRef.current = item.meal_id;
           const removed = explicitlyRemovedRef.current;
@@ -336,28 +350,49 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
           // Existing items may have extra carbs from old loop fills (e.g., both
           // roti AND rice stored). Detect what carb the dish name implies and
           // clear conflicting values so only the correct carb is pre-selected.
+          // Only override when the meal context allows that carb type (e.g., skip
+          // "Millet Roti" for a smoothie whose name contains "ragi").
           const embeddedCarb = detectEmbeddedCarb(m.name);
           let effectiveRoti = item.roti;
           let effectiveRice = item.rice;
 
           if (embeddedCarb) {
             if (isRotiLike(embeddedCarb) || isBreadLike(embeddedCarb)) {
-              // Dish implies a roti-like carb → clear rice, use embedded carb
-              effectiveRoti = embeddedCarb;
-              effectiveRice = null;
+              // Only override roti when the meal context allows roti options
+              if (m.rotiOptions && m.rotiOptions.length > 0) {
+                effectiveRoti = embeddedCarb;
+                effectiveRice = null;
+              }
             } else {
-              // Dish implies rice → clear roti
-              effectiveRoti = null;
-              effectiveRice = embeddedCarb;
+              // Only override rice when the meal context allows rice options
+              if (m.riceOptions && m.riceOptions.length > 0) {
+                effectiveRoti = null;
+                effectiveRice = embeddedCarb;
+              }
             }
           }
 
           setSelectedCategories({
             bread: effectiveRoti ? [effectiveRoti].filter(s => !removed.has(`bread_${s.toLowerCase().trim()}`)) : [],
             rice: effectiveRice ? [effectiveRice].filter(s => !removed.has(`rice_${s.toLowerCase().trim()}`)) : [],
-            side: item.sides?.length ? item.sides.filter(s => !removed.has(`side_${s.toLowerCase().trim()}`)) : [],
+            side: item.sides?.length ? item.sides.filter(s => {
+              const key = s.toLowerCase().trim();
+              return !removed.has(`side_${key}`) && !breadSet.has(key) && !riceSet.has(key);
+            }) : [],
             beverage: item.beverages?.length ? item.beverages.filter(s => !removed.has(`beverage_${s.toLowerCase().trim()}`)) : [],
             dessert: item.dessert?.length ? item.dessert.filter(s => !removed.has(`dessert_${s.toLowerCase().trim()}`)) : [],
+          });
+        } else {
+          // Restore categories on subsequent opens (fix: chips disappearing)
+          setSelectedCategories({
+            bread: item.roti ? [item.roti] : [],
+            rice: item.rice ? [item.rice] : [],
+            side: item.sides?.length ? item.sides.filter(s => {
+              const key = s.toLowerCase().trim();
+              return !breadSet.has(key) && !riceSet.has(key);
+            }) : [],
+            beverage: item.beverages?.length ? item.beverages : [],
+            dessert: item.dessert?.length ? item.dessert : [],
           });
         }
         initRef.current = item.meal_id;
@@ -405,13 +440,13 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       onAddAnother?.(date, mealType, newDish, relevantVariants.length === 1 ? relevantVariants[0] : undefined);
       setJustAddedDish(newDish.name);
       setSearchQuery('');
-      // Auto-close after brief confirmation
+      // Auto-dismiss toast after 1.5s but keep modal open
       if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
       autoCloseTimerRef.current = setTimeout(() => {
         if (modalGuardRef.current.isClosed) return;
         setJustAddedDish(null);
-        handleClose();
-      }, 700);
+        autoCloseTimerRef.current = null;
+      }, 1500);
       return;
     }
     const m = dishToMeal(newDish);
@@ -517,7 +552,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       [...new Set(selectedCategories.beverage)],
       selectedCategories.rice[0] ?? selectedCategories.bread[0] ?? undefined,
     );
-    const suggestions = getPairingSuggestions(selectedStyleGroup ?? 'Gravy');
+    const suggestions = getPairingSuggestions(selectedStyleGroup);
     const customizationLog = {
       dishId: currentDish.id,
       dishName: currentDish.name,
@@ -591,10 +626,12 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     return map;
   }, [selectedCategories]);
 
-  // ── Apply: data already synced in real-time, just close ──
+  // ── Apply: flush pending syncs, then close ──
   const handleApply = useCallback(() => {
     if (onChange) {
-      // Data synced via effect on every interaction; just close
+      // Flush any buffered syncs before closing so the latest selections
+      // (including removals) are persisted before the modal reopens.
+      syncBufferRef.current.flush();
       explicitlyRemovedRef.current.clear();
       seededMealRef.current = null;
       onClose();
@@ -610,7 +647,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       selectedCategories.beverage,
       selectedCategories.rice[0] ?? selectedCategories.bread[0] ?? undefined,
     );
-    const suggestions = getPairingSuggestions(selectedStyleGroup ?? 'Gravy');
+    const suggestions = getPairingSuggestions(selectedStyleGroup);
     const customizationLog = {
       dishId: currentDish.id,
       dishName: currentDish.name,
@@ -694,11 +731,6 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     return showGlobal ? [...global_, ...regional] : [...regional, ...global_];
   }, [showSwapSearch, dishes, customDishes, mealType, userDiet, userRegion, debouncedSearchQuery, showGlobal, healthPreset, healthSort, slotMeals]);
 
-  const visibleSwapItems = useMemo(
-    () => swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 30),
-    [swapSearchDishes, showAllSwapResults]
-  );
-
   const renderSwapItem = useCallback(({ dish, healthScore }: { dish: Dish; healthScore: number }) => {
     const isRegional = dish.region.toLowerCase().includes(regionKey);
     const hScore = healthScore;
@@ -708,46 +740,38 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     if (defaults.gravy) previewChips.push({ key: 'g', label: defaults.gravy });
     if (defaults.roti) previewChips.push({ key: 'r', label: defaults.roti });
     if (defaults.rice) previewChips.push({ key: 'ri', label: defaults.rice });
-    for (const s of defaults.sides) previewChips.push({ key: `s-${s}`, label: s });
-    for (const b of defaults.beverages) previewChips.push({ key: `b-${b}`, label: b });
+    const topChips = previewChips.slice(0, 2);
+    const extraCount = previewChips.length - topChips.length;
 
     return (
       <button
         key={dish.id}
         onClick={() => handleSwapSelect(dish)}
-        className="w-full flex items-start gap-3 p-3 rounded-xl transition-all active:scale-[0.98] text-left bg-gray-50 hover:bg-gray-100"
+        className="flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all active:scale-[0.97] bg-white border border-gray-100 hover:border-gray-200 text-center"
         aria-label={`Select ${dish.name}`}>
         <DishImage name={dish.name} slot={mealType} size="sm" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold block leading-tight truncate text-gray-800">
-              {dish.name}
-            </span>
-            <HealthScoreBadge score={hScore} size="sm" />
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[9px] font-medium capitalize text-gray-400">
-              {dish.region}
-            </span>
-          </div>
-          {previewChips.length > 0 && (
-            <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-              {previewChips.map(chip => {
-                const icon = ICON_MAP[chip.label.toLowerCase()] ?? '';
-                return (
-                  <span key={chip.key} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white border border-gray-200 text-gray-500 text-[8px] font-medium">
-                    {icon && <span className="text-[9px]" aria-hidden="true">{icon}</span>}
-                    <span>{chip.label}</span>
-                  </span>
-                );
-              })}
-            </div>
-          )}
+        <span className="text-[11px] font-bold leading-tight text-gray-900 line-clamp-2">
+          {dish.name}
+        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-[8px] font-medium text-gray-400 capitalize">{dish.region}</span>
+          <HealthScoreBadge score={hScore} size="sm" />
         </div>
-        {isRegional && (
-          <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">Local</span>
+        {topChips.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap justify-center">
+            {topChips.map(chip => (
+              <span key={chip.key} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-gray-500 text-[8px] font-medium">
+                {chip.label}
+              </span>
+            ))}
+            {extraCount > 0 && (
+              <span className="text-[8px] text-gray-400 font-medium">+{extraCount}</span>
+            )}
+          </div>
         )}
-        <Sparkles size={12} className="text-[#FF385C] flex-shrink-0 mt-1" />
+        {isRegional && (
+          <span className="text-[7px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1 py-0.5 rounded">Local</span>
+        )}
       </button>
     );
   }, [handleSwapSelect, regionKey, mealType]);
@@ -763,13 +787,21 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     }).slice(0, 6);
   }, [selectedSwapDish, mealType, userDiet]);
 
-  const mergedOptions = useMemo((): Record<IndianMealCategory, string[]> => ({
-    bread: mergeCategoryOptions(item.roti ? [item.roti] : undefined, indian_meal_categories.bread),
-    rice: mergeCategoryOptions(item.rice ? [item.rice] : undefined, indian_meal_categories.rice),
-    side: mergeCategoryOptions([...(item.sides ?? []), ...(meal?.sideOptions ?? [])], indian_meal_categories.side),
-    beverage: mergeCategoryOptions([...(item.beverages ?? []), ...(meal?.beverageOptions ?? [])], indian_meal_categories.beverage),
-    dessert: mergeCategoryOptions(item.dessert?.length ? item.dessert : undefined, indian_meal_categories.dessert),
-  }), [item.roti, item.rice, item.sides, item.beverages, item.dessert, meal?.sideOptions, meal?.beverageOptions]);
+  const mergedOptions = useMemo((): Record<IndianMealCategory, string[]> => {
+    const breadSet = new Set(indian_meal_categories.bread.map(s => s.toLowerCase().trim()));
+    const riceSet = new Set(indian_meal_categories.rice.map(s => s.toLowerCase().trim()));
+    const filteredSides = [...(item.sides ?? []), ...(meal?.sideOptions ?? [])].filter(s => {
+      const key = s.toLowerCase().trim();
+      return !breadSet.has(key) && !riceSet.has(key);
+    });
+    return {
+      bread: mergeCategoryOptions(item.roti ? [item.roti] : undefined, indian_meal_categories.bread),
+      rice: mergeCategoryOptions(item.rice ? [item.rice] : undefined, indian_meal_categories.rice),
+      side: mergeCategoryOptions(filteredSides, indian_meal_categories.side),
+      beverage: mergeCategoryOptions([...(item.beverages ?? []), ...(meal?.beverageOptions ?? [])], indian_meal_categories.beverage),
+      dessert: mergeCategoryOptions(item.dessert?.length ? item.dessert : undefined, indian_meal_categories.dessert),
+    };
+  }, [item.roti, item.rice, item.sides, item.beverages, item.dessert, meal?.sideOptions, meal?.beverageOptions]);
 
   const recommendedCats = useMemo((): IndianMealCategory[] => {
     if (!dish || isStreetFood(dish.id)) return [];
@@ -800,13 +832,13 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         </div>
       )}
       <div
-        className="relative w-full sm:max-w-lg max-h-[90vh] bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden pb-16"
+        className="relative w-full sm:max-w-lg max-h-[90vh] bg-gray-50 rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden pb-16"
         role="dialog"
         aria-modal="true"
         aria-label={`Customize ${slotLabel}`}
 >
         {/* Header */}
-        <div className="shrink-0 px-5 pt-5 pb-3 border-b border-gray-100">
+        <div className="shrink-0 px-5 pt-5 pb-3 border-b border-gray-100 bg-white">
           {showSwapSearch ? (
             <div className="flex items-center gap-2">
               <button
@@ -828,7 +860,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   {selectedSwapDish.name}
                 </h3>
               ) : (
-                <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100">
+                <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-100">
                   <Search size={14} className="text-gray-400" />
                   <input ref={searchInputRef} type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={addAnotherMode ? "Search dishes to add..." : "Search dishes..."} className="bg-transparent text-sm w-full outline-none placeholder:text-gray-400 text-gray-800" aria-label="Search dishes" />
                   {searchQuery && (
@@ -853,10 +885,11 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {showSwapSearch ? (
             selectedSwapDish ? (
               /* ─── VARIANT SELECTION ─── */
+              <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
               <div className="p-4 space-y-2">
                 {dishVariants.length === 0 ? (
                   <p className="text-sm text-center py-8 text-gray-500">No variants available</p>
@@ -865,10 +898,10 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                     <button
                       key={variant.id}
                       onClick={() => handleSwapVariantSelect(variant)}
-                      className="w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] text-left bg-gray-50 border-gray-100">
+                      className="w-full flex items-center gap-3 p-3.5 rounded-xl border transition-all active:scale-[0.98] text-left bg-white border-gray-200 hover:border-gray-300">
                       <DishImage name={selectedSwapDish.name} slot={mealType} size="sm" />
                       <div className="flex-1 min-w-0">
-                        <span className="text-sm font-bold block leading-tight truncate text-gray-800">
+                        <span className="text-sm font-bold block leading-tight truncate text-gray-900">
                           {variant.name}
                         </span>
                         <div className="flex items-center gap-2 mt-0.5">
@@ -890,10 +923,12 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   ))
                 )}
               </div>
+              </div>
             ) : showCustomDishForm ? (
               /* ─── CUSTOM DISH FORM ─── */
+              <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
               <div className="p-4">
-                <div className="rounded-2xl border border-gray-200 p-4 space-y-4">
+                <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
                   <h3 className="text-sm font-black tracking-tight text-gray-900">Create Custom Dish</h3>
                   <div>
                     <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1 block">
@@ -974,9 +1009,10 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   </div>
                 </div>
               </div>
+              </div>
             ) : (
               /* ─── SWAP SEARCH GRID ─── */
-              <div className="p-4">
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-4">
                 <div className="mb-4">
                   <HealthFilterBar
                     activePreset={healthPreset}
@@ -998,7 +1034,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                 </div>
 
                 {swapSearchDishes.length === 0 ? (
-                  <div className="p-8 text-center">
+                  <div className="flex-1 flex items-center justify-center p-8">
                     {searchQuery ? (
                       <>
                         <Sparkles size={24} className="mx-auto mb-2 text-gray-300" />
@@ -1021,24 +1057,21 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   </div>
                   ) : (
                   <>
-                    <VirtualList
-                      items={visibleSwapItems}
-                      estimateSize={88}
-                      overscan={5}
-                      outerClassName="h-[55vh]"
-                      className="space-y-1.5"
-                      renderItem={renderSwapItem}
-                    />
-                    {!showAllSwapResults && swapSearchDishes.length > 30 && (
-                      <div className="flex flex-col items-center gap-2 mt-3">
+                    <div className="grid grid-cols-2 gap-2 overflow-y-auto flex-1 min-h-0 px-0.5 pb-2 content-start">
+                      {swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 40).map(item => (
+                        renderSwapItem(item)
+                      ))}
+                    </div>
+                    {!showAllSwapResults && swapSearchDishes.length > 40 && (
+                      <div className="flex flex-col items-center gap-2 mt-2 shrink-0">
                         <p className="text-[10px] text-center text-gray-400 font-medium">
-                          Showing 30 of {swapSearchDishes.length} dishes.
+                          Showing 40 of {swapSearchDishes.length}
                         </p>
                         <button
                           onClick={() => setShowAllSwapResults(true)}
-                          className="text-[11px] font-bold text-emerald-600 underline active:scale-95"
+                          className="text-[10px] font-bold text-emerald-600 underline active:scale-95"
                         >
-                          Show all {swapSearchDishes.length} dishes
+                          Show all
                         </button>
                       </div>
                     )}
@@ -1049,6 +1082,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
             )
           ) : (
             /* ─── MAIN VIEW ─── */
+            <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
             <div className="p-5 space-y-4">
               {dish ? (
                 <div className="rounded-2xl border border-[#FF385C]/20 bg-[#FF385C]/5 p-4">
@@ -1102,14 +1136,14 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   {/* ─── Per-Dish Customization ─── */}
                   <div className="mt-4 space-y-3">
                     {/* ─── STYLE PICKER ─── */}
-                    <div className="rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                       <button
                         type="button"
                         onClick={() => setShowStylePicker(prev => !prev)}
                         className="w-full flex items-center justify-between p-4 text-left active:bg-gray-50 transition-colors">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="text-[13px]">🎨</span>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                          <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">
                             Pick a Style
                             {selectedStyleGroup && (
                               <span className="ml-1.5 text-[9px] font-bold text-[#FF385C] bg-[#FF385C]/10 px-1.5 py-0.5 rounded-full">
@@ -1171,7 +1205,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                             return (
                               <span
                                 key={mapKey}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white border border-[#FF385C]/20 text-[#FF385C] text-[10px] font-bold shadow-sm"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-[#FF385C]/20 text-[#FF385C] text-[11px] font-bold shadow-sm"
                               >
                                 {icon && <span className="text-[11px]">{icon}</span>}
                                 <span>{name}</span>
@@ -1193,6 +1227,18 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                     )}
 
                     {/* ─── CATEGORIES — collapsible accordions ─── */}
+                    <div className="flex items-center justify-end mb-2">
+                      <button
+                        onClick={() => setShowRegionHints(prev => !prev)}
+                        className={`text-[9px] font-bold px-2 py-1 rounded-full border transition-all ${
+                          showRegionHints
+                            ? 'bg-blue-50 text-blue-600 border-blue-200'
+                            : 'bg-gray-50 text-gray-400 border-gray-200'
+                        }`}
+                      >
+                        🌏 Regions
+                      </button>
+                    </div>
                     {allCategories.map(cat => {
                       const options = mergedOptions[cat] ?? [];
                       const meta = CATEGORY_CONFIG[cat];
@@ -1201,7 +1247,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                       const expanded = expandedCategories[cat] ?? false;
 
                       return (
-                        <div key={cat} className={`rounded-2xl border ${isRecommended ? 'border-gray-200' : 'border-dashed border-gray-200/70'} overflow-hidden`}>
+                        <div key={cat} className={`rounded-2xl border bg-white ${isRecommended ? 'border-gray-200' : 'border-dashed border-gray-200/70'} overflow-hidden`}>
                           {/* Accordion Header */}
                           <button
                             type="button"
@@ -1209,7 +1255,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                             className="w-full flex items-center justify-between p-4 text-left active:bg-gray-50 transition-colors">
                             <div className="flex items-center gap-2 min-w-0">
                               <span className="text-[13px]">{meta.icon}</span>
-                              <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                              <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">
                                 {meta.label}
                                 {selected.length > 0 && (
                                   <span className="ml-1.5 text-[9px] font-bold text-[#FF385C] bg-[#FF385C]/10 px-1.5 py-0.5 rounded-full">
@@ -1261,59 +1307,141 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
 
                           {/* Expanded full grid */}
                           {expanded && (
-                            <div className="px-4 pb-4 max-h-60 overflow-y-auto">
+                            <div className="px-4 pb-4">
                               {!isRecommended && selected.length === 0 && (
                                 <p className="text-[9px] text-gray-300 italic mb-2">add if needed</p>
                               )}
                               <div className="flex flex-wrap gap-2">
-                                {options.map(opt => {
-                                  const active = selected.includes(opt);
-                                  const limitReached = selected.length >= meta.max && !active && !overrideLimit;
-                                  const icon = ICON_MAP[opt.toLowerCase()] ?? '';
-                                  const nutWarning = isNutItem(opt);
-                                  const blocked = allergyMode && nutWarning && !active;
-                                  const itemRegion = getItemRegion(opt);
-                                  const regionMismatch = itemRegion && dishRegion && !dishRegion.toLowerCase().includes(itemRegion);
+                                {categoryGroups[cat] ? (
+                                  categoryGroups[cat]!.map(group => {
+                                    const groupOptions = group.items.filter(opt => options.includes(opt));
+                                    if (groupOptions.length === 0) return null;
+                                    return (
+                                      <div key={group.label} className="w-full">
+                                        <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1.5 mt-1 first:mt-0">{group.label}</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          {groupOptions.map(opt => {
+                                            const active = selected.includes(opt);
+                                            const limitReached = selected.length >= meta.max && !active && !overrideLimit;
+                                            const icon = ICON_MAP[opt.toLowerCase()] ?? '';
+                                            const nutWarning = isNutItem(opt);
+                                            const blocked = allergyMode && nutWarning && !active;
+                                            const itemRegion = getItemRegion(opt);
+                                            const regionMismatch = itemRegion && dishRegion && !dishRegion.toLowerCase().includes(itemRegion);
+                                            return (
+                                              <div key={opt} className="relative">
+                                                <button
+                                                  onClick={() => { if (blocked) return; toggleCategoryItemWrap(cat, opt); }}
+                                                  className={`h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 transition-all ${
+                                                    blocked
+                                                      ? 'bg-red-50 text-red-300 border border-red-100 cursor-not-allowed line-through'
+                                                      : active
+                                                        ? 'bg-[#FF385C] text-white shadow-sm scale-[1.02]'
+                                                        : limitReached
+                                                          ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                                          : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300'
+                                                  }`}
+                                                  disabled={limitReached || blocked}
+                                                  aria-label={`${opt} ${meta.label}`}>
+                                                  {icon && <span className="text-[11px]">{icon}</span>}
+                                                  <span>{opt}</span>
+                                                  {showRegionHints && regionMismatch && (
+                                                    <span className="text-[8px] opacity-60 ml-0.5" title={`${itemRegion} item`}>🌏</span>
+                                                  )}
+                                                </button>
+                                                {blocked && (
+                                                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
+                                                    <span className="text-[6px] text-white font-bold">!</span>
+                                                  </span>
+                                                )}
+                                                {nutWarning && !blocked && !active && (
+                                                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-300 rounded-full flex items-center justify-center" title="Contains nuts">
+                                                    <span className="text-[6px] text-amber-800 font-bold">⚠</span>
+                                                  </span>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                ) : (
+                                  options.map(opt => {
+                                    const active = selected.includes(opt);
+                                    const limitReached = selected.length >= meta.max && !active && !overrideLimit;
+                                    const icon = ICON_MAP[opt.toLowerCase()] ?? '';
+                                    const nutWarning = isNutItem(opt);
+                                    const blocked = allergyMode && nutWarning && !active;
+                                    const itemRegion = getItemRegion(opt);
+                                    const regionMismatch = itemRegion && dishRegion && !dishRegion.toLowerCase().includes(itemRegion);
 
-                                  return (
-                                    <div key={opt} className="relative">
-                                      <button
-                                        onClick={() => {
-                                          if (blocked) return;
-                                          toggleCategoryItemWrap(cat, opt);
-                                        }}
-                                        className={`h-9 px-3.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                                          blocked
-                                            ? 'bg-red-50 text-red-300 border border-red-100 cursor-not-allowed line-through'
-                                            : active
-                                              ? 'bg-[#FF385C] text-white shadow-sm scale-[1.02]'
-                                              : limitReached
-                                                ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                                                : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300'
-                                        }`}
-                                        disabled={limitReached || blocked}
-                                        aria-label={`${opt} ${meta.label}`}>
-                                        {icon && <span className="text-[11px]">{icon}</span>}
-                                        <span>{opt}</span>
-                                        {regionMismatch && (
-                                          <span className="text-[8px] opacity-60 ml-0.5" title={`${itemRegion} item`}>
-                                            🌏
+                                    return (
+                                      <div key={opt} className="relative">
+                                        <button
+                                          onClick={() => { if (blocked) return; toggleCategoryItemWrap(cat, opt); }}
+                                          className={`h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 transition-all ${
+                                            blocked
+                                              ? 'bg-red-50 text-red-300 border border-red-100 cursor-not-allowed line-through'
+                                              : active
+                                                ? 'bg-[#FF385C] text-white shadow-sm scale-[1.02]'
+                                                : limitReached
+                                                  ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                                                  : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300'
+                                          }`}
+                                          disabled={limitReached || blocked}
+                                          aria-label={`${opt} ${meta.label}`}>
+                                          {icon && <span className="text-[11px]">{icon}</span>}
+                                          <span>{opt}</span>
+                                          {showRegionHints && regionMismatch && (
+                                            <span className="text-[8px] opacity-60 ml-0.5" title={`${itemRegion} item`}>🌏</span>
+                                          )}
+                                        </button>
+                                        {blocked && (
+                                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
+                                            <span className="text-[6px] text-white font-bold">!</span>
                                           </span>
                                         )}
-                                      </button>
-                                      {blocked && (
-                                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
-                                          <span className="text-[6px] text-white font-bold">!</span>
-                                        </span>
-                                      )}
-                                      {nutWarning && !blocked && !active && (
-                                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-300 rounded-full flex items-center justify-center" title="Contains nuts">
-                                          <span className="text-[6px] text-amber-800 font-bold">⚠</span>
-                                        </span>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                        {nutWarning && !blocked && !active && (
+                                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-300 rounded-full flex items-center justify-center" title="Contains nuts">
+                                            <span className="text-[6px] text-amber-800 font-bold">⚠</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 mt-2">
+                                <input
+                                  type="text"
+                                  value={customInputs[cat] ?? ''}
+                                  onChange={e => setCustomInputs(prev => ({ ...prev, [cat]: e.target.value }))}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      const val = (customInputs[cat] ?? '').trim();
+                                      if (val) {
+                                        toggleCategoryItemWrap(cat, val);
+                                        setCustomInputs(prev => ({ ...prev, [cat]: '' }));
+                                      }
+                                    }
+                                  }}
+                                  className="flex-1 h-9 px-3 rounded-full border border-gray-200 text-xs font-medium text-gray-700 outline-none focus:border-[#FF385C] placeholder:text-gray-300"
+                                  placeholder="Add custom..."
+                                />
+                                <button
+                                  onClick={() => {
+                                    const val = (customInputs[cat] ?? '').trim();
+                                    if (val) {
+                                      toggleCategoryItemWrap(cat, val);
+                                      setCustomInputs(prev => ({ ...prev, [cat]: '' }));
+                                    }
+                                  }}
+                                  className="w-9 h-9 rounded-full bg-[#FF385C]/10 flex items-center justify-center text-[#FF385C] active:scale-90 transition-all"
+                                  aria-label="Add custom item"
+                                >
+                                  <Plus size={14} />
+                                </button>
                               </div>
                               {overrideLimit && selected.length >= meta.max && (
                                 <p className="text-[9px] text-amber-600 mt-2 flex items-center gap-1">
@@ -1352,6 +1480,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   {allergyMode ? '🛡️ Allergy Safe' : 'Allergy mode off'}
                 </button>
               </div>
+            </div>
             </div>
           )}
         </div>

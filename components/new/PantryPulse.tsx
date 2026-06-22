@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useStore, type CategorySelection } from '../../store/useStore';
 import { useTrayStore, type MealType } from '../../store/useTrayStore';
 import { useBackendDishes } from '../../hooks/useBackendDishes';
@@ -16,6 +16,7 @@ import {
 } from '../../utils/ingredientUtils';
 import type { Ingredient } from '../../constants/dishLibrary';
 import WhatsAppShareModal from './WhatsAppShareModal';
+import DishImage from './DishImage';
 import { isAfterEnd, SLOT_TIME_DEFAULTS } from '../../types/tray';
 import { getISODate } from '../../utils/dateUTC';
 import PullToRefresh from './PullToRefresh';
@@ -57,6 +58,9 @@ const PantryPulse: React.FC = () => {
     
     const [viewMode, setViewMode] = useState<'tomorrow' | 'week'>('tomorrow');
     
+    // Auto-sync on navigation to pantry tab (replaces unreliable pull-to-refresh)
+    useEffect(() => { useTrayStore.getState().syncOfflineQueue(); }, []);
+
     // FIX-10: Listen for pantry invalidation events (swap/cancel)
     React.useEffect(() => {
         const handlePantryInvalidate = () => {
@@ -220,12 +224,12 @@ const PantryPulse: React.FC = () => {
         return result;
     }, [tomorrowISO, getMeals, dishes, includeSnacks, planDays]);
 
-    // Get all meals for the week (for "This Week" view)
+    // Get all meals for the week (for "This Week" view) — skip tomorrow to avoid duplication
     const weekMeals = useMemo(() => {
         if (!dishes.length) return [];
         const meals: { date: string; slot: string; name: string; variant?: string }[] = [];
         const start = new Date(tomorrowISO + 'T00:00:00');
-        for (let i = 0; i < 6; i++) {
+        for (let i = 1; i < 7; i++) {
             const date = new Date(start);
             date.setDate(start.getDate() + i);
             const isoDate = getISODate(date);
@@ -359,10 +363,13 @@ const PantryPulse: React.FC = () => {
                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Planned Meals</p>
                     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
                         {tomorrowMeals.map((meal, idx) => (
-                            <div key={idx} className="flex-shrink-0 bg-gray-50 rounded-xl p-3 border border-gray-100 min-w-[140px]">
-                                <p className="text-[9px] font-bold text-[#FF385C] uppercase mb-1">{meal.slot}</p>
-                                <p className="text-xs font-bold text-gray-800 truncate">{meal.name}</p>
-                                {meal.variant && <p className="text-[9px] text-gray-400 truncate">{meal.variant}</p>}
+                            <div key={idx} className="flex-shrink-0 bg-gray-50 rounded-xl border border-gray-100 min-w-[100px] max-w-[100px] overflow-hidden">
+                                <DishImage name={meal.name} slot={meal.slot} size="full" className="w-full h-[40px]" />
+                                <div className="p-2 pt-1">
+                                    <p className="text-[8px] font-bold text-[#FF385C] uppercase mb-0.5">{meal.slot}</p>
+                                    <p className="text-[10px] font-bold text-gray-800 truncate leading-tight">{meal.name}</p>
+                                    {meal.variant && <p className="text-[8px] text-gray-400 truncate">{meal.variant}</p>}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -375,10 +382,13 @@ const PantryPulse: React.FC = () => {
                     <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">This Week ({weekMeals.length} meals)</p>
                     <div className={`flex gap-2 overflow-x-auto pb-2 scrollbar-hide transition-all ${showAllWeekMeals ? 'flex-wrap' : ''}`}>
                         {(showAllWeekMeals ? weekMeals : weekMeals.slice(0, 4)).map((meal, idx) => (
-                            <div key={idx} className="flex-shrink-0 bg-gray-50 rounded-xl p-3 border border-gray-100 min-w-[140px]">
-                                <p className="text-[9px] font-bold text-[#FF385C] uppercase mb-1">{meal.slot}</p>
-                                <p className="text-xs font-bold text-gray-800 truncate">{meal.name}</p>
-                                {meal.variant && <p className="text-[9px] text-gray-400 truncate">{meal.variant}</p>}
+                            <div key={idx} className="flex-shrink-0 bg-gray-50 rounded-xl border border-gray-100 min-w-[100px] max-w-[100px] overflow-hidden">
+                                <DishImage name={meal.name} slot={meal.slot} size="full" className="w-full h-[40px]" />
+                                <div className="p-2 pt-1">
+                                    <p className="text-[8px] font-bold text-[#FF385C] uppercase mb-0.5">{meal.slot}</p>
+                                    <p className="text-[10px] font-bold text-gray-800 truncate leading-tight">{meal.name}</p>
+                                    {meal.variant && <p className="text-[8px] text-gray-400 truncate">{meal.variant}</p>}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -594,6 +604,7 @@ const PantryPulse: React.FC = () => {
                     </p>
                 </div>
             )}
+            <div className="h-24" />
             </PullToRefresh>
         </div>
     );

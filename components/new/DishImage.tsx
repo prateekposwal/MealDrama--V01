@@ -4,7 +4,7 @@ import { getDishImageUrl } from '../../utils/dishImages';
 interface DishImageProps {
     name?: string;
     slot?: string;
-    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+    size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'full';
     className?: string;
     customImageUrl?: string;
 }
@@ -15,6 +15,7 @@ const SIZE_CLASSES: Record<string, string> = {
     md: 'w-14 h-14',
     lg: 'w-16 h-16',
     xl: 'w-20 h-20',
+    full: 'w-full',
 };
 
 const DishImage: React.FC<DishImageProps> = ({ name, slot, size = 'lg', className = '', customImageUrl }) => {

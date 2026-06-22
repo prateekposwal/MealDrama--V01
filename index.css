@@ -96,3 +96,10 @@ body.search-mode * {
   animation: slot-pulse 1.5s ease-in-out 2;
   border-radius: 20px;
 }
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}

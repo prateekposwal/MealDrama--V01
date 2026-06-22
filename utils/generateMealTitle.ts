@@ -42,5 +42,5 @@ export function generateMealTitle(
     parts.push(normalizedBev);
   }
 
-  return parts.join(' + ');
+  return parts.join(' ');
 }

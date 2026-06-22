@@ -519,7 +519,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
         result.push({ name: 'Wheat Flour', quantity: 70, unit: 'g', category: 'grains', inStock: false });
     }
     // INF-09: French Toast / Egg Toast / Bread Dish inference
-    if (dishType !== 'vegan' && (idLower.includes('french') || idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') || idLower.includes('bread dish') || idLower.includes('bread toast')) && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
+    if (dishType !== 'vegan' && dishType !== 'veg' && (idLower.includes('french toast') || idLower.includes('french-toast') || idLower.includes('egg toast') || idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') || idLower.includes('bread dish') || idLower.includes('bread toast')) && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'White Bread', quantity: 4, unit: 'pcs', category: 'breads', inStock: false });
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
         result.push({ name: 'Milk', quantity: 100, unit: 'ml', category: 'dairy', inStock: false });
@@ -529,6 +529,11 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     // INF-11: Bread dishes (white-bread, brown-bread, milk-bread, bread-toast)
     if (idLower.includes('bread') || idLower.includes('sandwich')) {
         result.push({ name: 'White Bread', quantity: 4, unit: 'slices', category: 'breads', inStock: false });
+    }
+    // INF-PIZZA: Pizza dishes (pizza sauce + mozzarella)
+    if (idLower.includes('pizza')) {
+        result.push({ name: 'Pizza Sauce', quantity: 0.5, unit: 'cup', category: 'pantry', inStock: false });
+        result.push({ name: 'Mozzarella', quantity: 100, unit: 'g', category: 'dairy', inStock: false });
     }
     // INF-12: Jeera/Cumin dishes
     if (idLower.includes('jeera') || idLower.includes('cumin')) {
@@ -1108,6 +1113,14 @@ export function getIngredientsForMealOption(
                 if (!existingNames.has(ing.name.toLowerCase())) r.push(ing);
             }
             r.push(..._resolveAccompaniments(variant), ..._inferFromDishName(dish, new Set(r.map(i => i.name.toLowerCase()))));
+            if (variant.ingredients?.some(i => i.category === 'breads')) {
+                const explicitBreadNames = new Set(variant.ingredients.filter(i => i.category === 'breads').map(i => i.name.toLowerCase()));
+                for (let i = r.length - 1; i >= 0; i--) {
+                    if (r[i].category === 'breads' && !explicitBreadNames.has(r[i].name.toLowerCase())) {
+                        r.splice(i, 1);
+                    }
+                }
+            }
             if (categorySelections) r.push(...getIngredientsFromCategorySelections(categorySelections));
             INGREDIENT_CACHE.set(cacheKey, r);
             return r;

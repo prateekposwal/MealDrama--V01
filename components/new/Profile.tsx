@@ -3,9 +3,12 @@ import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
 import type { MealType } from '../../types/tray';
 import type { SourcePool } from '../../utils/mealLoopEngine';
+import type { Dish, DishVariant } from '../../constants/dishLibrary';
 import type { Category } from '../../constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
+import SwapCustomizeModal from '../meal/SwapCustomizeModal';
+import DishImage from './DishImage';
 import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Camera } from 'lucide-react';
 import { getISODate } from '../../utils/dateUTC';
 
@@ -22,7 +25,7 @@ const ALLERGIES_LIST = ['Dairy', 'Nuts', 'Gluten', 'Soy', 'Seafood', 'Eggs'];
 const SPICE_LABELS: Record<string, string> = { 'mild': 'Mild 🌿', 'medium': 'Medium 🌶️', 'hot': 'Hot 🔥' };
 
 const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType) => void }> = ({ onLogout, onManageTray }) => {
-    const { user, updateProfile, startTrayEdit, openQuickSetup } = useStore();
+    const { user, updateProfile, openQuickSetup } = useStore();
     const defaultName = user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : '');
     const [nameDraft, setNameDraft] = useState<string>(defaultName);
     useEffect(() => {
@@ -49,6 +52,8 @@ const [editingSpice, setEditingSpice] = useState(false);
 const [cookInput, setCookInput] = useState(user?.cookContact || '');
 const [notifications, setNotifications] = useState(true);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
+const [trayEditSlot, setTrayEditSlot] = useState<MealType | null>(null);
+const { addToTray, removeFromTray } = useStore();
 
 const { customDishes, addCustomDish, updateCustomDish, removeCustomDish, setToast } = useStore();
 const [showCustomForm, setShowCustomForm] = useState(false);
@@ -112,29 +117,12 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
 
     const trayCounts = useMemo(() => {
         const types: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
-        const counts: Record<MealType, Set<string>> = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
-        // Read from trayLibrary (user's saved defaults)
+        const counts: Record<MealType, number> = { breakfast: 0, lunch: 0, snacks: 0, dinner: 0 };
         for (const mt of types) {
-            for (const item of trayLibrary[mt]) {
-                counts[mt].add(item.dishId ?? item.id);
-            }
+            counts[mt] = (trayLibrary[mt] || []).length;
         }
-        // FIX: Also include dishes from plan.days to match Meal Tray Builder counts
-        for (const date of Object.keys(plan.days)) {
-            for (const mt of types) {
-                const meals = plan.days[date]?.[mt] || [];
-                for (const item of meals) {
-                    counts[mt].add(item.meal_id);
-                }
-            }
-        }
-        return {
-            breakfast: counts.breakfast.size,
-            lunch: counts.lunch.size,
-            snacks: counts.snacks.size,
-            dinner: counts.dinner.size,
-        };
-    }, [trayLibrary, plan.days]);
+        return counts;
+    }, [trayLibrary]);
 
     const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
 
@@ -182,6 +170,16 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
         window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
         setMealLoopModalOpen(false);
     }, [traySourcePool, applyLoopConfig, dishes]);
+
+    const handleTrayAddDish = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
+      addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
+      setToast({ message: `${dish.name} added to tray`, type: 'success' });
+    }, [addToTray, setToast]);
+
+    const handleRemoveTrayDish = useCallback((slot: MealType, mealId: string) => {
+      removeFromTray(slot, mealId);
+      setToast({ message: 'Removed from tray', type: 'info' });
+    }, [removeFromTray, setToast]);
 
     const resetCustomForm = () => {
         setShowCustomForm(false);
@@ -403,31 +401,76 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Meal Management</h4>
                     <div className="space-y-3">
                         <div className="p-5 rounded-[22px] bg-[#FF385C]/5 border border-[#FF385C]/10">
-                            <div className="flex items-start justify-between gap-4">
-                                <div>
-                                    <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">Your Tray</p>
-                                    <p className="text-base font-bold text-gray-900 mt-1">Saved defaults — Plan pulls from here.</p>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">Tray = Favorites &bull; Plan = Scheduled meals you build</p>
-                                </div>
-                                <button
-                                    onClick={() => { startTrayEdit({ returnTab: 'profile', slot: 'Lunch' }); onManageTray?.(); }}
-                                    className="px-4 py-2 rounded-2xl bg-[#FF385C] text-white text-xs font-black uppercase tracking-widest"
-                                >
-                                    Manage
-                                </button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 mt-4">
-                                {traySummary.map(item => (
+                            {trayEditSlot ? (
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">{trayEditSlot.charAt(0).toUpperCase() + trayEditSlot.slice(1)}</p>
+                                        <button
+                                            onClick={() => setTrayEditSlot(null)}
+                                            className="px-4 py-2 rounded-2xl bg-[#FF385C] text-white text-xs font-black uppercase tracking-widest"
+                                        >
+                                            Done
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {(trayLibrary[trayEditSlot] || []).map(item => (
+                                            <span key={item.id} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-gray-50 border border-gray-200 text-gray-700">
+                                                {item.icon && <span className="text-[11px]">{item.icon}</span>}
+                                                <span className="max-w-[120px] truncate">{item.name}</span>
+                                                <button
+                                                    onClick={() => handleRemoveTrayDish(trayEditSlot, item.id)}
+                                                    className="w-4 h-4 rounded-full flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 ml-0.5"
+                                                >
+                                                    <X size={9} />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
                                     <button
-                                        key={item.slot}
-                                        onClick={() => { startTrayEdit({ returnTab: 'profile', slot: item.slot }); onManageTray?.(item.slot as MealType); }}
-                                        className="bg-white rounded-2xl border border-white/80 p-4 text-left shadow-sm"
+                                        onClick={() => setTrayEditSlot(trayEditSlot)}
+                                        className="flex items-center gap-1.5 text-xs font-bold text-[#FF385C] active:scale-[0.98]"
                                     >
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{item.slot}</p>
-                                        <p className="text-lg font-bold text-gray-900 mt-1">{item.count} dishes</p>
+                                        <Plus size={13} />
+                                        Add dish
                                     </button>
-                                ))}
-                            </div>
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex items-start justify-between gap-4">
+                                        <div>
+                                            <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">Your Tray</p>
+                                            <p className="text-base font-bold text-gray-900 mt-1">Saved defaults — Plan pulls from here.</p>
+                                            <p className="text-[10px] text-gray-500 mt-0.5">Tray = Favorites &bull; Plan = Scheduled meals you build</p>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 mt-4">
+                                        {traySummary.map(item => {
+                                            const mt = item.slot.toLowerCase() as MealType;
+                                            const items = trayLibrary[mt] || [];
+                                            const preview = items.slice(0, 3);
+                                            const extra = items.length - preview.length;
+                                            return (
+                                                <button
+                                                    key={item.slot}
+                                                    onClick={() => setTrayEditSlot(mt)}
+                                                    className="bg-white rounded-2xl border border-white/80 p-4 text-left shadow-sm active:scale-[0.98]"
+                                                >
+                                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{item.slot}</p>
+                                                    <p className="text-lg font-bold text-gray-900 mt-1">{item.count} dishes</p>
+                                                    {preview.length > 0 && (
+                                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                                            {preview.map(d => (
+                                                                <span key={d.id} className="text-[9px] truncate max-w-[80px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">{d.name}</span>
+                                                            ))}
+                                                            {extra > 0 && <span className="text-[9px] text-gray-400">+{extra}</span>}
+                                                        </div>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                     </div>
@@ -491,10 +534,10 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                 </div>
                                 <div>
                                     <label className="text-[9px] font-bold text-gray-500 block mb-1">Ingredients</label>
-                                    <div className="flex gap-1.5 mb-2">
-                                        <input type="text" value={ingredientName} onChange={e => setIngredientName(e.target.value)} className="flex-1 rounded-lg py-1.5 px-2.5 text-xs font-medium border border-gray-200 bg-white text-gray-900" placeholder="Ingredient name" />
-                                        <input type="text" value={ingredientQty} onChange={e => setIngredientQty(e.target.value)} className="w-16 rounded-lg py-1.5 px-2 text-xs font-medium border border-gray-200 bg-white text-gray-900" placeholder="Qty" />
-                                        <select value={ingredientUnit} onChange={e => setIngredientUnit(e.target.value)} className="w-16 rounded-lg py-1.5 px-1 text-xs font-medium border border-gray-200 bg-white text-gray-600">
+                                    <div className="grid grid-cols-[1fr_3.5rem_3.5rem_auto] gap-1.5 mb-2">
+                                        <input type="text" value={ingredientName} onChange={e => setIngredientName(e.target.value)} className="rounded-lg py-1.5 px-2.5 text-xs font-medium border border-gray-200 bg-white text-gray-900 min-w-0" placeholder="Ingredient name" />
+                                        <input type="text" value={ingredientQty} onChange={e => setIngredientQty(e.target.value)} className="rounded-lg py-1.5 px-2 text-xs font-medium border border-gray-200 bg-white text-gray-900 text-center" placeholder="Qty" />
+                                        <select value={ingredientUnit} onChange={e => setIngredientUnit(e.target.value)} className="rounded-lg py-1.5 px-1 text-xs font-medium border border-gray-200 bg-white text-gray-600">
                                             <option value="g">g</option>
                                             <option value="kg">kg</option>
                                             <option value="ml">ml</option>
@@ -590,6 +633,18 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                 >
                                     Manage
                                 </button>
+                                {mealLoop.config && (
+                                    <button
+                                        onClick={() => {
+                                            const store = useTrayStore.getState();
+                                            store.refreshLoop(dishes);
+                                        }}
+                                        disabled={mealLoop.refreshing}
+                                        className="px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-200 text-[10px] font-black uppercase tracking-widest text-emerald-600 disabled:opacity-40 active:scale-95 transition-all"
+                                    >
+                                        {mealLoop.refreshing ? '...' : 'Refresh'}
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -659,6 +714,24 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                     onManageTray?.(targetSlot);
                 }}
             />
+
+            {trayEditSlot && (
+                <SwapCustomizeModal
+                    key={`add_${trayEditSlot}`}
+                    isOpen={true}
+                    onClose={() => setTrayEditSlot(null)}
+                    date={getISODate()}
+                    mealType={trayEditSlot}
+                    slotLabel={trayEditSlot.charAt(0).toUpperCase() + trayEditSlot.slice(1)}
+                    item={{ id: '', meal_id: '', name: '', icon: '', quantity: 1, servings: 1, smartVersion: 1, sides: [], beverages: [], itemQtys: {}, start_time: '', end_time: '' }}
+                    dishes={dishes}
+                    userRegion={user?.region || ''}
+                    userDiet={user?.diet || 'veg'}
+                    onApply={() => {}}
+                    onAddAnother={handleTrayAddDish}
+                    initialAddMode={true}
+                />
+            )}
 
         </div>
     );

@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { X, Check, RefreshCw, Calendar } from 'lucide-react';
 import type { MealType, MealLoopConfig } from '../../types/tray';
 import { validateSourcePool, buildLoopAssignments, buildLoopSummary, type SourcePool } from '../../utils/mealLoopEngine';
@@ -33,6 +35,8 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
   onFixSlots,
   plannedSlots,
 }) => {
+  useLockBodyScroll(isOpen);
+  useBackButtonClose(isOpen, onClose);
   const mealLoop = useTrayStore(s => s.mealLoop);
   const savedConfig = mealLoop.config;
   const savedDishIds = mealLoop.sourceDishIds;
@@ -212,7 +216,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
     >
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
       <div
-        className="relative w-full sm:max-w-lg max-h-[90vh] bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden"
+        className="relative w-full sm:max-w-lg max-h-[85dvh] bg-white rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label="Configure meal loop"

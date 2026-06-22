@@ -620,7 +620,7 @@ const DISH_STYLE_MAP: Record<string, { style: DishStyle; subTag?: string }> = {
   'veggie-shawarma-tofu': { style: 'bread', subTag: 'wrap' },
   'bean-stew-brown-rice': { style: 'rice-biryani', subTag: 'stew' },
   'tofu-pasta': { style: 'rice-biryani', subTag: 'pasta' },
-  'keto-pizza-bowl': { style: 'rice-biryani', subTag: 'bowl' },
+  'keto-pizza-bowl': { style: 'side', subTag: 'bowl' },
   'english-muffin-pizzas': { style: 'breakfast', subTag: 'pizza' },
   'vegan-sushi-bowl': { style: 'rice-biryani', subTag: 'sushi' },
   'sourdough-grilled-cheese': { style: 'bread', subTag: 'sandwich' },
@@ -806,7 +806,9 @@ export type IndianMealCategory = 'bread' | 'rice' | 'beverage' | 'side' | 'desse
 export const indian_meal_categories: Record<IndianMealCategory, string[]> = {
   bread: [
     'Roti', 'Phulka', 'Butter Naan', 'Garlic Naan', 'Aloo Paratha', 'Paneer Paratha',
-    'Gobi Paratha', 'Missi Roti', 'Bhakri', 'Rumali Roti', 'Kulcha',
+    'Gobi Paratha', 'Plain Tawa Paratha', 'Laccha Paratha', 'Ajwain (Carom) Paratha',
+    'Jeera (Cumin) Paratha', 'Hara Dhania (Cilantro) Paratha', 'Pyaz (Onion) Paratha',
+    'Dal Paratha', 'Missi Roti', 'Bhakri', 'Rumali Roti', 'Kulcha',
     'Tandoori Roti', 'Khamiri Roti', 'Bhatura', 'Chapati', 'Thepla', 'Puri',
   ],
   rice: [
@@ -821,24 +823,14 @@ export const indian_meal_categories: Record<IndianMealCategory, string[]> = {
     'Seasonal Fruit Juice',
   ],
   side: [
-    // Raitas
     'Cucumber Raita', 'Boondi Raita', 'Masala Raita',
-    // Chutneys
     'Mixed Chutney', 'Coconut Chutney', 'Mint Chutney',
     'Tamarind Chutney', 'Imli Chutney', 'Green Chutney',
-    // Pickles & Salads
     'Papad', 'Kachumber Salad', 'Mango Pickle', 'Lime Pickle',
     'Fryums', 'Onion Rings', 'Lemon Wedge', 'Green Chili',
-    // South Indian essentials
     'Sambar', 'Rasam', 'Curry Leaves Chutney',
-    // Curd & Dairy
-    'Curd', 'Dahi', 'Butter', 'Ghee',
-    // Biryani accompaniments
+    'Curd', 'Butter', 'Ghee',
     'Mirchi Ka Salan', 'Bagara Baingan',
-    // Chai/beverage accompaniments
-    'Biscuits', 'Cookies', 'Roasted Peanuts', 'Namkeen', 'Mathri', 'Rusk', 'Bun Maska',
-    // Chaat/street food
-    'Sev', 'Murukku', 'Boondi',
   ],
   dessert: [
     'Kheer / Payasam', 'Gulab Jamun', 'Rasgulla', 'Jalebi', 'Gajar Halwa',
@@ -899,6 +891,23 @@ export function getDefaultAccompaniments(style: DishStyle): { category: IndianMe
     return { category: cat, item: options[0] ?? '' };
   }).filter(a => a.item);
 }
+
+/** Grouped sub-headers for categories (optional — only categories with groups render sub-headers) */
+export const categoryGroups: Partial<Record<IndianMealCategory, { label: string; items: string[] }[]>> = {
+  bread: [
+    { label: 'Flatbreads', items: ['Roti', 'Phulka', 'Chapati', 'Tandoori Roti', 'Missi Roti', 'Bhakri', 'Rumali Roti', 'Kulcha', 'Khamiri Roti', 'Thepla', 'Puri', 'Bhatura'] },
+    { label: 'Specialty', items: ['Butter Naan', 'Garlic Naan'] },
+    { label: 'Parathas', items: ['Aloo Paratha', 'Paneer Paratha', 'Gobi Paratha', 'Plain Tawa Paratha', 'Laccha Paratha', 'Ajwain (Carom) Paratha', 'Jeera (Cumin) Paratha', 'Hara Dhania (Cilantro) Paratha', 'Pyaz (Onion) Paratha', 'Dal Paratha'] },
+  ],
+  side: [
+    { label: 'Raitas', items: ['Cucumber Raita', 'Boondi Raita', 'Masala Raita'] },
+    { label: 'Chutneys', items: ['Mixed Chutney', 'Coconut Chutney', 'Mint Chutney', 'Tamarind Chutney', 'Imli Chutney', 'Green Chutney', 'Curry Leaves Chutney'] },
+    { label: 'Pickles & Salads', items: ['Papad', 'Kachumber Salad', 'Mango Pickle', 'Lime Pickle', 'Fryums', 'Onion Rings', 'Lemon Wedge', 'Green Chili'] },
+    { label: 'Dairy', items: ['Curd', 'Butter', 'Ghee'] },
+    { label: 'South Indian', items: ['Sambar', 'Rasam'] },
+    { label: 'Biryani Accents', items: ['Mirchi Ka Salan', 'Bagara Baingan'] },
+  ],
+};
 
 // ─── Smart Pairing Helpers ──────────────────────────────────────────────────
 
@@ -1227,10 +1236,10 @@ export function internalToStyleGroup(style: DishStyle): DishStyleGroup | null {
  * Smart pairing suggestions for a dish style group.
  * Returns default accompaniments the system would pre-select as suggestions.
  */
-export function getPairingSuggestions(group: DishStyleGroup): Record<IndianMealCategory, string[]> {
-  const style = styleGroupToInternal(group);
+export function getPairingSuggestions(group: DishStyleGroup | null): Record<IndianMealCategory, string[]> {
+  const style = styleGroupToInternal(group ?? 'Gravy');
   const cats = getRecommendedCategories(style);
-  const routing = getStyleRouting(style);
+  const routing = getStyleRouting(style) ?? { breads: [], rice: [], sides: [], beverages: [], inferBread: false, inferRice: false };
   const result: Record<IndianMealCategory, string[]> = {
     bread: [], rice: [], side: [], beverage: [], dessert: [],
   };

@@ -122,8 +122,12 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
   const isSelfBread = SELF_BREAD.some(t => dish.tags.includes(t));
   const isSelfRice = SELF_RICE.some(t => dish.tags.includes(t));
   const isLunchOrDinner = dish.category.some(c => c === 'lunch' || c === 'dinner');
+  const isLowCarb = dish.tags.some(t => t === 'low-carb' || t === 'keto');
 
   const fullName = resolveDisplayName(dish.name, variant ?? dish.variants?.[0]);
+
+  const shouldShowRoti = isLunchOrDinner && !isSelfRice && !isSelfBread && !isLowCarb;
+  const shouldShowRice = isLunchOrDinner && !isSelfBread && !isSelfRice && !isLowCarb;
 
   // ─── PRIORITY 1: Explicit defaultPairings on the dish ──────────
   if (dish.defaultPairings) {
@@ -138,10 +142,10 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
         : undefined,
       rotiOptions: dish.defaultPairings.roti
         ? [dish.defaultPairings.roti]
-        : (isLunchOrDinner && !isSelfRice && !isSelfBread ? ['Roti', 'Naan', 'Paratha'] : undefined),
+        : (shouldShowRoti ? ['Roti', 'Naan', 'Paratha'] : undefined),
       riceOptions: dish.defaultPairings.rice
         ? [dish.defaultPairings.rice]
-        : (isLunchOrDinner && !isSelfBread && !isSelfRice ? ['Steamed Rice', 'Jeera Rice'] : undefined),
+        : (shouldShowRice ? ['Steamed Rice', 'Jeera Rice'] : undefined),
       sideOptions: dish.defaultPairings.sides?.length ? dish.defaultPairings.sides : undefined,
       beverageOptions: undefined,
       defaultPairings: dish.defaultPairings,
@@ -165,8 +169,8 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
       gravyOptions: dish.gravyType
         ? Object.values(GravyType).filter(g => g !== 'DEFAULT').map(g => g.charAt(0) + g.slice(1).toLowerCase())
         : undefined,
-      rotiOptions: isSelfBread ? undefined : (isLunchOrDinner && !isSelfRice ? ['Roti', 'Naan', 'Paratha'] : undefined),
-      riceOptions: isSelfRice ? undefined : (isLunchOrDinner && !isSelfBread ? ['Steamed Rice', 'Jeera Rice'] : undefined),
+      rotiOptions: isSelfBread ? undefined : (shouldShowRoti ? ['Roti', 'Naan', 'Paratha'] : undefined),
+      riceOptions: isSelfRice ? undefined : (shouldShowRice ? ['Steamed Rice', 'Jeera Rice'] : undefined),
       sideOptions: templatePairings.sides?.length ? templatePairings.sides : undefined,
       beverageOptions: templatePairings.beverages?.length ? templatePairings.beverages : undefined,
       defaultPairings: templatePairings,
@@ -188,8 +192,8 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
     gravyOptions: dish.gravyType
       ? Object.values(GravyType).filter(g => g !== 'DEFAULT').map(g => g.charAt(0) + g.slice(1).toLowerCase())
       : undefined,
-    rotiOptions: isSelfBread ? undefined : (isLunchOrDinner && !isSelfRice ? ['Roti', 'Naan', 'Paratha'] : undefined),
-    riceOptions: isSelfRice ? undefined : (isLunchOrDinner && !isSelfBread ? ['Steamed Rice', 'Jeera Rice'] : undefined),
+    rotiOptions: isSelfBread ? undefined : (shouldShowRoti ? ['Roti', 'Naan', 'Paratha'] : undefined),
+    riceOptions: isSelfRice ? undefined : (shouldShowRice ? ['Steamed Rice', 'Jeera Rice'] : undefined),
     sideOptions: SAFE_FALLBACK.sides?.length ? SAFE_FALLBACK.sides : undefined,
     beverageOptions: SAFE_FALLBACK.beverages?.length ? SAFE_FALLBACK.beverages : undefined,
     defaultPairings: SAFE_FALLBACK,

@@ -383,6 +383,14 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
   const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
     const meal = dishToMeal(dish, variant);
     addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
+    // When a loop is active, don't add to today — just add to tray library.
+    // The loop picks it up for future slots via mid-cycle add.
+    const loop = useTrayStore.getState().mealLoop;
+    if (loop.config) {
+      setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)} Tray`);
+      setTimeout(() => setAddAnotherToast(null), 3000);
+      return;
+    }
     const existing = getMeals(date, mealType);
     // FIX: Check both meal_id AND name (case-insensitive) to catch cross-source duplicates
     const existingItem = existing.find(m => m.meal_id === dish.id || m.name.toLowerCase() === dish.name.toLowerCase());
@@ -622,7 +630,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 {!isLoading && displayMeals.length > 0 && (
                         <button
                             onClick={() => setAddDishOpen(true)}
-                            className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed transition-all active:scale-[0.98] border-gray-200 text-gray-500 mb-3"
+                            className="w-full flex items-center justify-center gap-2 py-4 rounded-xl border-2 border-dashed transition-all active:scale-[0.98] border-gray-200 text-gray-500 mb-3 hover:ring-2 hover:ring-emerald-300 hover:ring-offset-1"
                         >
                             <Sparkles size={18} className="text-[#FF385C]" />
                             <span className="text-base font-bold">Add another {currentSlot.label.toLowerCase()} dish</span>

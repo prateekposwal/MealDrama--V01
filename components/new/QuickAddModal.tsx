@@ -3,6 +3,8 @@ import type { Dish, DishVariant, Category, Region } from '../../constants/dishLi
 import { X, Search, Plus, Sparkles, Clock, Check, ChevronLeft, Edit3, Trash2, Loader2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useTrayStore } from '../../store/useTrayStore';
+import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import DishImage from './DishImage';
 import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import { HealthFilterBar } from '../health/HealthFilterBar';
@@ -50,6 +52,8 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     onAddMeal,
     selectedDishIds = [],
 }) => {
+    useLockBodyScroll(isOpen);
+    useBackButtonClose(isOpen, onClose);
     const addCustomDish = useStore(s => s.addCustomDish);
     const updateCustomDish = useStore(s => s.updateCustomDish);
     const removeCustomDish = useStore(s => s.removeCustomDish);

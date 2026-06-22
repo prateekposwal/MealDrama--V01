@@ -14,6 +14,8 @@ import TrayScreen from '../components/new/TrayScreen';
 import WhatsAppShareModal from '../components/new/WhatsAppShareModal';
 
 import { useBackendDishes } from '../hooks/useBackendDishes';
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll';
+import { useBackButtonClose } from '../hooks/useBackButtonClose';
 import { MapPin, Flame, ChevronRight, Plus, X, Info, CheckCircle2, Heart, Phone, MessageCircle, RefreshCw, ArrowRight } from 'lucide-react';
 import type { Dish, DishVariant } from '../constants/dishLibrary';
 import { HealthTipsPanel } from '../components/health/HealthTipsPanel';
@@ -449,6 +451,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [showTrayScreen, setShowTrayScreen] = useState(false);
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
     const [showSlotPicker, setShowSlotPicker] = useState(false);
+    useLockBodyScroll(showSlotPicker);
+    useBackButtonClose(showSlotPicker, () => setShowSlotPicker(false));
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
     const [editingCookContact, setEditingCookContact] = useState(false);
@@ -730,8 +734,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             })
             .filter(Boolean);
 
-        return `*${copy.brandHeader}*\n\n📅 ${today}${timeSummary ? `\n⏰ ${timeSummary}` : ''}\n\n${copy.todayPlan}:\n\n${lines.join('\n\n')}\n\n━━━━━━━━━━━━━━━\n${copy.region}: ${user?.region ?? ''}`;
-    }, [getMeals, today, user, committedCompletions, preferences]);
+        const guestInEffect = stableGuestMode.active
+            && today >= stableGuestMode.startDate
+            && today <= stableGuestMode.endDate;
+        const guestLine = guestInEffect
+            ? `\n👥 +${stableGuestMode.extraServings} guest${stableGuestMode.extraServings !== 1 ? 's' : ''}`
+            : '';
+        return `*${copy.brandHeader}*\n\n📅 ${today}${timeSummary ? `\n⏰ ${timeSummary}` : ''}${guestLine}\n\n${copy.todayPlan}:\n\n${lines.join('\n\n')}\n\n━━━━━━━━━━━━━━━\n${copy.region}: ${user?.region ?? ''}`;
+    }, [getMeals, today, user, committedCompletions, preferences, stableGuestMode]);
 
     const buildPantryMessage = useCallback((language: ShareLanguage, selectedSlots: string[]) => {
         const copy = getShareStrings(language);
@@ -1140,53 +1150,55 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     </div>
                 ) : (
                     <>
-                        {displayActiveUpcomingSlots.map(({ section, slot }) => (
-                            <DashboardSlotSection
-                                key={slot.key}
-                                date={today}
-                                mealType={slot.mealType}
-                                slot={slot}
-                                section={section}
-                                sectionColors={SECTION_COLORS}
-                                sectionLabels={SECTION_LABELS}
-                                onOpenSearchAction={openSearchAction}
-                                onCompleteAction={handleCompleteSlot}
-                                onUndoCompleteAction={handleUndoComplete}
-                                onSkipSlotAction={handleSkipSlot}
-                                onUndoSkipAction={handleUndoSkip}
-                                onShareSlotAction={onShareSlotAction}
-                                swapOpenKey={swapOpenKey}
-                                stableSwapOpen={stableSwapOpen}
-                                stableSwapClose={stableSwapClose}
-                                handleSwapSelect={handleSwapSelect}
-                                handleUpdateInline={handleUpdateInline}
-                                handleRemove={handleRemove}
-                                handleSuggestionAdd={handleSuggestionAdd}
-                                swapCustomizeOpenKey={swapCustomizeOpenKey}
-                                stableSwapCustomizeOpen={stableSwapCustomizeOpen}
-                                stableSwapCustomizeClose={stableSwapCustomizeClose}
-                                handleSwapCustomizeApply={handleSwapCustomizeApply}
-                                handleAddAnother={handleAddAnother}
-                                preferences={preferences}
-                                today={today}
-                                dishes={dishes}
-                                user={user}
-                                pantryStaples={pantryStaples}
-                                stableGuestMode={stableGuestMode}
-                                completions={completions}
-                                skipped={skipped}
-                                undoSlot={undoSlot}
-                                handleCompleteSlot={handleCompleteSlot}
-                                handleUndoComplete={handleUndoComplete}
-                                handleSkipSlot={handleSkipSlot}
-                                handleUndoSkip={handleUndoSkip}
-                            />
-                        ))}
+                        <div className="space-y-5">
+                            {displayActiveUpcomingSlots.map(({ section, slot }) => (
+                                <DashboardSlotSection
+                                    key={slot.key}
+                                    date={today}
+                                    mealType={slot.mealType}
+                                    slot={slot}
+                                    section={section}
+                                    sectionColors={SECTION_COLORS}
+                                    sectionLabels={SECTION_LABELS}
+                                    onOpenSearchAction={openSearchAction}
+                                    onCompleteAction={handleCompleteSlot}
+                                    onUndoCompleteAction={handleUndoComplete}
+                                    onSkipSlotAction={handleSkipSlot}
+                                    onUndoSkipAction={handleUndoSkip}
+                                    onShareSlotAction={onShareSlotAction}
+                                    swapOpenKey={swapOpenKey}
+                                    stableSwapOpen={stableSwapOpen}
+                                    stableSwapClose={stableSwapClose}
+                                    handleSwapSelect={handleSwapSelect}
+                                    handleUpdateInline={handleUpdateInline}
+                                    handleRemove={handleRemove}
+                                    handleSuggestionAdd={handleSuggestionAdd}
+                                    swapCustomizeOpenKey={swapCustomizeOpenKey}
+                                    stableSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                    stableSwapCustomizeClose={stableSwapCustomizeClose}
+                                    handleSwapCustomizeApply={handleSwapCustomizeApply}
+                                    handleAddAnother={handleAddAnother}
+                                    preferences={preferences}
+                                    today={today}
+                                    dishes={dishes}
+                                    user={user}
+                                    pantryStaples={pantryStaples}
+                                    stableGuestMode={stableGuestMode}
+                                    completions={completions}
+                                    skipped={skipped}
+                                    undoSlot={undoSlot}
+                                    handleCompleteSlot={handleCompleteSlot}
+                                    handleUndoComplete={handleUndoComplete}
+                                    handleSkipSlot={handleSkipSlot}
+                                    handleUndoSkip={handleUndoSkip}
+                                />
+                            ))}
+                        </div>
 
                         {/* ─── TODAY'S HISTORY (Completed & Skipped) ─── */}
                         {displayCompletedSlots.length > 0 && (
-                            <>
-                                <div className="flex items-center gap-2 mt-6 mb-3">
+                            <div className="space-y-5 mt-5">
+                                <div className="flex items-center gap-2 mb-1">
                                     <div className="text-base" aria-hidden="true">📋</div>
                                     <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">
                                         Today's History
@@ -1237,7 +1249,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         handleUndoSkip={handleUndoSkip}
                                     />
                                 ))}
-                            </>
+                            </div>
                         )}
                     </>
                 )}
@@ -1372,7 +1384,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 </div>
             )}
 
-            {/* FAB */}
+            {/* FAB — hidden while any modal is open */}
+            {!showSlotPicker && !addDishOpen && !swapCustomizeOpenKey && (
             <div className="fixed bottom-24 right-6 z-[60]">
             <button
                 onClick={() => setShowSlotPicker(true)}
@@ -1382,6 +1395,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 <Plus size={24} />
             </button>
             </div>
+            )}
 
             {/* Slot picker */}
             {showSlotPicker && (
@@ -1463,7 +1477,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
             {/* Add Dish Modal — SwapCustomizeModal in search/add mode (FAB flow) */}
             {addDishOpen && (
-                <SwapCustomizeModal
+                <Suspense fallback={null}><SwapCustomizeModal
                     key={`add_${addDishSlot}_${today}`}
                     isOpen={addDishOpen}
                     onClose={() => setAddDishOpen(false)}
@@ -1478,7 +1492,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     onAddAnother={handleAddAnother}
                     onChange={() => {}}
                     initialAddMode={true}
-                />
+                /></Suspense>
             )}
 
             {/* Tray Screen */}

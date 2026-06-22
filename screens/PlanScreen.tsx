@@ -11,8 +11,10 @@ import type { SuggestionMeal } from '../lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
 const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
 import { useBackendDishes } from '../hooks/useBackendDishes';
-import { ChevronLeft, ChevronRight, Calendar, Users, Plus, Minus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Users, Plus, Minus, Navigation, Settings } from 'lucide-react';
 import type { Dish, DishVariant } from '../constants/dishLibrary';
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll';
+import { useBackButtonClose } from '../hooks/useBackButtonClose';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
@@ -239,9 +241,16 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const [trayDate, setTrayDate] = useState('');
     const [quickAddDate, setQuickAddDate] = useState('');
     const [showSlotPicker, setShowSlotPicker] = useState(false);
+    useLockBodyScroll(showSlotPicker);
+    useBackButtonClose(showSlotPicker, () => setShowSlotPicker(false));
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishDate, setAddDishDate] = useState('');
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
+    const [showNavPicker, setShowNavPicker] = useState(false);
+    const [navDate, setNavDate] = useState('');
+    const [navSlot, setNavSlot] = useState<MealType | null>(null);
+    useLockBodyScroll(showNavPicker);
+    useBackButtonClose(showNavPicker, () => setShowNavPicker(false));
 
     const ADD_DISH_DUMMY: TrayItem = {
         id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
@@ -265,6 +274,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const skipSlot = useTrayStore(s => s.skipSlot);
     const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
     const mealLoop = useTrayStore(s => s.mealLoop);
+    const planPeriod = useTrayStore(s => s.plan.period);
     const planDays = useTrayStore(s => s.plan.days);
 
     const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
@@ -382,6 +392,27 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
 
     const weekDates = useMemo(() => generateWeekDates(weekStart), [weekStart]);
+
+    // ─── Auto-reset guest mode when the week first becomes complete ───
+    const isWeekComplete = useMemo(() => {
+        return weekDates.every(date =>
+            ACTIVE_SLOTS.every(slot => getMeals(date, slot.mealType).length > 0)
+        );
+    }, [weekDates, ACTIVE_SLOTS, getMeals, planDays]);
+
+    const mountedRef = useRef(false);
+    const prevCompleteRef = useRef(false);
+    useEffect(() => {
+        const prev = prevCompleteRef.current;
+        prevCompleteRef.current = isWeekComplete;
+        if (!mountedRef.current) {
+            mountedRef.current = true;
+            return;
+        }
+        if (isWeekComplete && !prev && guestMode.active) {
+            setGuestMode({ active: false, guestCount: 0, extraServings: 0, startDate: '', endDate: '' });
+        }
+    }, [isWeekComplete]);
 
     const stableSwapOpen = useCallback((id: string) => {
         setSwapOpenKey(prev => prev === id ? null : id);
@@ -563,6 +594,27 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         }
         return weekDates.filter(d => d > today);
     }, [weekDates, today, mealLoop.config, planDayKeys]);
+
+    // Total meals across upcoming dates
+    const totalPlannedMeals = useMemo(() => {
+        let count = 0;
+        for (const d of upcomingDates) {
+            for (const { mealType } of ACTIVE_SLOTS) {
+                const meals = getMeals(d, mealType);
+                count += meals.reduce((sum, m) => sum + (m.quantity || 1), 0);
+            }
+        }
+        return count;
+    }, [upcomingDates, getMeals, ACTIVE_SLOTS]);
+
+    // Period label
+    const periodLabel = useMemo(() => {
+        switch (planPeriod) {
+            case 'biweek': return 'biweek';
+            case 'month': return 'month';
+            default: return 'week';
+        }
+    }, [planPeriod]);
 
     // Week label
     const weekLabel = useMemo(() => {
@@ -790,7 +842,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                         const guestCount = guestMode.active ? guestMode.extraServings : 0;
 
                         return (
-                            <div key={date}>
+                            <div key={date} id={`plan-day-${date}`}>
                                 <div className="flex items-center gap-3 mb-3 px-2">
                                     <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-500">
                                         <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
@@ -853,6 +905,44 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 </div>
             )}
 
+            {/* ─── Completion summary (all upcoming slots filled) ─── */}
+            {planTab === 'upcoming' && upcomingDates.length > 0 && (() => {
+                let filledSlots = 0;
+                let totalSlots = 0;
+                for (const d of upcomingDates) {
+                    for (const { mealType } of ACTIVE_SLOTS) {
+                        totalSlots++;
+                        const meals = getMeals(d, mealType);
+                        if (meals.length > 0) filledSlots++;
+                    }
+                }
+                const allFilled = filledSlots === totalSlots;
+                return (
+                <div className="px-4 pb-6">
+                    <div className={`rounded-2xl border-2 p-5 text-center space-y-3 ${allFilled ? 'border-emerald-200 bg-emerald-50/80' : 'border-dashed border-gray-200 bg-gray-50'}`}>
+                        {allFilled ? (
+                            <div className="text-3xl">🎯</div>
+                        ) : (
+                            <div className="text-3xl">📋</div>
+                        )}
+                        <p className="text-sm font-black text-gray-900">
+                            {allFilled ? `All meals planned for this ${periodLabel}` : `${filledSlots}/${totalSlots} slots filled`}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                            {totalPlannedMeals} meal{totalPlannedMeals !== 1 ? 's' : ''} across {upcomingDates.length} day{upcomingDates.length !== 1 ? 's' : ''}
+                        </p>
+                        <button
+                            onClick={() => window.dispatchEvent(new CustomEvent('navigate:profile'))}
+                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold active:scale-95 transition-all"
+                        >
+                            <Settings size={14} />
+                            Set up next {periodLabel}
+                        </button>
+                    </div>
+                </div>
+                );
+            })()}
+
             {/* ─── History (past days) ─── */}
             {planTab === 'history' && pastDatesWithMeals.length > 0 && (
                 <div ref={historyContainerRef} className="px-4">
@@ -861,14 +951,14 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                             items={pastDatesWithMeals}
                             estimateSize={280}
                             overscan={3}
-                            renderItem={renderHistoryDay}
+                            renderItem={(date: string) => <div id={`plan-day-${date}`}>{renderHistoryDay(date)}</div>}
                             outerClassName="overflow-auto h-[calc(100vh-240px)]"
                             className="space-y-6"
                         />
                     ) : (
                         <div className="space-y-6">
                             {pastDatesWithMeals.map(date => (
-                                <div key={date}>{renderHistoryDay(date)}</div>
+                                <div key={date} id={`plan-day-${date}`}>{renderHistoryDay(date)}</div>
                             ))}
                         </div>
                     )}
@@ -912,8 +1002,22 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 </div>
             )}
 
-            {/* FAB */}
-            <div className="fixed bottom-24 right-6 z-[60]">
+            {/* FABs — nav always visible when dates exist, add dish only in upcoming — hidden while any modal is open */}
+            {!showSlotPicker && !addDishOpen && !swapCustomizeOpenKey && (planTab === 'upcoming' ? upcomingDates : pastDatesWithMeals).length > 0 && (
+            <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-center gap-3">
+                <button
+                    onClick={() => {
+                        const dates = planTab === 'upcoming' ? upcomingDates : pastDatesWithMeals;
+                        setNavDate(dates[0] || today);
+                        setNavSlot(null);
+                        setShowNavPicker(true);
+                    }}
+                    className="w-14 h-14 bg-gray-900 text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all"
+                    aria-label="Navigate to day"
+                >
+                    <Navigation size={20} />
+                </button>
+                {planTab === 'upcoming' && (
                 <button
                     onClick={() => {
                         setQuickAddDate(upcomingDates[0] || today);
@@ -924,7 +1028,9 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 >
                     <Plus size={24} />
                 </button>
+                )}
             </div>
+            )}
 
             {/* Slot picker */}
             {showSlotPicker && (
@@ -1015,6 +1121,83 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 </div>
             )}
 
+            {/* Navigate picker */}
+            {showNavPicker && (
+                <div className="fixed inset-0 z-[60]" onClick={() => setShowNavPicker(false)}>
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div
+                        className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-6 pb-10 animate-in slide-in-from-bottom duration-200 max-w-lg mx-auto"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <h3 className="text-lg font-black text-gray-900 mb-1">Navigate to day</h3>
+                        <p className="text-xs text-gray-500 mb-4">{planTab === 'history' ? 'Jump to a past day' : 'Choose a date and meal slot'}</p>
+
+                        {/* Date strip */}
+                        <div className="flex gap-2 overflow-x-auto pb-1 mb-3">
+                            {(() => {
+                                const navDates = planTab === 'history'
+                                    ? (pastDatesWithMeals.length > 0 ? pastDatesWithMeals : [today])
+                                    : (upcomingDates.length > 0 ? upcomingDates : [today]);
+                                return navDates.slice(0, 7).map(d => {
+                                    const dateObj = new Date(d);
+                                    const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
+                                    const dayNum = dateObj.getDate();
+                                    const selected = d === navDate;
+                                    return (
+                                        <button
+                                            key={d}
+                                            onClick={() => setNavDate(d)}
+                                            className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-center transition-all ${
+                                                selected ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
+                                            }`}
+                                        >
+                                            <span className="text-[8px] font-black uppercase tracking-widest block">{dayName}</span>
+                                            <span className="text-sm font-bold block mt-0.5">{dayNum}</span>
+                                        </button>
+                                    );
+                                });
+                            })()}
+                        </div>
+
+                        {/* Slots */}
+                        <div className="space-y-2">
+                            {ACTIVE_SLOTS.map(({ key, label, mealType }) => (
+                                <button
+                                    key={key}
+                                    onClick={() => {
+                                        setNavSlot(mealType);
+                                        setShowNavPicker(false);
+                                        setTimeout(() => {
+                                            const el = document.getElementById(`plan-day-${navDate}`);
+                                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                        }, 200);
+                                    }}
+                                    className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all active:scale-[0.98] hover:bg-gray-50 ${
+                                        navSlot === mealType ? 'border-gray-900 bg-gray-50' : 'border-gray-100'
+                                    }`}
+                                >
+                                    <span className="text-2xl w-10 h-10 flex items-center justify-center">
+                                        {key === 'Breakfast' ? '🌅' : key === 'Lunch' ? '☀️' : key === 'Snacks' ? '🥜' : '🌙'}
+                                    </span>
+                                    <div className="text-left">
+                                        <span className="text-sm font-bold text-gray-900 block">{label}</span>
+                                        <span className="text-[10px] text-gray-400">
+                                            {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
+                                        </span>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            onClick={() => setShowNavPicker(false)}
+                            className="w-full mt-3 py-3 rounded-2xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Quick Add Modal */}
             <QuickAddModal
                 isOpen={showQuickAdd}
@@ -1038,7 +1221,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
             {/* Add Dish Modal — SwapCustomizeModal in search/add mode (FAB flow) */}
             {addDishOpen && addDishDate && (
-                <SwapCustomizeModal
+                <Suspense fallback={null}><SwapCustomizeModal
                     key={`add_${addDishSlot}_${addDishDate}`}
                     isOpen={addDishOpen}
                     onClose={() => setAddDishOpen(false)}
@@ -1053,7 +1236,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     onAddAnother={handleAddAnother}
                     onChange={() => {}}
                     initialAddMode={true}
-                />
+                /></Suspense>
             )}
         </div>
         </PullToRefresh>
