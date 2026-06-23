@@ -53,6 +53,8 @@ const [cookInput, setCookInput] = useState(user?.cookContact || '');
 const [notifications, setNotifications] = useState(true);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
 const [trayEditSlot, setTrayEditSlot] = useState<MealType | null>(null);
+const [showTrayOverview, setShowTrayOverview] = useState(false);
+const [overviewSlot, setOverviewSlot] = useState<MealType>('breakfast');
 const { addToTray, removeFromTray } = useStore();
 
 const { customDishes, addCustomDish, updateCustomDish, removeCustomDish, setToast } = useStore();
@@ -434,6 +436,59 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                         Add dish
                                     </button>
                                 </div>
+                            ) : showTrayOverview ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">Manage Tray</p>
+                                        <button
+                                            onClick={() => setShowTrayOverview(false)}
+                                            className="px-4 py-2 rounded-2xl bg-[#FF385C] text-white text-xs font-black uppercase tracking-widest"
+                                        >
+                                            Done
+                                        </button>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {['breakfast', 'lunch', 'snacks', 'dinner'].filter(mt => plannedSlots.includes(mt.charAt(0).toUpperCase() + mt.slice(1))).map(mt => {
+                                            const active = overviewSlot === mt;
+                                            const count = (trayLibrary[mt as MealType] || []).length;
+                                            return (
+                                                <button
+                                                    key={mt}
+                                                    onClick={() => setOverviewSlot(mt as MealType)}
+                                                    className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                                        active ? 'bg-[#FF385C] text-white border-[#FF385C]' : 'bg-white text-gray-400 border-gray-200'
+                                                    }`}
+                                                >
+                                                    {mt} {count > 0 && `(${count})`}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">{overviewSlot.charAt(0).toUpperCase() + overviewSlot.slice(1)}</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {(trayLibrary[overviewSlot] || []).map(item => (
+                                                <span key={item.id} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-gray-50 border border-gray-200 text-gray-700">
+                                                    {item.icon && <span className="text-[11px]">{item.icon}</span>}
+                                                    <span className="max-w-[120px] truncate">{item.name}</span>
+                                                    <button
+                                                        onClick={() => handleRemoveTrayDish(overviewSlot, item.id)}
+                                                        className="w-4 h-4 rounded-full flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 ml-0.5"
+                                                    >
+                                                        <X size={9} />
+                                                    </button>
+                                                </span>
+                                            ))}
+                                            <button
+                                                onClick={() => { setShowTrayOverview(false); setTrayEditSlot(overviewSlot); }}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium border border-dashed border-gray-300 text-gray-400 hover:text-gray-600"
+                                            >
+                                                <Plus size={11} />
+                                                Add
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             ) : (
                                 <>
                                     <div className="flex items-start justify-between gap-4">
@@ -442,6 +497,12 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                             <p className="text-base font-bold text-gray-900 mt-1">Saved defaults — Plan pulls from here.</p>
                                             <p className="text-[10px] text-gray-500 mt-0.5">Tray = Favorites &bull; Plan = Scheduled meals you build</p>
                                         </div>
+                                        <button
+                                            onClick={() => setShowTrayOverview(true)}
+                                            className="shrink-0 px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-[#FF385C]"
+                                        >
+                                            Manage
+                                        </button>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 mt-4">
                                         {traySummary.map(item => {
