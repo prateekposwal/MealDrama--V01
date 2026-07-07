@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { MessageCircle, Phone, X, Check, Play, Square, Volume2, Settings } from 'lucide-react';
+import { MessageCircle, Phone, X, Check, Play, Square, Volume2 } from 'lucide-react';
 import { getShareStrings, LANGUAGE_OPTIONS, SLOT_LABELS, ShareLanguage } from '../../utils/share';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
@@ -40,7 +40,6 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
     const [ttsBlob, setTtsBlob] = useState<Blob | null>(null);
     const [ttsStatus, setTtsStatus] = useState<'idle' | 'no-voice' | 'playing' | 'done'>('idle');
-    const [micDenied, setMicDenied] = useState(false);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
     const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
@@ -63,7 +62,6 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             setRecordingBlob(null);
             setTtsBlob(null);
             setTtsStatus('idle');
-            setMicDenied(false);
         }
     }, [isOpen]);
 
@@ -111,20 +109,61 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         });
     }, []);
 
-    // ─── TTS: server preferred, browser fallback ───────────────────────────
+    // ─── TTS: SpeechSynthesis first (sync, preserves gesture), server fallback ──
     const speak = useCallback(async (forRecording = false) => {
-        // Stop any existing playback
         window.speechSynthesis.cancel();
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current = null;
         }
 
+        // Try SpeechSynthesis first — runs synchronously from gesture
+        const trySpeechSynthesis = (): boolean => {
+            const voices = window.speechSynthesis.getVoices();
+            if (!voices.length) return false;
+            const utterance = new SpeechSynthesisUtterance(speakScript);
+            const langMap: Record<string, string> = {
+                hi: 'hi-IN', mr: 'mr-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN', en: 'en-US',
+            };
+            const targetLang = langMap[language] || 'en-US';
+            const voice = voices.find(v => v.lang === targetLang) || voices.find(v => v.lang.startsWith(targetLang.slice(0, 2)));
+            if (voice) utterance.voice = voice;
+            utterance.lang = targetLang;
+            utterance.rate = 0.9;
+            utterance.onstart = () => { setSpeaking(true); setTtsStatus('playing'); };
+            utterance.onend = () => { setSpeaking(false); setTtsStatus('done'); };
+            utterance.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
+            utteranceRef.current = utterance;
+            window.speechSynthesis.speak(utterance);
+            return true;
+        };
+
+        if (trySpeechSynthesis()) return;
+
+        // Voices not loaded yet — wait and retry
+        const voices = await getVoices();
+        if (voices.length) {
+            const utterance = new SpeechSynthesisUtterance(speakScript);
+            const langMap: Record<string, string> = {
+                hi: 'hi-IN', mr: 'mr-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN', en: 'en-US',
+            };
+            const targetLang = langMap[language] || 'en-US';
+            const voice = voices.find(v => v.lang === targetLang) || voices.find(v => v.lang.startsWith(targetLang.slice(0, 2)));
+            if (voice) utterance.voice = voice;
+            utterance.lang = targetLang;
+            utterance.rate = 0.9;
+            utterance.onstart = () => { setSpeaking(true); setTtsStatus('playing'); };
+            utterance.onend = () => { setSpeaking(false); setTtsStatus('done'); };
+            utterance.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
+            utteranceRef.current = utterance;
+            window.speechSynthesis.speak(utterance);
+            return;
+        }
+
+        // SpeechSynthesis unavailable — try server TTS (WAV)
         const apiBase = window.location.origin.includes('localhost')
             ? 'http://localhost:3001'
             : window.location.origin;
-
-        // Try server TTS first (returns WAV which all browsers support)
         try {
             const resp = await fetch(`${apiBase}/api/v1/tts`, {
                 method: 'POST',
@@ -138,12 +177,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             if (resp.ok) {
                 const blob = await resp.blob();
                 const url = URL.createObjectURL(blob);
-
-                // Store blob for sharing (only when recording, not just listening)
-                if (forRecording) {
-                    setTtsBlob(blob);
-                }
-
+                if (forRecording) setTtsBlob(blob);
                 const audio = new Audio(url);
                 audioRef.current = audio;
                 audio.onplay = () => { setSpeaking(true); setTtsStatus('playing'); };
@@ -154,27 +188,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             }
         } catch {}
 
-        // Fallback: browser SpeechSynthesis
-        const voices = await getVoices();
-        if (!voices.length) {
-            setTtsStatus('no-voice');
-            return;
-        }
-
-        const utterance = new SpeechSynthesisUtterance(speakScript);
-        const langMap: Record<string, string> = {
-            hi: 'hi-IN', mr: 'mr-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN', en: 'en-US',
-        };
-        const targetLang = langMap[language] || 'en-US';
-        const voice = voices.find(v => v.lang === targetLang) || voices.find(v => v.lang.startsWith(targetLang.slice(0, 2)));
-        if (voice) utterance.voice = voice;
-        utterance.lang = targetLang;
-        utterance.rate = 0.9;
-        utterance.onstart = () => { setSpeaking(true); setTtsStatus('playing'); };
-        utterance.onend = () => { setSpeaking(false); setTtsStatus('done'); };
-        utterance.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
-        utteranceRef.current = utterance;
-        window.speechSynthesis.speak(utterance);
+        setTtsStatus('no-voice');
     }, [speakScript, language, getVoices]);
 
     const stopSpeaking = useCallback(() => {
@@ -187,30 +201,22 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         setTtsStatus('idle');
     }, []);
 
-    // ─── Open system app settings ──────────────────────────────────────────
-    const openAppSettings = useCallback(async () => {
-        if (!isCapacitor) {
-            alert('Please enable mic access in your browser/phone settings for this app.');
-            return;
-        }
-        try {
-            // Android: "package:" URL scheme opens app info → permissions screen
+    // ─── Open system app settings on Android ──────────────────────────────
+    const redirectToSettings = () => {
+        if (isCapacitor) {
             window.location.href = 'package:com.mealdrama.app';
-        } catch {
-            alert('Could not open settings. Please go to Settings → Apps → MealDrama → Permissions → Microphone.');
+        } else {
+            alert('Please enable mic access in your browser/phone settings for this app.\n\nOn Android: Settings → Apps → MealDrama → Permissions → Microphone\nOn iOS: Settings → MealDrama → Microphone');
         }
-        setTimeout(() => setMicDenied(false), 3000);
-    }, []);
+    };
 
     // ─── Record audio (mic picks up TTS from speaker) ─────────────────────
     const startRecording = useCallback(async () => {
-        setMicDenied(false);
-
-        // Check permission state first (if available)
+        // Check permission state first while gesture is still fresh
         try {
             const perm = await navigator.permissions.query({ name: 'microphone' as PermissionName });
             if (perm.state === 'denied') {
-                setMicDenied(true);
+                redirectToSettings();
                 return;
             }
         } catch {}
@@ -233,7 +239,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             // Start TTS after recording begins
             speak(true);
         } catch {
-            setMicDenied(true);
+            redirectToSettings();
         }
     }, [speak]);
 
@@ -416,18 +422,6 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                                 )}
                             </div>
 
-                            {micDenied && (
-                                <div className="text-center space-y-2">
-                                    <p className="text-xs text-red-600 font-bold">Microphone access is needed for voice notes.</p>
-                                    <button
-                                        onClick={openAppSettings}
-                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 text-white font-bold text-xs active:scale-[0.98]"
-                                    >
-                                        <Settings size={12} /> Open Settings
-                                    </button>
-                                </div>
-                            )}
-
                             {ttsStatus === 'playing' && (
                                 <p className="text-[10px] text-emerald-600 font-bold animate-pulse text-center">🔊 Speaking...</p>
                             )}
@@ -443,7 +437,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                                     Send Voice Note to WhatsApp
                                 </button>
                             )}
-                            {ttsStatus === 'done' && !shareableBlob && !micDenied && (
+                            {ttsStatus === 'done' && !shareableBlob && (
                                 <p className="text-[10px] text-gray-400 text-center">✅ Done. Record & Share to send as voice.</p>
                             )}
                         </div>
