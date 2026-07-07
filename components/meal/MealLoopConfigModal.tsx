@@ -257,6 +257,11 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
 
           {/* Cycle Length */}
           <CycleLengthSelector value={cycleLength} onChange={setCycleLength} />
+          {validation.valid && previewAssignments.length > 0 && (
+            <p className="text-[11px] text-gray-400 mt-1 ml-0.5">
+              Fills {new Date(previewAssignments[0].date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – {new Date(previewAssignments[previewAssignments.length - 1].date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+            </p>
+          )}
 
           {/* Start Date */}
           <div>
