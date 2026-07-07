@@ -235,7 +235,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                             </div>
                             <input
                                 type="text"
-                                placeholder="e.g. Rahul_Cooks"
+                                placeholder="user_name"
                                 maxLength={20}
                                 className="w-full bg-gray-50 border-none rounded-[28px] py-5 pl-14 pr-6 font-bold text-lg focus:ring-2 focus:ring-[#FF385C] outline-none"
                                 value={username}
