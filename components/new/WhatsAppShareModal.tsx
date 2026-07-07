@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { MessageCircle, Phone, X, Check } from 'lucide-react';
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { MessageCircle, Phone, X, Check, Play, Square, Volume2 } from 'lucide-react';
 import { getShareStrings, LANGUAGE_OPTIONS, SLOT_LABELS, ShareLanguage } from '../../utils/share';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
@@ -32,6 +32,14 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     const [selectedSlots, setSelectedSlots] = useState<string[]>(
         preselectedSlot ? [preselectedSlot] : availableSlots.map(s => s.key),
     );
+    const [voiceMode, setVoiceMode] = useState(false);
+    const [speaking, setSpeaking] = useState(false);
+    const [recording, setRecording] = useState(false);
+    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+    const [ttsStatus, setTtsStatus] = useState<'idle' | 'no-voice' | 'playing' | 'done'>('idle');
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const chunksRef = useRef<Blob[]>([]);
+    const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
     useEffect(() => {
         setPhone(defaultPhone || '');
@@ -40,6 +48,17 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     useEffect(() => {
         setSelectedSlots(preselectedSlot ? [preselectedSlot] : availableSlots.map(s => s.key));
     }, [availableSlots, isOpen, preselectedSlot]);
+
+    // Reset voice state when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            setVoiceMode(false);
+            setSpeaking(false);
+            setRecording(false);
+            setAudioBlob(null);
+            setTtsStatus('idle');
+        }
+    }, [isOpen]);
 
     const preview = useMemo(
         () => previewBuilder(language, selectedSlots),
@@ -56,7 +75,91 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     const selectAll = () => setSelectedSlots(availableSlots.map(s => s.key));
     const deselectAll = () => setSelectedSlots([]);
 
-    if (!isOpen) return null;
+    // Build a speakable script from the preview text
+    const speakScript = useMemo(() => {
+        return preview
+            .replace(/[*_#`]/g, '')
+            .replace(/\n{2,}/g, '\n')
+            .trim();
+    }, [preview]);
+
+    // ─── TTS ───────────────────────────────────────────────────────────────
+    const speak = useCallback(() => {
+        window.speechSynthesis.cancel();
+        const voices = window.speechSynthesis.getVoices();
+        const utterance = new SpeechSynthesisUtterance(speakScript);
+
+        // Map language to voice
+        const langMap: Record<string, string> = {
+            hi: 'hi-IN', mr: 'mr-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN', en: 'en-US',
+        };
+        const targetLang = langMap[language] || 'en-US';
+        const voice = voices.find(v => v.lang.startsWith(targetLang.slice(0, 2)));
+        if (voice) utterance.voice = voice;
+        utterance.lang = targetLang;
+        utterance.rate = 0.9;
+
+        utterance.onstart = () => { setSpeaking(true); setTtsStatus('playing'); };
+        utterance.onend = () => { setSpeaking(false); setTtsStatus('done'); };
+        utterance.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
+
+        utteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
+    }, [speakScript, language]);
+
+    const stopSpeaking = useCallback(() => {
+        window.speechSynthesis.cancel();
+        setSpeaking(false);
+        setTtsStatus('idle');
+    }, []);
+
+    // ─── Record audio (mic picks up TTS from speaker) ─────────────────────
+    const startRecording = useCallback(async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            chunksRef.current = [];
+            const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunksRef.current.push(e.data);
+            };
+            recorder.onstop = () => {
+                const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+                setAudioBlob(blob);
+                stream.getTracks().forEach(t => t.stop());
+            };
+            mediaRecorderRef.current = recorder;
+            recorder.start();
+            setRecording(true);
+            // Start TTS after recording begins (mic will pick it up)
+            speak();
+        } catch {
+            alert('Microphone access is needed for voice notes. Please allow mic access.');
+        }
+    }, [speak]);
+
+    const stopRecording = useCallback(() => {
+        stopSpeaking();
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+        }
+        setRecording(false);
+    }, [stopSpeaking]);
+
+    const shareVoiceNote = useCallback(async () => {
+        if (!audioBlob) return;
+        const number = phone.replace(/\D/g, '');
+        if (!number) { alert('Add a WhatsApp number first.'); return; }
+
+        // Write blob to a file and share via Web Share API
+        const file = new File([audioBlob], 'menu-voice-note.webm', { type: 'audio/webm' });
+        if (navigator.share && navigator.canShare?.({ files: [file] })) {
+            await navigator.share({ files: [file], title: "Today's Menu" });
+        } else {
+            // Fallback: open WhatsApp with a note
+            window.open(`https://wa.me/${number}?text=${encodeURIComponent('🎤 Listen to today\'s menu (voice note recording below)\n\n' + preview)}`, '_blank');
+        }
+        onClose();
+    }, [audioBlob, phone, preview, onClose]);
 
     const shareNow = () => {
         const number = phone.replace(/\D/g, '');
@@ -67,6 +170,8 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         window.open(`https://wa.me/${number}?text=${encodeURIComponent(preview)}`, '_blank');
         onClose();
     };
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-[70] bg-black/40 backdrop-blur-sm flex items-end justify-center p-4 pt-12">
@@ -150,24 +255,108 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                         </div>
                     </div>
 
-                    {/* Message preview */}
-                    <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Preview</p>
-                        <div className="rounded-[22px] border border-gray-100 bg-gray-50 p-4 max-h-64 overflow-y-auto">
-                            <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-medium text-gray-700">{preview}</pre>
-                        </div>
+                    {/* Toggle: Text ↔ Voice */}
+                    <div className="flex items-center gap-2 bg-gray-50 rounded-xl p-1">
+                        <button
+                            onClick={() => { stopSpeaking(); setVoiceMode(false); }}
+                            className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${!voiceMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400'}`}
+                        >
+                            <MessageCircle size={12} className="inline mr-1" />
+                            Text
+                        </button>
+                        <button
+                            onClick={() => setVoiceMode(true)}
+                            className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${voiceMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400'}`}
+                        >
+                            <Volume2 size={12} className="inline mr-1" />
+                            Voice Note
+                        </button>
                     </div>
+
+                    {/* Voice Note controls */}
+                    {voiceMode && (
+                        <div className="rounded-[22px] border border-gray-100 bg-gray-50 p-4 space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">Voice Note</p>
+                            <p className="text-xs text-gray-500">{speakScript.slice(0, 120)}...</p>
+
+                            <div className="flex gap-2">
+                                {!speaking && !recording ? (
+                                    <button
+                                        onClick={speak}
+                                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-200 text-gray-700 font-bold text-xs active:scale-[0.98]"
+                                    >
+                                        <Play size={14} /> Listen
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={stopSpeaking}
+                                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-red-100 text-red-600 font-bold text-xs active:scale-[0.98]"
+                                    >
+                                        <Square size={14} /> Stop
+                                    </button>
+                                )}
+
+                                {!recording ? (
+                                    <button
+                                        onClick={startRecording}
+                                        disabled={speaking}
+                                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-[#FF385C] text-white font-bold text-xs active:scale-[0.98] disabled:opacity-40"
+                                    >
+                                        <Volume2 size={14} /> Record & Share
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={stopRecording}
+                                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-red-500 text-white font-bold text-xs active:scale-[0.98] animate-pulse"
+                                    >
+                                        <Square size={14} /> Stop & Send
+                                    </button>
+                                )}
+                            </div>
+
+                            {ttsStatus === 'playing' && (
+                                <p className="text-[10px] text-emerald-600 font-bold animate-pulse text-center">🔊 Speaking...</p>
+                            )}
+                            {ttsStatus === 'no-voice' && (
+                                <p className="text-[10px] text-amber-600 text-center">No voice found for this language on your device.</p>
+                            )}
+                            {audioBlob && (
+                                <button
+                                    onClick={shareVoiceNote}
+                                    className="w-full py-3 rounded-[20px] bg-[#25D366] text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
+                                >
+                                    <MessageCircle size={16} />
+                                    Send Voice Note to WhatsApp
+                                </button>
+                            )}
+                            {ttsStatus === 'done' && !audioBlob && (
+                                <p className="text-[10px] text-gray-400 text-center">✅ Done. Record & Share to send as voice.</p>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Message preview (text mode only) */}
+                    {!voiceMode && (
+                        <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Preview</p>
+                            <div className="rounded-[22px] border border-gray-100 bg-gray-50 p-4 max-h-64 overflow-y-auto">
+                                <pre className="whitespace-pre-wrap text-[13px] leading-relaxed font-medium text-gray-700">{preview}</pre>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                <div className="px-5 pb-5 flex-shrink-0">
-                    <button
-                        onClick={shareNow}
-                        className="w-full py-4 rounded-[20px] bg-[#25D366] text-white font-bold text-base flex items-center justify-center gap-3 shadow-xl shadow-green-500/20 active:scale-[0.98] transition-all"
-                    >
-                        <MessageCircle size={18} />
-                        Share on WhatsApp
-                    </button>
-                </div>
+                {!voiceMode && (
+                    <div className="px-5 pb-5 flex-shrink-0">
+                        <button
+                            onClick={shareNow}
+                            className="w-full py-4 rounded-[20px] bg-[#25D366] text-white font-bold text-base flex items-center justify-center gap-3 shadow-xl shadow-green-500/20 active:scale-[0.98] transition-all"
+                        >
+                            <MessageCircle size={18} />
+                            Share on WhatsApp
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
