@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { MessageCircle, Phone, X, Check, Play, Square, Volume2 } from 'lucide-react';
+import { MessageCircle, Phone, X, Check, Play, Square, Volume2, Settings } from 'lucide-react';
 import { getShareStrings, LANGUAGE_OPTIONS, SLOT_LABELS, ShareLanguage } from '../../utils/share';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
+
+const isCapacitor = !!(window as any).Capacitor?.isNative;
 
 interface WhatsAppShareModalProps {
     isOpen: boolean;
@@ -35,11 +37,14 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     const [voiceMode, setVoiceMode] = useState(false);
     const [speaking, setSpeaking] = useState(false);
     const [recording, setRecording] = useState(false);
-    const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+    const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
+    const [ttsBlob, setTtsBlob] = useState<Blob | null>(null);
     const [ttsStatus, setTtsStatus] = useState<'idle' | 'no-voice' | 'playing' | 'done'>('idle');
+    const [micDenied, setMicDenied] = useState(false);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
     const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
         setPhone(defaultPhone || '');
@@ -55,8 +60,10 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             setVoiceMode(false);
             setSpeaking(false);
             setRecording(false);
-            setAudioBlob(null);
+            setRecordingBlob(null);
+            setTtsBlob(null);
             setTtsStatus('idle');
+            setMicDenied(false);
         }
     }, [isOpen]);
 
@@ -88,11 +95,36 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         hi: 'Aditi', mr: 'Aditi', bn: 'Aditi', ta: 'Vani', te: 'Vani', en: 'Samantha',
     };
 
-    // ─── TTS (server preferred, browser fallback) ──────────────────────────
-    const speak = useCallback(async () => {
-        const apiBase = window.location.origin.includes('localhost') ? 'http://localhost:3001' : window.location.origin;
+    // ─── Helper: get voices (load async) ───────────────────────────────────
+    const getVoices = useCallback((): Promise<SpeechSynthesisVoice[]> => {
+        return new Promise((resolve) => {
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length) {
+                resolve(voices);
+                return;
+            }
+            window.speechSynthesis.onvoiceschanged = () => {
+                resolve(window.speechSynthesis.getVoices());
+                window.speechSynthesis.onvoiceschanged = null;
+            };
+            setTimeout(() => resolve(window.speechSynthesis.getVoices()), 1000);
+        });
+    }, []);
 
-        // Try server TTS first
+    // ─── TTS: server preferred, browser fallback ───────────────────────────
+    const speak = useCallback(async (forRecording = false) => {
+        // Stop any existing playback
+        window.speechSynthesis.cancel();
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+
+        const apiBase = window.location.origin.includes('localhost')
+            ? 'http://localhost:3001'
+            : window.location.origin;
+
+        // Try server TTS first (returns WAV which all browsers support)
         try {
             const resp = await fetch(`${apiBase}/api/v1/tts`, {
                 method: 'POST',
@@ -106,8 +138,14 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             if (resp.ok) {
                 const blob = await resp.blob();
                 const url = URL.createObjectURL(blob);
+
+                // Store blob for sharing (only when recording, not just listening)
+                if (forRecording) {
+                    setTtsBlob(blob);
+                }
+
                 const audio = new Audio(url);
-                setAudioBlob(blob);
+                audioRef.current = audio;
                 audio.onplay = () => { setSpeaking(true); setTtsStatus('playing'); };
                 audio.onended = () => { setSpeaking(false); setTtsStatus('done'); };
                 audio.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
@@ -115,15 +153,20 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 return;
             }
         } catch {}
+
         // Fallback: browser SpeechSynthesis
-        window.speechSynthesis.cancel();
-        const voices = window.speechSynthesis.getVoices();
+        const voices = await getVoices();
+        if (!voices.length) {
+            setTtsStatus('no-voice');
+            return;
+        }
+
         const utterance = new SpeechSynthesisUtterance(speakScript);
         const langMap: Record<string, string> = {
             hi: 'hi-IN', mr: 'mr-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN', en: 'en-US',
         };
         const targetLang = langMap[language] || 'en-US';
-        const voice = voices.find(v => v.lang.startsWith(targetLang.slice(0, 2)));
+        const voice = voices.find(v => v.lang === targetLang) || voices.find(v => v.lang.startsWith(targetLang.slice(0, 2)));
         if (voice) utterance.voice = voice;
         utterance.lang = targetLang;
         utterance.rate = 0.9;
@@ -132,16 +175,46 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         utterance.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
         utteranceRef.current = utterance;
         window.speechSynthesis.speak(utterance);
-    }, [speakScript, language]);
+    }, [speakScript, language, getVoices]);
 
     const stopSpeaking = useCallback(() => {
         window.speechSynthesis.cancel();
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
         setSpeaking(false);
         setTtsStatus('idle');
     }, []);
 
+    // ─── Open system app settings ──────────────────────────────────────────
+    const openAppSettings = useCallback(async () => {
+        if (!isCapacitor) {
+            alert('Please enable mic access in your browser/phone settings for this app.');
+            return;
+        }
+        try {
+            // Android: "package:" URL scheme opens app info → permissions screen
+            window.location.href = 'package:com.mealdrama.app';
+        } catch {
+            alert('Could not open settings. Please go to Settings → Apps → MealDrama → Permissions → Microphone.');
+        }
+        setTimeout(() => setMicDenied(false), 3000);
+    }, []);
+
     // ─── Record audio (mic picks up TTS from speaker) ─────────────────────
     const startRecording = useCallback(async () => {
+        setMicDenied(false);
+
+        // Check permission state first (if available)
+        try {
+            const perm = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+            if (perm.state === 'denied') {
+                setMicDenied(true);
+                return;
+            }
+        } catch {}
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             chunksRef.current = [];
@@ -151,16 +224,16 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             };
             recorder.onstop = () => {
                 const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-                setAudioBlob(blob);
+                setRecordingBlob(blob);
                 stream.getTracks().forEach(t => t.stop());
             };
             mediaRecorderRef.current = recorder;
             recorder.start();
             setRecording(true);
-            // Start TTS after recording begins (mic will pick it up)
-            speak();
+            // Start TTS after recording begins
+            speak(true);
         } catch {
-            alert('Microphone access is needed for voice notes. Please allow mic access.');
+            setMicDenied(true);
         }
     }, [speak]);
 
@@ -172,21 +245,23 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         setRecording(false);
     }, [stopSpeaking]);
 
+    // The audio to share: recording blob if available, otherwise server TTS blob
+    const shareableBlob = recordingBlob || ttsBlob;
+
     const shareVoiceNote = useCallback(async () => {
-        if (!audioBlob) return;
+        if (!shareableBlob) return;
         const number = phone.replace(/\D/g, '');
         if (!number) { alert('Add a WhatsApp number first.'); return; }
 
-        // Write blob to a file and share via Web Share API
-        const file = new File([audioBlob], 'menu-voice-note.webm', { type: 'audio/webm' });
+        const ext = shareableBlob.type.includes('webm') ? 'webm' : 'wav';
+        const file = new File([shareableBlob], `menu-voice-note.${ext}`, { type: shareableBlob.type });
         if (navigator.share && navigator.canShare?.({ files: [file] })) {
             await navigator.share({ files: [file], title: "Today's Menu" });
         } else {
-            // Fallback: open WhatsApp with a note
-            window.open(`https://wa.me/${number}?text=${encodeURIComponent('🎤 Listen to today\'s menu (voice note recording below)\n\n' + preview)}`, '_blank');
+            window.open(`https://wa.me/${number}?text=${encodeURIComponent('🎤 Today\'s menu (voice note)\n\n' + preview)}`, '_blank');
         }
         onClose();
-    }, [audioBlob, phone, preview, onClose]);
+    }, [shareableBlob, phone, preview, onClose]);
 
     const shareNow = () => {
         const number = phone.replace(/\D/g, '');
@@ -309,7 +384,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                             <div className="flex gap-2">
                                 {!speaking && !recording ? (
                                     <button
-                                        onClick={speak}
+                                        onClick={() => speak(false)}
                                         className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-200 text-gray-700 font-bold text-xs active:scale-[0.98]"
                                     >
                                         <Play size={14} /> Listen
@@ -341,13 +416,25 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                                 )}
                             </div>
 
+                            {micDenied && (
+                                <div className="text-center space-y-2">
+                                    <p className="text-xs text-red-600 font-bold">Microphone access is needed for voice notes.</p>
+                                    <button
+                                        onClick={openAppSettings}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500 text-white font-bold text-xs active:scale-[0.98]"
+                                    >
+                                        <Settings size={12} /> Open Settings
+                                    </button>
+                                </div>
+                            )}
+
                             {ttsStatus === 'playing' && (
                                 <p className="text-[10px] text-emerald-600 font-bold animate-pulse text-center">🔊 Speaking...</p>
                             )}
                             {ttsStatus === 'no-voice' && (
                                 <p className="text-[10px] text-amber-600 text-center">No voice found for this language on your device.</p>
                             )}
-                            {audioBlob && (
+                            {shareableBlob && (
                                 <button
                                     onClick={shareVoiceNote}
                                     className="w-full py-3 rounded-[20px] bg-[#25D366] text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
@@ -356,7 +443,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                                     Send Voice Note to WhatsApp
                                 </button>
                             )}
-                            {ttsStatus === 'done' && !audioBlob && (
+                            {ttsStatus === 'done' && !shareableBlob && !micDenied && (
                                 <p className="text-[10px] text-gray-400 text-center">✅ Done. Record & Share to send as voice.</p>
                             )}
                         </div>

@@ -49,7 +49,7 @@ router.post('/', async (req: Request, res: Response) => {
     const safeText = text.replace(/["'`]/g, '').slice(0, 2000);
     const voiceFlag = voice || (language === 'hi' ? 'Aditi' : undefined);
 
-    const filename = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.aiff`;
+    const filename = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`;
     const outPath = path.join(TMP_DIR, filename);
 
     let cmd = `say -o "${outPath}"`;
@@ -62,8 +62,8 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(500).json({ success: false, error: 'TTS generation failed' });
     }
 
-    res.setHeader('Content-Type', 'audio/aiff');
-    res.setHeader('Content-Disposition', `attachment; filename="voice.aiff"`);
+    res.setHeader('Content-Type', 'audio/wav');
+    res.setHeader('Content-Disposition', `attachment; filename="voice.wav"`);
     const stream = fs.createReadStream(outPath);
     stream.pipe(res);
     stream.on('end', () => {
