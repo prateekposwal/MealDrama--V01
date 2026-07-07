@@ -1372,6 +1372,98 @@ export const useTrayStore = create<TrayStore>()(
         set((s) => {
           // When a loop already exists, use mid-cycle path to preserve existing assignments
           if (s.mealLoop.config) {
+            const lengthChanged = config.cycleLength !== s.mealLoop.config.cycleLength;
+
+            // ─── Path A: Cycle length changed → extend window ───
+            if (lengthChanged) {
+              const rotationState = buildRotationState(pool, dishes);
+
+              const loopEndDate = new Date(config.startDate);
+              loopEndDate.setDate(loopEndDate.getDate() + config.cycleLength * 7);
+              const loopEndStr = getISODate(loopEndDate);
+
+              const existingItems: Array<{ date: string; mealType: MealType; source?: string }> = [];
+              for (const [date, day] of Object.entries(s.plan.days)) {
+                if (date < config.startDate || date > loopEndStr) continue;
+                for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+                  for (const item of day[mt]) {
+                    existingItems.push({ date, mealType: mt, source: item.source });
+                  }
+                }
+              }
+
+              const result = autoFillLoopEngine(config, rotationState, existingItems);
+
+              const existingKeys = new Set(s.mealLoop.assignments.map(a => `${a.date}|${a.mealType}`));
+              const dedupedNew = result.assignments.filter(a => !existingKeys.has(`${a.date}|${a.mealType}`));
+
+              const newDays = { ...s.plan.days };
+              for (const a of dedupedNew) {
+                if (!newDays[a.date]) newDays[a.date] = emptyDayMeals();
+                if (newDays[a.date][a.mealType].length > 0) continue;
+                if (dishes) {
+                  const dish = dishes.find(d => d.id === a.dishId);
+                  if (dish) {
+                    const meal = dishToMeal(dish);
+                    const defaults = applySmartDefaults(meal, a.mealType, undefined, { useSmartSuggestions: true });
+                    const timeDef = getTimeDef(a.mealType);
+                    const loopCarb = defaults.roti ?? defaults.rice ?? undefined;
+                    const loopTitle = generateMealTitle(meal.name, defaults.sides, defaults.beverages, loopCarb);
+                    newDays[a.date][a.mealType].push({
+                      id: uid(),
+                      meal_id: meal.id,
+                      name: meal.name,
+                      title: loopTitle,
+                      icon: meal.icon,
+                      quantity: 1,
+                      servings: 1,
+                      smartVersion: 1,
+                      style: getDishStyle(meal.id),
+                      gravy: defaults.gravy,
+                      roti: defaults.roti,
+                      rice: defaults.rice,
+                      sides: defaults.sides,
+                      beverages: defaults.beverages,
+                      dessert: defaults.dessert,
+                      itemQtys: defaults.itemQtys,
+                      start_time: timeDef.start,
+                      end_time: timeDef.end,
+                      source: 'loop',
+                    });
+                  }
+                }
+              }
+
+              const sourceDishIds = Object.values(pool).flat().map((d: Dish) => d.id);
+              enqueueUtil('loop_save', {
+                config,
+                sourceDishIds,
+                assignments: [...s.mealLoop.assignments, ...dedupedNew],
+              });
+              window.dispatchEvent(new Event('pantry:invalidate'));
+
+              return {
+                mealLoop: {
+                  ...s.mealLoop,
+                  config,
+                  sourceDishIds,
+                  rotationState: result.rotationState,
+                  assignments: [...s.mealLoop.assignments, ...dedupedNew],
+                  undoStack: [{
+                    config: s.mealLoop.config,
+                    sourceDishIds: s.mealLoop.sourceDishIds,
+                    rotationQueue: s.mealLoop.rotationQueue,
+                    rotationState: s.mealLoop.rotationState,
+                    analytics: s.mealLoop.analytics,
+                  }, ...s.mealLoop.undoStack].slice(0, 5),
+                  refreshing: false,
+                  lastRefreshStart: undefined,
+                },
+                plan: { ...s.plan, days: newDays },
+              };
+            }
+
+            // ─── Path B: Pool changed (same length) → handleMidCycleAdd ───
             const oldIds = s.mealLoop.sourceDishIds;
             const newIds = Object.values(pool).flat().map((d: Dish) => d.id);
             const result = handleMidCycleAdd(
