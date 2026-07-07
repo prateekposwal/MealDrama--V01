@@ -28,7 +28,7 @@ import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
-import { getShareStrings, ShareLanguage, SLOT_LABELS, COMPONENT_LABELS } from '../utils/share';
+import { getShareStrings, ShareLanguage, SLOT_LABELS } from '../utils/share';
 
 import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
 import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
@@ -686,21 +686,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const buildPrepMessage = useCallback((language: ShareLanguage, selectedSlots: string[]) => {
         const copy = getShareStrings(language);
         const slotLabels = SLOT_LABELS[language];
-        const compLabels = COMPONENT_LABELS[language];
 
-        const timeSummary = ACTIVE_SLOTS
-            .filter(slot => selectedSlots.includes(slot.mealType))
-            .map(slot => {
-                const meals = getMeals(today, slot.mealType);
-                if (meals.length === 0) return null;
-                const { start, end } = resolveSlotTimes(meals, slot.mealType, preferences);
-                const label = slotLabels[slot.mealType] || slot.label;
-                return `${label} ${start}–${end}`;
-            })
-            .filter(Boolean)
-            .join(' | ');
+        const guestInEffect = stableGuestMode.active
+            && today >= stableGuestMode.startDate
+            && today <= stableGuestMode.endDate;
 
-        const lines = ACTIVE_SLOTS
+        const slotsText = ACTIVE_SLOTS
             .filter(slot => selectedSlots.includes(slot.mealType))
             .filter(slot => {
                 const key = `${today}::${slot.mealType}`;
@@ -711,36 +702,41 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 if (meals.length === 0) return null;
                 const slotLabel = slotLabels[slot.mealType] || slot.label;
                 const dishNames = meals.map(m => {
-                    const dishQty = (m.quantity || 1) > 1 ? ` x${m.quantity}` : '';
-                    return `    • ${m.name}${dishQty}`;
-                }).join('\n');
+                    const qty = (m.quantity || 1) > 1 ? ` x${m.quantity}` : '';
+                    return `${m.name}${qty}`;
+                });
                 const agg = aggregateSlotItems(meals);
-                const allComps = [
-                    ...agg.gravy.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
-                    ...agg.roti.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
-                    ...agg.rice.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
-                    ...agg.sides.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
-                    ...agg.beverages.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
-                    ...agg.dessert.map(c => ({ name: c.name, qty: c.totalQty, unit: c.unit })),
-                ];
-                const compLines = allComps
-                    .filter(c => c.qty > 0)
-                    .map(c => {
-                        const label = compLabels[c.name.toLowerCase()] || c.name;
-                        return `    • ${label} x${c.qty} ${c.unit}`;
-                    })
-                    .join('\n');
-                return `• *${slotLabel}*\n${dishNames}${compLines ? '\n' + compLines : ''}`;
+                const compItems = [
+                    ...agg.gravy.map(c => ({ name: c.name, qty: `${c.totalQty} ${c.unit}` })),
+                    ...agg.roti.map(c => ({ name: c.name, qty: `${c.totalQty} ${c.unit}` })),
+                    ...agg.rice.map(c => ({ name: c.name, qty: `${c.totalQty} ${c.unit}` })),
+                    ...agg.sides.map(c => ({ name: c.name, qty: `${c.totalQty} ${c.unit}` })),
+                    ...agg.beverages.map(c => ({ name: c.name, qty: `${c.totalQty} ${c.unit}` })),
+                    ...agg.dessert.map(c => ({ name: c.name, qty: `${c.totalQty} ${c.unit}` })),
+                ].filter(c => c.qty !== '0 unit');
+                const allParts = [...dishNames, ...compItems.map(c => `${c.name} (${c.qty})`)];
+                const guestExtra = guestInEffect ? ` – ${stableGuestMode.extraServings} extra serving rakho!` : '';
+                return `${slotLabel}: ${allParts.join(', ')}.${guestExtra}`;
             })
             .filter(Boolean);
 
-        const guestInEffect = stableGuestMode.active
-            && today >= stableGuestMode.startDate
-            && today <= stableGuestMode.endDate;
-        const guestLine = guestInEffect
-            ? `\n👥 +${stableGuestMode.extraServings} guest${stableGuestMode.extraServings !== 1 ? 's' : ''}`
-            : '';
-        return `*${copy.brandHeader}*\n\n📅 ${today}${timeSummary ? `\n⏰ ${timeSummary}` : ''}${guestLine}\n\n${copy.todayPlan}:\n\n${lines.join('\n\n')}\n\n━━━━━━━━━━━━━━━\n${copy.region}: ${user?.region ?? ''}`;
+        const doneSlots = ACTIVE_SLOTS
+            .filter(slot => selectedSlots.includes(slot.mealType))
+            .filter(slot => {
+                const key = `${today}::${slot.mealType}`;
+                return committedCompletions[key];
+            })
+            .map(slot => slotLabels[slot.mealType] || slot.label);
+
+        let msg = `*${copy.brandHeader}*\n\n`;
+        if (slotsText.length) {
+            msg += slotsText.join('\n\n') + '\n\n';
+        }
+        if (doneSlots.length) {
+            msg += `✅ ${doneSlots.join(', ')} done!\n\n`;
+        }
+        msg += copy.sentFrom;
+        return msg;
     }, [getMeals, today, user, committedCompletions, preferences, stableGuestMode]);
 
     const buildPantryMessage = useCallback((language: ShareLanguage, selectedSlots: string[]) => {

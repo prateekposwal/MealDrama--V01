@@ -360,14 +360,14 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                     {/* Toggle: Text ↔ Voice */}
                     <div className="flex items-center gap-2 bg-gray-50 rounded-xl p-1">
                         <button
-                            onClick={() => { stopSpeaking(); setVoiceMode(false); }}
+                            onClick={() => { stopSpeaking(); if (recording) stopRecording(); setVoiceMode(false); }}
                             className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${!voiceMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400'}`}
                         >
                             <MessageCircle size={12} className="inline mr-1" />
                             Text
                         </button>
                         <button
-                            onClick={() => setVoiceMode(true)}
+                            onClick={() => { if (recording) stopRecording(); setVoiceMode(true); }}
                             className={`flex-1 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${voiceMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400'}`}
                         >
                             <Volume2 size={12} className="inline mr-1" />
