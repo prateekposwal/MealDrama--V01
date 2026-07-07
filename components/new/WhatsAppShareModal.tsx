@@ -70,7 +70,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[70] bg-black/40 backdrop-blur-sm flex items-end justify-center p-4 pt-12">
-            <div className="w-full max-w-lg rounded-[28px] bg-white shadow-2xl border border-gray-100 max-h-[85dvh] flex flex-col">
+            <div className="w-full max-w-lg rounded-[28px] bg-white shadow-2xl border border-gray-100 max-h-[85dvh] flex flex-col pb-[env(safe-area-inset-bottom)]">
                 <div className="px-5 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-4 flex-shrink-0">
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-widest text-green-600 mb-2">WhatsApp preview</p>

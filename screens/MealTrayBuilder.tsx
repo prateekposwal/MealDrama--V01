@@ -614,7 +614,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             </div>
 
             {/* Bottom Bar */}
-            <div className="sticky bottom-0 px-5 pb-10 pt-4 bg-white">
+            <div className="sticky bottom-0 px-5 pb-[max(40px,env(safe-area-inset-bottom))] pt-4 bg-white">
                 {!isLoading && !error && !minMet && (
                     <div className="flex items-center gap-2 text-xs font-bold rounded-2xl px-4 py-3 mb-3 bg-amber-50 text-amber-700 border border-amber-100">
                         <ShoppingBasket size={14} />

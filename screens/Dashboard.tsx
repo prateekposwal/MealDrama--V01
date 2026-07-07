@@ -1402,7 +1402,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 <div className="fixed inset-0 z-[60]" onClick={() => setShowSlotPicker(false)}>
                     <div className="absolute inset-0 bg-black/30" />
                     <div
-                        className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-6 pb-10 animate-in slide-in-from-bottom duration-200 max-w-lg mx-auto"
+                        className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-6 pb-[max(40px,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-200 max-w-lg mx-auto"
                         onClick={e => e.stopPropagation()}
                     >
                         <h3 className="text-lg font-black text-gray-900 mb-1">Add to which meal?</h3>

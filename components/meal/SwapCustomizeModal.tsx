@@ -832,7 +832,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
         </div>
       )}
       <div
-        className="relative w-full sm:max-w-lg max-h-[90vh] bg-gray-50 rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden pb-16"
+        className="relative w-full sm:max-w-lg max-h-[90vh] bg-gray-50 rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden pb-[max(64px,env(safe-area-inset-bottom))]"
         role="dialog"
         aria-modal="true"
         aria-label={`Customize ${slotLabel}`}

@@ -189,7 +189,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
     return (
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-end justify-center" onClick={onClose}>
             <div
-                className="w-full max-w-lg rounded-t-3xl flex flex-col max-h-[85dvh] animate-in slide-in-from-bottom duration-300 bg-white"
+                className="w-full max-w-lg rounded-t-3xl flex flex-col max-h-[85dvh] animate-in slide-in-from-bottom duration-300 bg-white pb-[env(safe-area-inset-bottom)]"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}

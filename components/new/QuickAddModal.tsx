@@ -312,7 +312,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
             aria-label={`Add meal to ${slot}`}
         >
             <div
-                className="w-full max-w-lg rounded-t-3xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-300 bg-white pb-16"
+                className="w-full max-w-lg rounded-t-3xl flex flex-col max-h-[85vh] animate-in slide-in-from-bottom duration-300 bg-white pb-[max(64px,env(safe-area-inset-bottom))]"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
