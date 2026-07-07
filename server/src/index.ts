@@ -166,6 +166,7 @@ app.use('/api/v1/variants', require('./routes/variants').default);
 app.use('/api/v1/custom-dishes', require('./routes/custom-dishes').default);
 app.use('/api/v1/roommates', require('./routes/roommates').default);
 app.use('/api/v1/loop-config', require('./routes/loopConfig').default);
+app.use('/api/v1/tts', require('./routes/tts').default);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

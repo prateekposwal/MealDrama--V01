@@ -83,13 +83,42 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             .trim();
     }, [preview]);
 
-    // ─── TTS ───────────────────────────────────────────────────────────────
-    const speak = useCallback(() => {
+    // Map language to macOS voice name
+    const ttsVoiceForLang: Record<string, string> = {
+        hi: 'Aditi', mr: 'Aditi', bn: 'Aditi', ta: 'Vani', te: 'Vani', en: 'Samantha',
+    };
+
+    // ─── TTS (server preferred, browser fallback) ──────────────────────────
+    const speak = useCallback(async () => {
+        const apiBase = window.location.origin.includes('localhost') ? 'http://localhost:3001' : window.location.origin;
+
+        // Try server TTS first
+        try {
+            const resp = await fetch(`${apiBase}/api/v1/tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: speakScript,
+                    voice: ttsVoiceForLang[language] || 'Samantha',
+                    language,
+                }),
+            });
+            if (resp.ok) {
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                setAudioBlob(blob);
+                audio.onplay = () => { setSpeaking(true); setTtsStatus('playing'); };
+                audio.onended = () => { setSpeaking(false); setTtsStatus('done'); };
+                audio.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
+                await audio.play();
+                return;
+            }
+        } catch {}
+        // Fallback: browser SpeechSynthesis
         window.speechSynthesis.cancel();
         const voices = window.speechSynthesis.getVoices();
         const utterance = new SpeechSynthesisUtterance(speakScript);
-
-        // Map language to voice
         const langMap: Record<string, string> = {
             hi: 'hi-IN', mr: 'mr-IN', bn: 'bn-IN', ta: 'ta-IN', te: 'te-IN', en: 'en-US',
         };
@@ -98,11 +127,9 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         if (voice) utterance.voice = voice;
         utterance.lang = targetLang;
         utterance.rate = 0.9;
-
         utterance.onstart = () => { setSpeaking(true); setTtsStatus('playing'); };
         utterance.onend = () => { setSpeaking(false); setTtsStatus('done'); };
         utterance.onerror = () => { setSpeaking(false); setTtsStatus('idle'); };
-
         utteranceRef.current = utterance;
         window.speechSynthesis.speak(utterance);
     }, [speakScript, language]);
