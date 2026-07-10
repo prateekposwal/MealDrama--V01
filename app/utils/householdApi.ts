@@ -1,13 +1,27 @@
 import api from '../../lib/api';
 import type { Household, CreateHouseholdPayload, JoinHouseholdPayload } from '../../types/household';
 
-// ─── DEV mock helpers ────────────────────────────────────────────────
-let _devHousehold: Household | null = null;
+// ─── DEV mock ────────────────────────────────────────────────────────
+const DEV_STORAGE_KEY = 'mealdrama-dev-household';
+
+function devLoad(): Household | null {
+  try {
+    const raw = localStorage.getItem(DEV_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function devSave(hh: Household | null) {
+  try {
+    if (hh) localStorage.setItem(DEV_STORAGE_KEY, JSON.stringify(hh));
+    else localStorage.removeItem(DEV_STORAGE_KEY);
+  } catch { /* quota exceeded — ignore */ }
+}
 
 async function devUser() {
   try {
-    const m = await import('../../app/store/useStore');
-    const u = m.useStore.getState().user;
+    const { useStore } = await import('../../app/store/useStore');
+    const u = useStore.getState().user;
     return { id: u?.id || 'dev-user', name: u?.name || 'Dev User' };
   } catch {
     return { id: 'dev-user', name: 'Dev User' };
@@ -32,7 +46,7 @@ export const householdApi = {
         members: [{ id: u.id, name: u.name, role: 'admin', joinedAt: new Date().toISOString() }],
         createdAt: new Date().toISOString(),
       };
-      _devHousehold = hh;
+      devSave(hh);
       return hh;
     }
     return api.post<Household>('/households', payload);
@@ -40,8 +54,9 @@ export const householdApi = {
 
   get: async (id: string): Promise<Household> => {
     if (import.meta.env.DEV) {
-      await devDelay();
-      if (_devHousehold?.id === id) return _devHousehold;
+      await devDelay(200);
+      const hh = devLoad();
+      if (hh?.id === id) return hh;
       throw new Error('Household not found');
     }
     return api.get<Household>(`/households/${id}`);
@@ -50,12 +65,14 @@ export const householdApi = {
   join: async (payload: JoinHouseholdPayload): Promise<Household> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      if (!_devHousehold) throw new Error('No household found with that code');
-      if (_devHousehold.code !== payload.code.toUpperCase()) throw new Error('Invalid code');
+      const hh = devLoad();
+      if (!hh) throw new Error('No household found with that code');
+      if (hh.code !== payload.code.toUpperCase()) throw new Error('Invalid code');
       const u = await devUser();
-      if (_devHousehold.members.some(m => m.id === u.id)) return _devHousehold;
-      _devHousehold.members.push({ id: u.id, name: u.name, role: 'member', joinedAt: new Date().toISOString() });
-      return { ..._devHousehold };
+      if (hh.members.some(m => m.id === u.id)) return hh;
+      hh.members.push({ id: u.id, name: u.name, role: 'member', joinedAt: new Date().toISOString() });
+      devSave(hh);
+      return { ...hh };
     }
     return api.post<Household>('/households/join', payload);
   },
@@ -63,10 +80,11 @@ export const householdApi = {
   leave: async (id: string): Promise<void> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      if (_devHousehold?.id === id) {
+      const hh = devLoad();
+      if (hh?.id === id) {
         const u = await devUser();
-        _devHousehold.members = _devHousehold.members.filter(m => m.id !== u.id);
-        if (_devHousehold.members.length === 0) _devHousehold = null;
+        hh.members = hh.members.filter(m => m.id !== u.id);
+        devSave(hh.members.length > 0 ? hh : null);
       }
       return;
     }
@@ -76,9 +94,11 @@ export const householdApi = {
   regenerateCode: async (id: string): Promise<{ code: string }> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      if (_devHousehold?.id === id) {
-        _devHousehold.code = Math.random().toString(36).substring(2, 8).toUpperCase();
-        return { code: _devHousehold.code };
+      const hh = devLoad();
+      if (hh?.id === id) {
+        hh.code = Math.random().toString(36).substring(2, 8).toUpperCase();
+        devSave(hh);
+        return { code: hh.code };
       }
       throw new Error('Household not found');
     }

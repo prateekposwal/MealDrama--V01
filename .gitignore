@@ -13,3 +13,6 @@ coverage/
 .idea/
 android/local.properties
 constants/dishLibrary.ts.bak
+*.apk
+*.apk.idsig
+*.keystore
