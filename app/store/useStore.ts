@@ -5,7 +5,7 @@ import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
 import api, { setAuthReady } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
-import { householdApi, setDevUser } from '../utils/householdApi';
+import { householdApi } from '../utils/householdApi';
 import type { Household } from '../../types/household';
 
 
@@ -392,6 +392,7 @@ interface StoreState {
   joinHousehold: (code: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
   refreshHousehold: () => Promise<void>;
+  _devHousehold: Household | null;
 }
 
 export const useStore = create<StoreState>()(
@@ -417,6 +418,7 @@ export const useStore = create<StoreState>()(
       roommateSuggestions: [],
       householdId: null,
       household: null,
+      _devHousehold: null,
 
       setToast: (toast) => set({ toast }),
 
@@ -922,10 +924,22 @@ export const useStore = create<StoreState>()(
       // ─── Household ─────────────────────────────────────────────────
       createHousehold: async (name) => {
         try {
-          const u = get().user;
-          if (u) setDevUser(u.id || 'dev-user', u.name || 'Dev User');
-          const hh = await householdApi.create({ name });
-          set({ householdId: hh.id, household: hh });
+          let hh: Household;
+          try {
+            if (import.meta.env.DEV) {
+              const u = get().user;
+              hh = {
+                id: `hh_${Date.now()}`,
+                name,
+                adminId: u?.id || 'dev-user',
+                code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+                members: [{ id: u?.id || 'dev-user', name: u?.name || 'Dev User', role: 'admin', joinedAt: new Date().toISOString() }],
+                createdAt: new Date().toISOString(),
+              };
+              await new Promise(r => setTimeout(r, 400));
+            } else throw 0;
+          } catch { hh = await householdApi.create({ name }); }
+          set({ householdId: hh.id, household: hh, _devHousehold: hh });
           get().setToast({ message: `Household "${name}" created!`, type: 'success' });
         } catch (err) {
           get().setToast({ message: 'Failed to create household.', type: 'error' });
@@ -935,9 +949,21 @@ export const useStore = create<StoreState>()(
 
       joinHousehold: async (code) => {
         try {
-          const u = get().user;
-          if (u) setDevUser(u.id || 'dev-user', u.name || 'Dev User');
-          const hh = await householdApi.join({ code });
+          let hh: Household;
+          try {
+            if (import.meta.env.DEV) {
+              const devHh = get()._devHousehold;
+              if (!devHh) throw new Error('No household found with that code');
+              const entered = code.toUpperCase();
+              if (devHh.code !== entered) throw new Error('Invalid code');
+              const u = get().user;
+              if (!devHh.members.some(m => m.id === u?.id)) {
+                devHh.members.push({ id: u?.id || 'dev-user', name: u?.name || 'Dev User', role: 'member', joinedAt: new Date().toISOString() });
+              }
+              await new Promise(r => setTimeout(r, 400));
+              hh = { ...devHh };
+            } else throw 0;
+          } catch { hh = await householdApi.join({ code }); }
           set({ householdId: hh.id, household: hh });
           get().setToast({ message: `Joined ${hh.name}!`, type: 'success' });
         } catch (err) {
@@ -950,9 +976,16 @@ export const useStore = create<StoreState>()(
         const hhId = get().householdId;
         if (!hhId) return;
         try {
-          const u = get().user;
-          if (u) setDevUser(u.id || 'dev-user', u.name || 'Dev User');
-          await householdApi.leave(hhId);
+          try {
+            if (import.meta.env.DEV) {
+              const devHh = get()._devHousehold;
+              if (devHh?.id === hhId) {
+                const u = get().user;
+                devHh.members = devHh.members.filter(m => m.id !== u?.id);
+              }
+              await new Promise(r => setTimeout(r, 400));
+            } else throw 0;
+          } catch { await householdApi.leave(hhId); }
           set({ householdId: null, household: null });
           get().setToast({ message: 'Left household.', type: 'info' });
         } catch (err) {
@@ -964,8 +997,13 @@ export const useStore = create<StoreState>()(
         const hhId = get().householdId;
         if (!hhId) return;
         try {
-          const hh = await householdApi.get(hhId);
-          set({ household: hh });
+          let hh: Household | null = null;
+          try {
+            if (import.meta.env.DEV) {
+              hh = get()._devHousehold;
+            } else throw 0;
+          } catch { hh = await householdApi.get(hhId); }
+          if (hh) set({ household: hh });
         } catch {
           // silent — stale cache is acceptable
         }
