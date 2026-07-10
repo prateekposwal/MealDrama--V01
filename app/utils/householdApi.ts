@@ -18,12 +18,18 @@ function devSave(hh: Household | null) {
   } catch { /* quota exceeded — ignore */ }
 }
 
+function devLog(...args: unknown[]) {
+  if (import.meta.env.DEV) console.log('[Household DEV]', ...args);
+}
+
 async function devUser() {
   try {
     const { useStore } = await import('../../app/store/useStore');
     const u = useStore.getState().user;
+    devLog('current user:', u?.id, u?.name);
     return { id: u?.id || 'dev-user', name: u?.name || 'Dev User' };
   } catch {
+    devLog('devUser fallback — store not available');
     return { id: 'dev-user', name: 'Dev User' };
   }
 }
@@ -47,6 +53,7 @@ export const householdApi = {
         createdAt: new Date().toISOString(),
       };
       devSave(hh);
+      devLog('created:', hh.name, 'code:', hh.code, 'members:', hh.members.length);
       return hh;
     }
     return api.post<Household>('/households', payload);
@@ -56,6 +63,7 @@ export const householdApi = {
     if (import.meta.env.DEV) {
       await devDelay(200);
       const hh = devLoad();
+      devLog('get:', id, '→', hh ? `found ${hh.name}` : 'not found');
       if (hh?.id === id) return hh;
       throw new Error('Household not found');
     }
@@ -66,12 +74,21 @@ export const householdApi = {
     if (import.meta.env.DEV) {
       await devDelay();
       const hh = devLoad();
-      if (!hh) throw new Error('No household found with that code');
-      if (hh.code !== payload.code.toUpperCase()) throw new Error('Invalid code');
+      if (!hh) {
+        devLog('join failed — no household in localStorage');
+        throw new Error('No household found with that code');
+      }
+      const entered = payload.code.toUpperCase();
+      devLog('join: stored code =', hh.code, 'entered =', entered);
+      if (hh.code !== entered) throw new Error('Invalid code');
       const u = await devUser();
-      if (hh.members.some(m => m.id === u.id)) return hh;
+      if (hh.members.some(m => m.id === u.id)) {
+        devLog('already a member');
+        return hh;
+      }
       hh.members.push({ id: u.id, name: u.name, role: 'member', joinedAt: new Date().toISOString() });
       devSave(hh);
+      devLog('joined:', u.name, 'total members:', hh.members.length);
       return { ...hh };
     }
     return api.post<Household>('/households/join', payload);
@@ -84,7 +101,7 @@ export const householdApi = {
       if (hh?.id === id) {
         const u = await devUser();
         hh.members = hh.members.filter(m => m.id !== u.id);
-        devSave(hh.members.length > 0 ? hh : null);
+        devSave(hh); // always keep household so others can join later
       }
       return;
     }
