@@ -5,7 +5,7 @@ import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
 import api, { setAuthReady } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
-import { householdApi } from '../utils/householdApi';
+import { householdApi, setDevCurrentUser } from '../utils/householdApi';
 import type { Household } from '../../types/household';
 
 
@@ -922,6 +922,8 @@ export const useStore = create<StoreState>()(
       // ─── Household ─────────────────────────────────────────────────
       createHousehold: async (name) => {
         try {
+          const u = get().user;
+          if (u) setDevCurrentUser(u.id || 'dev-user', u.name || 'Dev User');
           const hh = await householdApi.create({ name });
           set({ householdId: hh.id, household: hh });
           get().setToast({ message: `Household "${name}" created!`, type: 'success' });
@@ -933,6 +935,8 @@ export const useStore = create<StoreState>()(
 
       joinHousehold: async (code) => {
         try {
+          const u = get().user;
+          if (u) setDevCurrentUser(u.id || 'dev-user', u.name || 'Dev User');
           const hh = await householdApi.join({ code });
           set({ householdId: hh.id, household: hh });
           get().setToast({ message: `Joined ${hh.name}!`, type: 'success' });
@@ -946,6 +950,8 @@ export const useStore = create<StoreState>()(
         const hhId = get().householdId;
         if (!hhId) return;
         try {
+          const u = get().user;
+          if (u) setDevCurrentUser(u.id || 'dev-user', u.name || 'Dev User');
           await householdApi.leave(hhId);
           set({ householdId: null, household: null });
           get().setToast({ message: 'Left household.', type: 'info' });

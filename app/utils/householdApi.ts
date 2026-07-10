@@ -3,6 +3,11 @@ import type { Household, CreateHouseholdPayload, JoinHouseholdPayload } from '..
 
 // ─── DEV mock ────────────────────────────────────────────────────────
 const DEV_STORAGE_KEY = 'mealdrama-dev-household';
+let _devCurrentUser = { id: 'dev-user', name: 'Dev User' };
+
+export function setDevCurrentUser(id: string, name: string) {
+  _devCurrentUser = { id, name };
+}
 
 function devLoad(): Household | null {
   try {
@@ -22,18 +27,6 @@ function devLog(...args: unknown[]) {
   if (import.meta.env.DEV) console.log('[Household DEV]', ...args);
 }
 
-async function devUser() {
-  try {
-    const { useStore } = await import('../../app/store/useStore');
-    const u = useStore.getState().user;
-    devLog('current user:', u?.id, u?.name);
-    return { id: u?.id || 'dev-user', name: u?.name || 'Dev User' };
-  } catch {
-    devLog('devUser fallback — store not available');
-    return { id: 'dev-user', name: 'Dev User' };
-  }
-}
-
 async function devDelay(ms = 400) {
   return new Promise(r => setTimeout(r, ms + Math.random() * 200));
 }
@@ -43,7 +36,7 @@ export const householdApi = {
   create: async (payload: CreateHouseholdPayload): Promise<Household> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      const u = await devUser();
+      const u = _devCurrentUser;
       const hh: Household = {
         id: `hh_${Date.now()}`,
         name: payload.name,
@@ -81,7 +74,7 @@ export const householdApi = {
       const entered = payload.code.toUpperCase();
       devLog('join: stored code =', hh.code, 'entered =', entered);
       if (hh.code !== entered) throw new Error('Invalid code');
-      const u = await devUser();
+      const u = _devCurrentUser;
       if (hh.members.some(m => m.id === u.id)) {
         devLog('already a member');
         return hh;
@@ -99,7 +92,7 @@ export const householdApi = {
       await devDelay();
       const hh = devLoad();
       if (hh?.id === id) {
-        const u = await devUser();
+        const u = _devCurrentUser;
         hh.members = hh.members.filter(m => m.id !== u.id);
         devSave(hh); // always keep household so others can join later
       }
