@@ -5,7 +5,7 @@ import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
 import api, { setAuthReady } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
-import { householdApi, setDevCurrentUser } from '../utils/householdApi';
+import { householdApi } from '../utils/householdApi';
 import type { Household } from '../../types/household';
 
 
@@ -392,6 +392,8 @@ interface StoreState {
   joinHousehold: (code: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
   refreshHousehold: () => Promise<void>;
+  _devHousehold: Household | null;
+  _setDevHousehold: (hh: Household | null) => void;
 }
 
 export const useStore = create<StoreState>()(
@@ -417,6 +419,7 @@ export const useStore = create<StoreState>()(
       roommateSuggestions: [],
       householdId: null,
       household: null,
+      _devHousehold: null,
 
       setToast: (toast) => set({ toast }),
 
@@ -970,6 +973,10 @@ export const useStore = create<StoreState>()(
           // silent — stale cache is acceptable
         }
       },
+
+      // ─── DEV: in-memory household store (avoids localStorage in mobile) ──
+      _devHousehold: null,
+      _setDevHousehold: (hh) => set({ _devHousehold: hh }),
     }),
     {
       name: 'mealdrama-store',

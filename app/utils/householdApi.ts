@@ -1,26 +1,19 @@
 import api from '../../lib/api';
+import { useStore } from '../../app/store/useStore';
 import type { Household, CreateHouseholdPayload, JoinHouseholdPayload } from '../../types/household';
 
 // ─── DEV mock ────────────────────────────────────────────────────────
-const DEV_STORAGE_KEY = 'mealdrama-dev-household';
-let _devCurrentUser = { id: 'dev-user', name: 'Dev User' };
-
-export function setDevCurrentUser(id: string, name: string) {
-  _devCurrentUser = { id, name };
+function devGet(): Household | null {
+  return useStore.getState()._devHousehold;
 }
 
-function devLoad(): Household | null {
-  try {
-    const raw = localStorage.getItem(DEV_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+function devSet(hh: Household | null) {
+  useStore.getState()._setDevHousehold(hh);
 }
 
-function devSave(hh: Household | null) {
-  try {
-    if (hh) localStorage.setItem(DEV_STORAGE_KEY, JSON.stringify(hh));
-    else localStorage.removeItem(DEV_STORAGE_KEY);
-  } catch { /* quota exceeded — ignore */ }
+function devUser() {
+  const u = useStore.getState().user;
+  return { id: u?.id || 'dev-user', name: u?.name || 'Dev User' };
 }
 
 function devLog(...args: unknown[]) {
@@ -36,7 +29,7 @@ export const householdApi = {
   create: async (payload: CreateHouseholdPayload): Promise<Household> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      const u = _devCurrentUser;
+      const u = devUser();
       const hh: Household = {
         id: `hh_${Date.now()}`,
         name: payload.name,
@@ -45,8 +38,8 @@ export const householdApi = {
         members: [{ id: u.id, name: u.name, role: 'admin', joinedAt: new Date().toISOString() }],
         createdAt: new Date().toISOString(),
       };
-      devSave(hh);
-      devLog('created:', hh.name, 'code:', hh.code, 'members:', hh.members.length);
+      devSet(hh);
+      devLog('created:', hh.name, 'code:', hh.code);
       return hh;
     }
     return api.post<Household>('/households', payload);
@@ -55,7 +48,7 @@ export const householdApi = {
   get: async (id: string): Promise<Household> => {
     if (import.meta.env.DEV) {
       await devDelay(200);
-      const hh = devLoad();
+      const hh = devGet();
       devLog('get:', id, '→', hh ? `found ${hh.name}` : 'not found');
       if (hh?.id === id) return hh;
       throw new Error('Household not found');
@@ -66,21 +59,21 @@ export const householdApi = {
   join: async (payload: JoinHouseholdPayload): Promise<Household> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      const hh = devLoad();
+      const hh = devGet();
       if (!hh) {
-        devLog('join failed — no household in localStorage');
+        devLog('join failed — no household in store');
         throw new Error('No household found with that code');
       }
       const entered = payload.code.toUpperCase();
       devLog('join: stored code =', hh.code, 'entered =', entered);
       if (hh.code !== entered) throw new Error('Invalid code');
-      const u = _devCurrentUser;
+      const u = devUser();
       if (hh.members.some(m => m.id === u.id)) {
         devLog('already a member');
         return hh;
       }
       hh.members.push({ id: u.id, name: u.name, role: 'member', joinedAt: new Date().toISOString() });
-      devSave(hh);
+      devSet(hh);
       devLog('joined:', u.name, 'total members:', hh.members.length);
       return { ...hh };
     }
@@ -90,11 +83,11 @@ export const householdApi = {
   leave: async (id: string): Promise<void> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      const hh = devLoad();
+      const hh = devGet();
       if (hh?.id === id) {
-        const u = _devCurrentUser;
+        const u = devUser();
         hh.members = hh.members.filter(m => m.id !== u.id);
-        devSave(hh); // always keep household so others can join later
+        devSet(hh);
       }
       return;
     }
@@ -104,10 +97,10 @@ export const householdApi = {
   regenerateCode: async (id: string): Promise<{ code: string }> => {
     if (import.meta.env.DEV) {
       await devDelay();
-      const hh = devLoad();
+      const hh = devGet();
       if (hh?.id === id) {
         hh.code = Math.random().toString(36).substring(2, 8).toUpperCase();
-        devSave(hh);
+        devSet(hh);
         return { code: hh.code };
       }
       throw new Error('Household not found');
