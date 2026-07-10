@@ -1032,6 +1032,7 @@ export const useStore = create<StoreState>()(
         roommateLink: state.roommateLink,
         roommateSuggestions: state.roommateSuggestions,
         householdId: state.householdId,
+        _devHousehold: state._devHousehold,
         // Don't persist: toast, notifications, pendingMutations, deadLetterMutations, trayEditSession, household (fetched on demand)
       }),
       migrate: (persistedState: unknown, fromVersion: number) => {
