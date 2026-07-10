@@ -1,126 +1,90 @@
 import api from '../../lib/api';
 import type { Household, CreateHouseholdPayload, JoinHouseholdPayload } from '../../types/household';
 
-// ─── DEV mock ────────────────────────────────────────────────────────
-const DEV_STORAGE_KEY = 'mealdrama-dev-household';
-let _devCurrentUser = { id: 'dev-user', name: 'Dev User' };
+// ─── DEV mock: module-level variables (no localStorage, no circular imports) ─
+let _devHousehold: Household | null = null;
+let _devUser = { id: 'dev-user', name: 'Dev User' };
 
-/** Set the current user for DEV mock (called from store actions) */
-export function setDevCurrentUser(id: string, name: string) {
-  _devCurrentUser = { id, name };
+export function setDevUser(id: string, name: string) {
+  _devUser = { id, name };
 }
 
-function devLoad(): Household | null {
-  try {
-    const raw = localStorage.getItem(DEV_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+function isDev(): boolean {
+  try { return import.meta.env.DEV === true; } catch { return false; }
 }
-
-function devSave(hh: Household | null) {
-  try {
-    if (hh) localStorage.setItem(DEV_STORAGE_KEY, JSON.stringify(hh));
-    else localStorage.removeItem(DEV_STORAGE_KEY);
-  } catch { /* quota exceeded — ignore */ }
-}
-
-function devLog(...args: unknown[]) {
-  try { if (import.meta.env.DEV) console.log('[Household DEV]', ...args); } catch {}
-}
-
-async function devDelay(ms = 400) {
-  return new Promise(r => setTimeout(r, ms + Math.random() * 200));
-}
-// ──────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
 
 export const householdApi = {
   create: async (payload: CreateHouseholdPayload): Promise<Household> => {
-    try {
-      if (import.meta.env.DEV) {
-        await devDelay();
-        const u = _devCurrentUser;
-        const hh: Household = {
-          id: `hh_${Date.now()}`,
-          name: payload.name,
-          adminId: u.id,
-          code: Math.random().toString(36).substring(2, 8).toUpperCase(),
-          members: [{ id: u.id, name: u.name, role: 'admin', joinedAt: new Date().toISOString() }],
-          createdAt: new Date().toISOString(),
-        };
-        devSave(hh);
-        devLog('created:', hh.name, 'code:', hh.code);
-        return hh;
-      }
-    } catch {}
+    if (isDev()) {
+      await new Promise(r => setTimeout(r, 400 + Math.random() * 200));
+      const hh: Household = {
+        id: `hh_${Date.now()}`,
+        name: payload.name,
+        adminId: _devUser.id,
+        code: Math.random().toString(36).substring(2, 8).toUpperCase(),
+        members: [{ id: _devUser.id, name: _devUser.name, role: 'admin', joinedAt: new Date().toISOString() }],
+        createdAt: new Date().toISOString(),
+      };
+      _devHousehold = hh;
+      console.log('[Household] created:', hh.name, 'code:', hh.code);
+      return hh;
+    }
     return api.post<Household>('/households', payload);
   },
 
   get: async (id: string): Promise<Household> => {
-    try {
-      if (import.meta.env.DEV) {
-        await devDelay(200);
-        const hh = devLoad();
-        devLog('get:', id, '→', hh ? `found ${hh.name}` : 'not found');
-        if (hh?.id === id) return hh;
-      }
-    } catch {}
+    if (isDev()) {
+      await new Promise(r => setTimeout(r, 200));
+      console.log('[Household] get:', id, '→', _devHousehold ? `found ${_devHousehold.name}` : 'not found');
+      if (_devHousehold?.id === id) return _devHousehold;
+      throw new Error('Household not found');
+    }
     return api.get<Household>(`/households/${id}`);
   },
 
   join: async (payload: JoinHouseholdPayload): Promise<Household> => {
-    try {
-      if (import.meta.env.DEV) {
-        await devDelay();
-        const hh = devLoad();
-        if (!hh) {
-          devLog('join failed — no household in localStorage');
-          throw new Error('No household found with that code');
-        }
-        const entered = payload.code.toUpperCase();
-        devLog('join: stored code =', hh.code, 'entered =', entered);
-        if (hh.code !== entered) throw new Error('Invalid code');
-        const u = _devCurrentUser;
-        if (hh.members.some(m => m.id === u.id)) {
-          devLog('already a member');
-          return hh;
-        }
-        hh.members.push({ id: u.id, name: u.name, role: 'member', joinedAt: new Date().toISOString() });
-        devSave(hh);
-        devLog('joined:', u.name, 'total members:', hh.members.length);
-        return { ...hh };
+    if (isDev()) {
+      await new Promise(r => setTimeout(r, 400 + Math.random() * 200));
+      if (!_devHousehold) {
+        console.log('[Household] join failed — no household created this session');
+        throw new Error('No household found with that code');
       }
-    } catch {}
+      const entered = payload.code.toUpperCase();
+      console.log('[Household] join: stored code =', _devHousehold.code, 'entered =', entered);
+      if (_devHousehold.code !== entered) throw new Error('Invalid code');
+      if (_devHousehold.members.some(m => m.id === _devUser.id)) {
+        console.log('[Household] already a member');
+        return _devHousehold;
+      }
+      _devHousehold.members.push({ id: _devUser.id, name: _devUser.name, role: 'member', joinedAt: new Date().toISOString() });
+      console.log('[Household] joined:', _devUser.name, 'total members:', _devHousehold.members.length);
+      return { ..._devHousehold };
+    }
     return api.post<Household>('/households/join', payload);
   },
 
   leave: async (id: string): Promise<void> => {
-    try {
-      if (import.meta.env.DEV) {
-        await devDelay();
-        const hh = devLoad();
-        if (hh?.id === id) {
-          hh.members = hh.members.filter(m => m.id !== _devCurrentUser.id);
-          devSave(hh);
-        }
-        return;
+    if (isDev()) {
+      await new Promise(r => setTimeout(r, 400));
+      if (_devHousehold?.id === id) {
+        _devHousehold.members = _devHousehold.members.filter(m => m.id !== _devUser.id);
+        console.log('[Household] left, remaining members:', _devHousehold.members.length);
       }
-    } catch {}
+      return;
+    }
     await api.post<void>(`/households/${id}/leave`);
   },
 
   regenerateCode: async (id: string): Promise<{ code: string }> => {
-    try {
-      if (import.meta.env.DEV) {
-        await devDelay();
-        const hh = devLoad();
-        if (hh?.id === id) {
-          hh.code = Math.random().toString(36).substring(2, 8).toUpperCase();
-          devSave(hh);
-          return { code: hh.code };
-        }
-        throw new Error('Household not found');
+    if (isDev()) {
+      await new Promise(r => setTimeout(r, 400));
+      if (_devHousehold?.id === id) {
+        _devHousehold.code = Math.random().toString(36).substring(2, 8).toUpperCase();
+        return { code: _devHousehold.code };
       }
-    } catch {}
+      throw new Error('Household not found');
+    }
     return api.post<{ code: string }>(`/households/${id}/regenerate-code`);
   },
 

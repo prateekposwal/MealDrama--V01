@@ -5,7 +5,7 @@ import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
 import api, { setAuthReady } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
-import { householdApi, setDevCurrentUser } from '../utils/householdApi';
+import { householdApi, setDevUser } from '../utils/householdApi';
 import type { Household } from '../../types/household';
 
 
@@ -392,8 +392,6 @@ interface StoreState {
   joinHousehold: (code: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
   refreshHousehold: () => Promise<void>;
-  _devHousehold: Household | null;
-  _setDevHousehold: (hh: Household | null) => void;
 }
 
 export const useStore = create<StoreState>()(
@@ -419,7 +417,6 @@ export const useStore = create<StoreState>()(
       roommateSuggestions: [],
       householdId: null,
       household: null,
-      _devHousehold: null,
 
       setToast: (toast) => set({ toast }),
 
@@ -926,7 +923,7 @@ export const useStore = create<StoreState>()(
       createHousehold: async (name) => {
         try {
           const u = get().user;
-          if (u) setDevCurrentUser(u.id || 'dev-user', u.name || 'Dev User');
+          if (u) setDevUser(u.id || 'dev-user', u.name || 'Dev User');
           const hh = await householdApi.create({ name });
           set({ householdId: hh.id, household: hh });
           get().setToast({ message: `Household "${name}" created!`, type: 'success' });
@@ -939,7 +936,7 @@ export const useStore = create<StoreState>()(
       joinHousehold: async (code) => {
         try {
           const u = get().user;
-          if (u) setDevCurrentUser(u.id || 'dev-user', u.name || 'Dev User');
+          if (u) setDevUser(u.id || 'dev-user', u.name || 'Dev User');
           const hh = await householdApi.join({ code });
           set({ householdId: hh.id, household: hh });
           get().setToast({ message: `Joined ${hh.name}!`, type: 'success' });
@@ -954,7 +951,7 @@ export const useStore = create<StoreState>()(
         if (!hhId) return;
         try {
           const u = get().user;
-          if (u) setDevCurrentUser(u.id || 'dev-user', u.name || 'Dev User');
+          if (u) setDevUser(u.id || 'dev-user', u.name || 'Dev User');
           await householdApi.leave(hhId);
           set({ householdId: null, household: null });
           get().setToast({ message: 'Left household.', type: 'info' });
@@ -974,9 +971,6 @@ export const useStore = create<StoreState>()(
         }
       },
 
-      // ─── DEV: in-memory household store (avoids localStorage in mobile) ──
-      _devHousehold: null,
-      _setDevHousehold: (hh) => set({ _devHousehold: hh }),
     }),
     {
       name: 'mealdrama-store',
