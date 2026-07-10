@@ -1,4 +1,4 @@
-import type { MealOption } from '../store/useStore';
+import type { MealOption } from '../app/store/useStore';
 
 export type ShareLanguage = 'en' | 'hi' | 'mr' | 'bn' | 'ta' | 'te';
 

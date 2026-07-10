@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import type { MealType } from '../../store/useTrayStore';
+import type { MealType } from '../../plan/store/useTrayStore';
 import type { Meal } from '../../types/tray';
-import { suggestionCache, type SuggestionMeal } from '../../lib/trayApi';
-import { DISH_LIBRARY } from '../../constants/dishLibrary';
+import { suggestionCache, type SuggestionMeal } from '../../app/lib/trayApi';
+import { DISH_LIBRARY } from '../../meal/constants/dishLibrary';
 import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';

@@ -1,0 +1,487 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// MealDrama Tray API Layer — Mock implementation matching real Cloud Run contracts
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Types matching API Contracts ───────────────────────────────────────────
+
+export interface SuggestionMeal {
+  id: string;
+  name: string;
+  icon: string;
+  region: string;
+  type: string;
+  prepMinutes: number;
+  defaultGravy?: string;
+  defaultRoti?: string;
+  defaultRice?: string;
+  defaultSides: string[];
+  defaultBeverages: string[];
+}
+
+export interface SuggestionResponse {
+  suggestions: SuggestionMeal[];
+  source: 'api' | 'cache';
+}
+
+export interface AddSlotPayload {
+  meal_id: string;
+  quantity: number;
+  defaults?: Record<string, unknown>;
+}
+
+export interface AddSlotResponse {
+  item_id: string;
+  success: boolean;
+}
+
+export interface UpdateItemPayload {
+  meal_id?: string;
+  name?: string;
+  quantity?: number;
+  gravy?: string;
+  roti?: string;
+  rice?: string;
+  sides?: string[];
+  beverages?: string[];
+  dessert?: string[];
+  servings?: number;
+}
+
+export interface CustomizeSlotPayload {
+  items: Array<{
+    mealId?: string;
+    customDishId?: string;
+    quantity: number;
+    gravyStyle?: string;
+    rotiType?: string;
+    riceType?: string;
+    sides: string[];
+    beverages: string[];
+    sortOrder?: number;
+  }>;
+  isOverride?: boolean;
+}
+
+export interface CustomizeSlotResponse {
+  success: boolean;
+  slot: any;
+}
+
+export interface GuestModePayload {
+  start: string;
+  end: string;
+  extra_servings: number;
+}
+
+export interface GuestModeResponse {
+  applied_days: number;
+  success: boolean;
+}
+
+// ─── Offline Queue ──────────────────────────────────────────────────────────
+
+const OFFLINE_QUEUE_KEY = 'mealdrama_offline_v2';
+const QUEUE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+export interface QueuedAction {
+  id: string;
+  type: 'add' | 'swap' | 'update' | 'remove' | 'loop_save';
+  payload: Record<string, unknown>;
+  timestamp: number;
+  retryCount: number;
+  expiresAt: number;
+}
+
+// Dependency ordering: 'add' must succeed before 'swap'/'update'/'remove' for same item
+const TYPE_PRIORITY: Record<string, number> = { add: 0, swap: 1, update: 1, remove: 2 };
+
+/** Compute a dedup key for a queued action's payload */
+function dedupKeyFor(type: string, payload: Record<string, unknown>): string {
+  const date = payload.date as string | undefined;
+  const mealType = payload.mealType as string | undefined;
+  const itemId = payload.itemId as string | undefined;
+  if (date && mealType) return `${type}::${date}::${mealType}`;
+  return `${type}::${itemId ?? ''}`;
+}
+
+export const offlineQueue = {
+  get(): QueuedAction[] {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+      if (!raw) return [];
+      const queue: QueuedAction[] = JSON.parse(raw);
+      // Filter out expired actions
+      const now = Date.now();
+      const valid = queue.filter(a => a.expiresAt > now);
+      if (valid.length !== queue.length) {
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(valid));
+      }
+      return valid;
+    } catch {
+      return [];
+    }
+  },
+
+  add(action: Omit<QueuedAction, 'id' | 'timestamp' | 'retryCount' | 'expiresAt'>) {
+    const queue = this.get();
+    // H3: Dedup by itemId + type — prevents duplicate mutations for same item
+    const dedupKey = `${action.type}_${(action.payload as Record<string, unknown>).itemId ?? (action.payload as Record<string, unknown>).slotId ?? ''}`;
+    const existingIdx = queue.findIndex(a =>
+      a.type === action.type &&
+      `${(a.payload as Record<string, unknown>).itemId ?? (a.payload as Record<string, unknown>).slotId ?? ''}` === dedupKey.split('_').slice(1).join('_')
+    );
+    if (existingIdx >= 0) {
+      // Update existing entry with latest payload instead of adding duplicate
+      queue[existingIdx] = {
+        ...queue[existingIdx]!,
+        payload: action.payload,
+        timestamp: Date.now(),
+        retryCount: 0,
+        expiresAt: Date.now() + QUEUE_EXPIRY_MS,
+      };
+      localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+      return queue[existingIdx]!;
+    }
+    const newAction: QueuedAction = {
+      ...action,
+      id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: Date.now(),
+      retryCount: 0,
+      expiresAt: Date.now() + QUEUE_EXPIRY_MS,
+    };
+    queue.push(newAction);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    return newAction;
+  },
+
+  hasPending(type: string, key?: string): boolean {
+    const queue = this.get();
+    return queue.some(a => {
+      if (a.type !== type) return false;
+      if (key === undefined) return true;
+      const p = a.payload as Record<string, unknown>;
+      const actionKey =
+        p.date && p.mealType
+          ? `${p.date}::${p.mealType}`
+          : (p.itemId as string | undefined) ?? '';
+      return actionKey === key;
+    });
+  },
+
+  addUnique(action: Omit<QueuedAction, 'id' | 'timestamp' | 'retryCount' | 'expiresAt'>): QueuedAction | null {
+    const queue = this.get();
+    const key = dedupKeyFor(action.type, action.payload as Record<string, unknown>);
+    // H3a: Skip if a pending action with the same dedup key already exists
+    if (queue.some(a => dedupKeyFor(a.type, a.payload as Record<string, unknown>) === key)) {
+      return null;
+    }
+    const newAction: QueuedAction = {
+      ...action,
+      id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: Date.now(),
+      retryCount: 0,
+      expiresAt: Date.now() + QUEUE_EXPIRY_MS,
+    };
+    queue.push(newAction);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+    return newAction;
+  },
+
+  remove(id: string) {
+    const queue = this.get().filter(a => a.id !== id);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  },
+
+  clear() {
+    localStorage.removeItem(OFFLINE_QUEUE_KEY);
+  },
+
+  async drain(): Promise<{ synced: number; failed: number; retryable: number }> {
+    const queue = this.get();
+    if (queue.length === 0 || !navigator.onLine) return { synced: 0, failed: 0, retryable: 0 };
+
+    // H10: Sort by dependency order — 'add' before 'swap'/'update' before 'remove'
+    const sorted = [...queue].sort((a, b) => {
+      const priorityDiff = (TYPE_PRIORITY[a.type] ?? 0) - (TYPE_PRIORITY[b.type] ?? 0);
+      if (priorityDiff !== 0) return priorityDiff;
+      return a.timestamp - b.timestamp;
+    });
+
+    let synced = 0;
+    let failed = 0;
+    let retryable = 0;
+    // H2: Collect successful IDs — only remove AFTER entire drain completes
+    // This prevents data loss if app crashes mid-drain
+    const successIds: string[] = [];
+    const retryIncrements: Map<string, number> = new Map();
+
+    for (const action of sorted) {
+      try {
+        switch (action.type) {
+          case 'add':
+            await trayApi.addSlotItem(action.payload.slotId as string, action.payload.item as AddSlotPayload);
+            break;
+          case 'swap':
+          case 'update':
+            await trayApi.updateItem(action.payload.itemId as string, action.payload as UpdateItemPayload);
+            break;
+          case 'remove':
+            await trayApi.removeItem(action.payload.itemId as string);
+            break;
+        }
+        successIds.push(action.id);
+        synced++;
+      } catch {
+        if (action.retryCount >= 3) {
+          failed++; // exhausted — will be removed below
+        } else {
+          retryIncrements.set(action.id, action.retryCount + 1);
+          retryable++;
+        }
+      }
+    }
+
+    // H2: Atomic update — remove all successful + exhausted actions in one write
+    const updatedQueue = queue.filter(a => {
+      if (successIds.includes(a.id)) return false; // synced — remove
+      if (failed > 0 && a.retryCount >= 3 && !successIds.includes(a.id) && !retryIncrements.has(a.id)) return false; // exhausted — remove
+      return true;
+    }).map(a => {
+      // Increment retry count for retryable actions
+      const newCount = retryIncrements.get(a.id);
+      return newCount ? { ...a, retryCount: newCount } : a;
+    });
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(updatedQueue));
+
+    return { synced, failed, retryable };
+  },
+};
+
+// ─── Simulated Network — DEV ONLY (tree-shaken in production) ───────────────
+
+const simulateDelay = import.meta.env.DEV
+  ? async (ms = 300, signal?: AbortSignal) => {
+      return new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, ms + Math.random() * 200);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+    }
+  : async () => {};
+
+const simulateFailure = import.meta.env.DEV ? () => Math.random() < 0.03 : () => false;
+
+// ─── API Implementation ─────────────────────────────────────────────────────
+
+export const trayApi = {
+  /**
+   * PATCH /tray/slot/:date/:slot/customize
+   * Apply swap & customize changes to a slot.
+   * Sets is_override flag so rotation engine skips this slot.
+   */
+  async customizeSlot(slotId: string, payload: CustomizeSlotPayload, signal?: AbortSignal): Promise<CustomizeSlotResponse> {
+    await simulateDelay(300, signal);
+    if (simulateFailure()) throw new Error('Network error');
+
+    return { success: true, slot: { id: slotId, items: payload.items } };
+  },
+  /**
+   * GET /meals?meal_type=lunch&diet=veg&region=north&pantry=rice,onion
+   * Returns 3 context-aware suggestions from DB.
+   */
+  async getSuggestions(params: {
+    mealType: string;
+    diet: string;
+    region: string;
+    pantry?: string[];
+    signal?: AbortSignal;
+  }): Promise<SuggestionResponse> {
+    await simulateDelay(400, params.signal);
+    if (simulateFailure()) throw new Error('Network error');
+
+    // In production: return actual DB query results
+    // Mock: return context-aware suggestions
+    const suggestions: SuggestionMeal[] = [];
+    const regionKey = params.region.toLowerCase();
+
+    // Real dishes from dish library would be fetched here
+    const contextDefaults: Record<string, SuggestionMeal[]> = {
+      breakfast: [
+        { id: 'aloo-paratha', name: 'Aloo Paratha', icon: '🫓', region: 'North India', type: 'veg', prepMinutes: 20, defaultRoti: 'Paratha', defaultBeverages: ['Chai'], defaultSides: ['Curd'] },
+        { id: 'idli', name: 'Idli', icon: '⚪', region: 'South India', type: 'veg', prepMinutes: 15, defaultSides: ['Sambhar', 'Coconut Chutney'], defaultBeverages: ['Filter Coffee'] },
+        { id: 'poha', name: 'Poha', icon: '🍚', region: 'West India', type: 'veg', prepMinutes: 10, defaultSides: ['Peanuts'], defaultBeverages: ['Chai'] },
+        { id: 'besan_chilla_north', name: 'Besan Chilla', icon: '🥞', region: 'North India', type: 'veg', prepMinutes: 12, defaultSides: ['Green Chutney'], defaultBeverages: [] },
+        { id: 'suji_chilla_north', name: 'Suji Chilla', icon: '🥞', region: 'North India', type: 'veg', prepMinutes: 10, defaultSides: ['Green Chutney'], defaultBeverages: [] },
+        { id: 'avocado-sandwich', name: 'Avocado Sandwich', icon: '🥑', region: 'West India', type: 'veg', prepMinutes: 8, defaultSides: [], defaultBeverages: [] },
+      ],
+      lunch: [
+        { id: 'rajma-chawal', name: 'Rajma Chawal', icon: '🍛', region: 'North India', type: 'veg', prepMinutes: 25, defaultRice: 'Plain', defaultSides: ['Salad', 'Pickle'], defaultBeverages: ['Chaas'] },
+        { id: 'sambar-rice', name: 'Sambar Rice', icon: '🍚', region: 'South India', type: 'veg', prepMinutes: 20, defaultRice: 'Plain', defaultSides: ['Papad'], defaultBeverages: ['Chaas'] },
+        { id: 'dal-tadka', name: 'Dal Tadka', icon: '🥘', region: 'North India', type: 'veg', prepMinutes: 18, defaultRice: 'Jeera', defaultRoti: 'Phulka', defaultSides: ['Salad'], defaultBeverages: ['Chaas'] },
+      ],
+      snacks: [
+        { id: 'samosa', name: 'Samosa', icon: '🥟', region: 'North India', type: 'veg', prepMinutes: 25, defaultSides: ['Green Chutney'], defaultBeverages: ['Chai'] },
+        { id: 'masala-tea', name: 'Masala Chai', icon: '🍵', region: 'North India', type: 'veg', prepMinutes: 5, defaultSides: [], defaultBeverages: [] },
+        { id: 'bhel-puri', name: 'Bhel Puri', icon: '🥗', region: 'West India', type: 'veg', prepMinutes: 10, defaultSides: [], defaultBeverages: [] },
+        { id: 'moong_dal_chilla_south', name: 'Moong Dal Chilla', icon: '🥞', region: 'South India', type: 'veg', prepMinutes: 12, defaultSides: ['Coconut Chutney'], defaultBeverages: [] },
+        { id: 'avocado-sandwich', name: 'Avocado Sandwich', icon: '🥑', region: 'West India', type: 'veg', prepMinutes: 8, defaultSides: [], defaultBeverages: [] },
+      ],
+      dinner: [
+        { id: 'paneer-butter', name: 'Paneer Butter Masala', icon: '🧀', region: 'North India', type: 'veg', prepMinutes: 22, defaultGravy: 'Curry', defaultRoti: 'Naan', defaultSides: ['Raita'], defaultBeverages: ['Lassi'] },
+        { id: 'dal-makhani', name: 'Dal Makhani', icon: '🥘', region: 'North India', type: 'veg', prepMinutes: 30, defaultRoti: 'Tandoori Naan', defaultSides: ['Salad'], defaultBeverages: ['Lassi'] },
+      ],
+    };
+
+    const meals = contextDefaults[params.mealType as keyof typeof contextDefaults] || [];
+    suggestions.push(...meals);
+
+    return { suggestions: suggestions.slice(0, 3), source: 'api' };
+  },
+
+  /**
+   * POST /tray/slots/:slotId/items
+   * { meal_id, quantity, defaults }
+   */
+  async addSlotItem(slotId: string, payload: AddSlotPayload, signal?: AbortSignal): Promise<AddSlotResponse> {
+    await simulateDelay(300, signal);
+    if (simulateFailure()) throw new Error('Network error');
+
+    return {
+      item_id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      success: true,
+    };
+  },
+
+  /**
+   * PATCH /tray/items/:id
+   * { meal_id?, quantity?, gravy?, roti?, rice?, sides[], beverages[] }
+   */
+  async updateItem(itemId: string, payload: UpdateItemPayload, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
+    if (simulateFailure()) throw new Error('Network error');
+
+    return { success: true };
+  },
+
+  /**
+   * DELETE /tray/items/:id
+   */
+  async removeItem(itemId: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
+    if (simulateFailure()) throw new Error('Network error');
+
+    return { success: true };
+  },
+
+  /**
+   * POST /tray/guest-mode
+   * { start, end, extra_servings }
+   */
+  async setGuestMode(payload: GuestModePayload, signal?: AbortSignal): Promise<GuestModeResponse> {
+    await simulateDelay(400, signal);
+    if (simulateFailure()) throw new Error('Network error');
+
+    const start = new Date(payload.start);
+    const end = new Date(payload.end);
+    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return { applied_days: Math.max(0, days), success: true };
+  },
+
+  /**
+   * POST /tray/complete — mark a slot as completed
+   * Routes through api.ts auth layer for proper token handling.
+   */
+  async completeSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
+    if (simulateFailure()) throw new Error('Network error');
+    const { api } = await import('../../lib/api');
+    await api.post('/tray/complete', { date, mealType }, { signal });
+    return { success: true };
+  },
+
+  /**
+   * POST /api/tray/skip — mark a slot as skipped
+   * Routes through api.ts auth layer for proper token handling.
+   */
+  async skipSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
+    if (simulateFailure()) throw new Error('Network error');
+    const { api } = await import('../../lib/api');
+    await api.post('/tray/skip', { date, mealType }, { signal });
+    return { success: true };
+  },
+
+  async unskipSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
+    await simulateDelay(200, signal);
+    if (simulateFailure()) throw new Error('Network error');
+    const { api } = await import('../../lib/api');
+    await api.post('/tray/unskip', { date, mealType }, { signal });
+    return { success: true };
+  },
+};
+
+// ─── Cached Fallbacks ───────────────────────────────────────────────────────
+
+const CACHE_KEY = 'mealdrama_suggestions_cache';
+const SUGGESTION_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // M4: 24h TTL — stale dishes auto-expire
+
+interface CachedSuggestions {
+  suggestions: SuggestionMeal[];
+  cachedAt: number;
+}
+
+export const suggestionCache = {
+  get(mealType: string): SuggestionMeal[] | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const cache: Record<string, CachedSuggestions> = JSON.parse(raw);
+      const entry = cache[mealType];
+      if (!entry) return null;
+      // M4: Expire entries older than TTL
+      if (Date.now() - entry.cachedAt > SUGGESTION_CACHE_TTL_MS) {
+        delete cache[mealType];
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+        return null;
+      }
+      return entry.suggestions;
+    } catch {
+      return null;
+    }
+  },
+
+  set(mealType: string, suggestions: SuggestionMeal[]) {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      const cache: Record<string, CachedSuggestions> = raw ? JSON.parse(raw) : {};
+      cache[mealType] = { suggestions, cachedAt: Date.now() };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+    } catch {
+      // Ignore
+    }
+  },
+
+  /** Get suggestions with cache fallback */
+  async getWithFallback(params: { mealType: string; diet: string; region: string; pantry?: string[] }): Promise<SuggestionResponse> {
+    try {
+      const result = await trayApi.getSuggestions(params);
+      // Cache successful results
+      suggestionCache.set(params.mealType, result.suggestions);
+      return result;
+    } catch {
+      // Fallback to cache
+      const cached = suggestionCache.get(params.mealType);
+      if (cached) {
+        return { suggestions: cached, source: 'cache' };
+      }
+      // M9: Return empty defaults immediately — don't double-call getSuggestions
+      // which would fail again with the same network issue
+      return { suggestions: [], source: 'cache' };
+    }
+  },
+};

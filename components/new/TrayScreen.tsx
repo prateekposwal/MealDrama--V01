@@ -1,21 +1,21 @@
 import React, { useMemo, useState, useCallback } from 'react';
-import { useStore } from '../../store/useStore';
-import { useTrayStore, MealType } from '../../store/useTrayStore';
+import { useStore } from '../../app/store/useStore';
+import { useTrayStore, MealType } from '../../plan/store/useTrayStore';
 import { MealCard, SLOT_META } from '../meal/MealCard';
 import { BlankSlot } from './BlankSlot';
 import QuickAddModal from './QuickAddModal';
 import { ChevronLeft, ChevronRight, Calendar, Users, X, Settings } from 'lucide-react';
 import { useBackendDishes } from '../../hooks/useBackendDishes';
-import type { Dish } from '../../constants/dishLibrary';
+import type { Dish } from '../../meal/constants/dishLibrary';
 import { dishToMeal } from '../../utils/dishToMeal';
 import { SwapCustomizeModal } from '../meal/SwapCustomizeModal';
-import type { TrayItem } from '../../store/useTrayStore';
+import type { TrayItem } from '../../plan/store/useTrayStore';
 import { isAfterEnd, getSlotDefaultTimes } from '../../types/tray';
 import { getISODate, getISTDayOfWeek, parseISODate } from '../../utils/dateUTC';
 
 // LOOP UI REMOVED: Loop configuration moved to Profile → Plan Settings.
 // This screen now focuses purely on curating default dishes per slot.
-// Background loop engine (autoFillLoop, rotationState) remains intact.
+// Background loop engine (autoFillLoop, rotationQueue) remains intact.
 
 type Slot = 'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner';
 const SLOTS: { key: Slot; mealType: MealType; label: Slot }[] = [

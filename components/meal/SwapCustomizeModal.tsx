@@ -2,10 +2,10 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useAsyncGuard, ModalLifecycleGuard, DeferredSync } from '../../utils/asyncGuard';
-import type { MealType, TrayItem } from '../../store/useTrayStore';
-import { applySmartDefaults, useTrayStore } from '../../store/useTrayStore';
+import type { MealType, TrayItem } from '../../plan/store/useTrayStore';
+import { applySmartDefaults, useTrayStore } from '../../plan/store/useTrayStore';
 import type { Meal } from '../../types/tray';
-import type { Dish, DishVariant, Region, Category } from '../../constants/dishLibrary';
+import type { Dish, DishVariant, Region, Category } from '../../meal/constants/dishLibrary';
 import { dishToMeal } from '../../utils/dishToMeal';
 import { resolveDisplayName } from '../../utils/resolveDisplayName';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
@@ -17,9 +17,9 @@ import {
   isStreetFood, isNutItem, getItemRegion, mergeCategoryOptions,
   CATEGORY_CONFIG, DISH_STYLES, STYLE_GROUP_ICONS, getPairingSuggestions,
   internalToStyleGroup, styleGroupToInternal,
-} from '../../constants/dishStyles';
-import type { IndianMealCategory, DishStyleGroup } from '../../constants/dishStyles';
-import { useStore } from '../../store/useStore';
+} from '../../meal/constants/dishStyles';
+import type { IndianMealCategory, DishStyleGroup } from '../../meal/constants/dishStyles';
+import { useStore } from '../../app/store/useStore';
 import { HealthFilterBar } from '../health/HealthFilterBar';
 import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
 import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';

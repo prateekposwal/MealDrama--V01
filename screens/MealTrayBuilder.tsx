@@ -5,17 +5,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { useStore } from '../store/useStore';
-import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
+import { useStore } from '../app/store/useStore';
+import { useTrayStore, MealType, TrayItem } from '../plan/store/useTrayStore';
+import { useLoopStore } from '../plan/store/useLoopStore';
 import type { Meal } from '../types/tray';
 import { MealCard, SLOT_META } from '../components/meal/MealCard';
 import { SmartSuggestionChips } from '../components/meal/SmartSuggestionChips';
-import type { SuggestionMeal } from '../lib/trayApi';
+import type { SuggestionMeal } from '../app/lib/trayApi';
 import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { ChevronLeft, ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
-import type { Dish, DishVariant } from '../constants/dishLibrary';
+import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOT_TIME_DEFAULTS } from '../types/tray';
@@ -155,15 +156,9 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                 useTrayStore.setState((s) => ({
                     plan: {
                         ...s.plan,
-                        days: {
-                            ...s.plan.days,
-                            [today]: {
-                                ...s.plan.days[today],
-                                [slot.mealType]: cleaned,
-                            },
-                        },
+                        days: { ...s.plan.days, [today]: { ...s.plan.days[today], [slot.mealType]: cleaned } } as Record<string, DayMeals>,
                     },
-                }));
+                } as Partial<TrayStore>));
             }
         }
     }, [planDays, today]);
@@ -385,7 +380,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
     // When a loop is active, don't add to today — just add to tray library.
     // The loop picks it up for future slots via mid-cycle add.
-    const loop = useTrayStore.getState().mealLoop;
+    const loop = useLoopStore.getState().mealLoop;
     if (loop.config) {
       setAddAnotherToast(`Added to ${mealType.charAt(0).toUpperCase() + mealType.slice(1)} Tray`);
       setTimeout(() => setAddAnotherToast(null), 3000);

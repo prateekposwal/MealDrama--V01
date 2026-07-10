@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useStore, type CategorySelection } from '../../store/useStore';
-import { useTrayStore, type MealType } from '../../store/useTrayStore';
+import { useStore, type CategorySelection } from '../../app/store/useStore';
+import { useTrayStore, type MealType } from '../../plan/store/useTrayStore';
 import { useBackendDishes } from '../../hooks/useBackendDishes';
 import { Plus, X, Share2, Check, ShoppingCart } from 'lucide-react';
 import { getShareStrings, ShareLanguage } from '../../utils/share';
@@ -14,7 +14,7 @@ import {
     CATEGORY_META,
     type PantryGroup,
 } from '../../utils/ingredientUtils';
-import type { Ingredient } from '../../constants/dishLibrary';
+import type { Ingredient } from '../../meal/constants/dishLibrary';
 import WhatsAppShareModal from './WhatsAppShareModal';
 import DishImage from './DishImage';
 import { isAfterEnd, SLOT_TIME_DEFAULTS } from '../../types/tray';

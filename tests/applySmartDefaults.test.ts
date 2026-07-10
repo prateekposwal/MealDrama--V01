@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applySmartDefaults } from '../store/helpers/applySmartDefaults';
+import { applySmartDefaults } from '../plan/store/helpers/applySmartDefaults';
 import type { Meal } from '../types/tray';
 
 const makeMeal = (overrides: Partial<Meal>): Meal => ({

@@ -113,6 +113,8 @@ export interface TrayItem {
   titleOwnership?: 'auto' | 'custom';
   /** Origin of this meal — controls gap-fill behavior */
   source?: 'user' | 'loop' | 'suggestion' | 'onboarding';
+  /** Household member ID who requested this meal — for shared household plans */
+  requestedBy?: string;
 }
 
 /** Day's meal structure */
@@ -198,40 +200,29 @@ export interface MealLoopAssignment {
   deprecated?: boolean;
 }
 
-export interface RotationSlotPointer {
-  queue: string[];
-  pointer: number;
-}
-
 export interface MealLoopState {
   config: MealLoopConfig | null;
   sourceDishIds: string[];
   pool_version: number;
   rotationQueue: RotationQueueItem[];
+  rotationPointer: number;
   next_index: number;
   assignments: MealLoopAssignment[];
-  overrides: Record<string, string>;
-  /** Persistent per-slot rotation state — resumes where loop left off */
-  rotationState: {
-    breakfast: RotationSlotPointer;
-    lunch: RotationSlotPointer;
-    snacks: RotationSlotPointer;
-    dinner: RotationSlotPointer;
-  };
+  overrides: Map<string, string>;
   /** Previous loop state for undo — saved before applyLoopConfig */
   previousState?: {
     config: MealLoopConfig | null;
     sourceDishIds: string[];
     rotationQueue: RotationQueueItem[];
+    rotationPointer: number;
     assignments: MealLoopAssignment[];
-    rotationState: MealLoopState['rotationState'];
   };
   /** FIX 3: Undo stack for multi-level undo support */
   undoStack: Array<{
     config: MealLoopConfig | null;
     sourceDishIds: string[];
     rotationQueue: RotationQueueItem[];
-    rotationState: MealLoopState['rotationState'];
+    rotationPointer: number;
     analytics: MealLoopState['analytics'];
     planDaysSnapshot?: Record<string, DayMeals>;
   }>;
@@ -246,24 +237,19 @@ export interface MealLoopState {
   refreshing: boolean;
   /** FIX 10: Timestamp of last refresh start — shows loading state */
   lastRefreshStart?: number;
+  /** Cursor tracking the last date filled by autoFillLoop, so subsequent runs skip already-processed days */
+  lastFillDate?: string;
 }
-
-const EMPTY_ROTATION_POINTER: RotationSlotPointer = { queue: [], pointer: 0 };
 
 export const EMPTY_LOOP_STATE: MealLoopState = {
   config: null,
   sourceDishIds: [],
   pool_version: 1,
   rotationQueue: [],
+  rotationPointer: 0,
   next_index: 0,
   assignments: [],
-  overrides: {},
-  rotationState: {
-    breakfast: { ...EMPTY_ROTATION_POINTER },
-    lunch: { ...EMPTY_ROTATION_POINTER },
-    snacks: { ...EMPTY_ROTATION_POINTER },
-    dinner: { ...EMPTY_ROTATION_POINTER },
-  },
+  overrides: new Map(),
   analytics: {
     cyclesCompleted: 0,
     mealsAutoFilled: 0,
@@ -271,6 +257,7 @@ export const EMPTY_LOOP_STATE: MealLoopState = {
   },
   refreshing: false,
   lastRefreshStart: undefined,
+  lastFillDate: undefined,
   undoStack: [],
 };
 

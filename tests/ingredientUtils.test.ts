@@ -11,8 +11,8 @@ import {
   getWeekEndISO,
   type PantryGroup,
 } from '../utils/ingredientUtils';
-import type { Dish, Ingredient, DishVariant } from '../constants/dishLibrary';
-import type { CategorySelection } from '../store/useStore';
+import type { Dish, Ingredient, DishVariant } from '../meal/constants/dishLibrary';
+import type { CategorySelection } from '../app/store/useStore';
 
 const makeDish = (id: string, name: string, overrides?: Partial<Dish>): Dish => ({
   id,

@@ -4,15 +4,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
-import { useTrayStore, MealType, TrayItem, GuestMode } from '../store/useTrayStore';
+import { useTrayStore, MealType, TrayItem, GuestMode } from '../plan/store/useTrayStore';
+import { useLoopStore } from '../plan/store/useLoopStore';
 import type { Meal } from '../types/tray';
-import { useStore } from '../store/useStore';
-import type { SuggestionMeal } from '../lib/trayApi';
+import { useStore } from '../app/store/useStore';
+import type { SuggestionMeal } from '../app/lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
 const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
 import { useBackendDishes } from '../hooks/useBackendDishes';
+import { useMealMap } from '../plan/hooks/useMealMap';
 import { ChevronLeft, ChevronRight, Calendar, Users, Plus, Minus, Navigation, Settings } from 'lucide-react';
-import type { Dish, DishVariant } from '../constants/dishLibrary';
+import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../hooks/useBackButtonClose';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
@@ -24,10 +26,11 @@ import PullToRefresh from '../components/new/PullToRefresh';
 import { SLOT_META } from '../components/meal/MealCard';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
-import { SLOTS } from '../utils/continuity';
+import { SLOTS } from '../plan/utils/continuity';
+import { slotKey } from '../plan/utils/planIndex';
 import { getSkipUndoWindowExpiry, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
 import { getISODate, getISTDayOfWeek, parseISODate } from '../utils/dateUTC';
-import { computeStyleWarnings } from '../constants/dishStyles';
+import { computeStyleWarnings } from '../meal/constants/dishStyles';
 
 /**
  * ID pinning hook: caps visible meals per slot to `maxVisible`.
@@ -273,7 +276,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const undoCompleteSlot = useTrayStore(s => s.undoCompleteSlot);
     const skipSlot = useTrayStore(s => s.skipSlot);
     const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
-    const mealLoop = useTrayStore(s => s.mealLoop);
+    const mealLoop = useLoopStore(s => s.mealLoop);
     const planPeriod = useTrayStore(s => s.plan.period);
     const planDays = useTrayStore(s => s.plan.days);
 
@@ -340,7 +343,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
     const committedCompletions = useMemo(() => {
         if (!undoSlot) return completions;
-        const key = `${undoSlot.date}::${undoSlot.mealType}`;
+        const key = slotKey(undoSlot.date, undoSlot.mealType);
         const next = { ...completions };
         delete next[key];
         return next;
@@ -394,11 +397,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const weekDates = useMemo(() => generateWeekDates(weekStart), [weekStart]);
 
     // ─── Auto-reset guest mode when the week first becomes complete ───
-    const isWeekComplete = useMemo(() => {
-        return weekDates.every(date =>
-            ACTIVE_SLOTS.every(slot => getMeals(date, slot.mealType).length > 0)
-        );
-    }, [weekDates, ACTIVE_SLOTS, getMeals, planDays]);
+    const weekMealMap = useMealMap(weekDates);
+    const isWeekComplete = weekMealMap.totals.totalSlots > 0 && weekMealMap.totals.filledSlots === weekMealMap.totals.totalSlots;
 
     const mountedRef = useRef(false);
     const prevCompleteRef = useRef(false);
@@ -595,17 +595,9 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         return weekDates.filter(d => d > today);
     }, [weekDates, today, mealLoop.config, planDayKeys]);
 
-    // Total meals across upcoming dates
-    const totalPlannedMeals = useMemo(() => {
-        let count = 0;
-        for (const d of upcomingDates) {
-            for (const { mealType } of ACTIVE_SLOTS) {
-                const meals = getMeals(d, mealType);
-                count += meals.reduce((sum, m) => sum + (m.quantity || 1), 0);
-            }
-        }
-        return count;
-    }, [upcomingDates, getMeals, ACTIVE_SLOTS]);
+    // Total meals across upcoming dates (cached via useMealMap)
+    const upcomingMealMap = useMealMap(upcomingDates.length > 0 ? upcomingDates : undefined);
+    const totalPlannedMeals = upcomingMealMap.totals.total;
 
     // Period label
     const periodLabel = useMemo(() => {
@@ -907,19 +899,12 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
             {/* ─── Completion summary (all upcoming slots filled) ─── */}
             {planTab === 'upcoming' && upcomingDates.length > 0 && (() => {
-                let filledSlots = 0;
-                let totalSlots = 0;
-                for (const d of upcomingDates) {
-                    for (const { mealType } of ACTIVE_SLOTS) {
-                        totalSlots++;
-                        const meals = getMeals(d, mealType);
-                        if (meals.length > 0) filledSlots++;
-                    }
-                }
+                const filledSlots = upcomingMealMap.totals.filledSlots;
+                const totalSlots = upcomingMealMap.totals.totalSlots;
                 const allFilled = filledSlots === totalSlots;
                 return (
-                <div className="px-4 pb-6">
-                    <div className={`rounded-2xl border-2 p-5 text-center space-y-3 ${allFilled ? 'border-emerald-200 bg-emerald-50/80' : 'border-dashed border-gray-200 bg-gray-50'}`}>
+                <div className="px-4 pt-4 pb-8">
+                    <div className={`rounded-2xl border-2 p-6 text-center space-y-4 ${allFilled ? 'border-emerald-200 bg-emerald-50/80' : 'border-dashed border-gray-200 bg-gray-50'}`}>
                         {allFilled ? (
                             <div className="text-3xl">🎯</div>
                         ) : (
@@ -1070,7 +1055,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                             {ACTIVE_SLOTS.map(({ key, label, mealType }) => {
                                 const dateIsPast = quickAddDate < today;
                                 const { start, end } = getSlotDefaultTimes(mealType, stablePreferences);
-                                const completionKey = `${quickAddDate}::${mealType}`;
+                                const completionKey = slotKey(quickAddDate, mealType);
                                 const expired = dateIsPast || committedCompletions[completionKey] != null || (quickAddDate === today && isAfterEnd(start, end));
                                 return expired ? (
                                     <div

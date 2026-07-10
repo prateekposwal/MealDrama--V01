@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { HEALTH_TIPS, type HealthTip } from '../../constants/healthGuidelines';
+import { HEALTH_TIPS, type HealthTip } from '../../app/constants/healthGuidelines';
 import { HealthTipCard } from './HealthTipCard';
 
 interface HealthTipsPanelProps {

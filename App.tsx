@@ -1,6 +1,7 @@
 import React, { useState, useEffect, Suspense, useMemo, useRef, useCallback } from 'react';
-import { useStore } from './store/useStore';
-import { useTrayStore, seedTodayFromTray } from './store/useTrayStore';
+import { useStore } from './app/store/useStore';
+import { useTrayStore, seedTodayFromTray } from './plan/store/useTrayStore';
+import { useLoopStore } from './plan/store/useLoopStore';
 import { saveAuth } from './utils/authStorage';
 import api, { setAuthReady } from './lib/api';
 import LoginScreen from './components/new/LoginScreen';
@@ -14,11 +15,11 @@ import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalConte
 import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
 import { hasOpenModals, closeTopModal } from './utils/modalStack';
-import { enqueue } from './utils/offlineQueue';
+import { enqueue } from './app/utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
-import type { Dish, DishLibrary } from './constants/dishLibrary';
-import { DISH_LIBRARY } from './constants/dishLibrary';
-import type { SourcePool } from './utils/mealLoopEngine';
+import type { Dish, DishLibrary } from './meal/constants/dishLibrary';
+import { DISH_LIBRARY } from './meal/constants/dishLibrary';
+import type { SourcePool } from './plan/utils/mealLoopEngine';
 import type { MealLoopConfig } from './types/tray';
 import { getISODate, addDaysISO } from './utils/dateUTC';
 
@@ -98,7 +99,7 @@ const App: React.FC = () => {
     }
     return pool;
   }, [planDays, today, _trayLibrary, fetchedDishes]);
-  const { applyLoopConfig } = useTrayStore();
+  const { applyLoopConfig } = useLoopStore();
   const trayEditSession = useStore(s => s.trayEditSession);
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [manageTray, setManageTray] = useState(false);
@@ -151,6 +152,8 @@ const App: React.FC = () => {
       if (!cancelled) {
         if (timeoutId) clearTimeout(timeoutId);
         seedTodayFromTray();
+        const hhId = useStore.getState().householdId;
+        if (hhId) useStore.getState().refreshHousehold();
         setIsHydrated(true);
       }
     };
@@ -313,7 +316,7 @@ const App: React.FC = () => {
   // ─── Cycle-end nudge: toast when loop has ≤3 days of assignments left ───
   useEffect(() => {
     const check = () => {
-      const ml = useTrayStore.getState().mealLoop;
+      const ml = useLoopStore.getState().mealLoop;
       if (!ml.config || ml.assignments.length === 0) {
         setCycleEndNudge(null);
         return;
@@ -336,10 +339,14 @@ const App: React.FC = () => {
       }
     };
     check();
-    const unsub = useTrayStore.subscribe(
-      (s) => s.mealLoop,
-      () => { check(); },
-    );
+    let prevMealLoop = useLoopStore.getState().mealLoop;
+    const unsub = useLoopStore.subscribe(() => {
+      const current = useLoopStore.getState().mealLoop;
+      if (current !== prevMealLoop) {
+        prevMealLoop = current;
+        check();
+      }
+    });
     return unsub;
   }, [showLoopConfig]);
 

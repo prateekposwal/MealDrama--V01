@@ -1,5 +1,5 @@
-import type { Dish, Ingredient, IngredientCategory, DishVariant } from '../constants/dishLibrary';
-import { getMealResolution, type MealResolution, type CategorySelection } from '../store/useStore';
+import type { Dish, Ingredient, IngredientCategory, DishVariant } from '../meal/constants/dishLibrary';
+import { getMealResolution, type MealResolution, type CategorySelection } from '../app/store/useStore';
 import { cachedIngredients } from './cache';
 import { resolveDisplayName } from './resolveDisplayName';
 import { getISODate, addDaysISO } from './dateUTC';

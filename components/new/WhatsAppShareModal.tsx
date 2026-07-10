@@ -3,6 +3,7 @@ import { MessageCircle, Phone, X, Check, Play, Square, Volume2 } from 'lucide-re
 import { getShareStrings, LANGUAGE_OPTIONS, SLOT_LABELS, ShareLanguage } from '../../utils/share';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
+import { getRecorderMimeType, getRecorderOptions } from '../../utils/getRecorderMimeType';
 
 const isCapacitor = !!(window as any).Capacitor?.isNative;
 
@@ -213,13 +214,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             chunksRef.current = [];
 
-            // Use supported MIME type; fall back if webm not available
-            const mimeType = MediaRecorder.isTypeSupported('audio/webm')
-                ? 'audio/webm'
-                : MediaRecorder.isTypeSupported('audio/mp4')
-                    ? 'audio/mp4'
-                    : '';
-            const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+            const recorder = new MediaRecorder(stream, getRecorderOptions());
 
             recorder.ondataavailable = (e) => {
                 if (e.data.size > 0) chunksRef.current.push(e.data);
@@ -229,7 +224,7 @@ const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 setRecording(false);
             };
             recorder.onstop = () => {
-                const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/webm' });
+                const blob = new Blob(chunksRef.current, { type: getRecorderMimeType() || 'audio/webm' });
                 setRecordingBlob(blob);
                 try { stream.getTracks().forEach(t => t.stop()); } catch {}
             };

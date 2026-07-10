@@ -1,5 +1,5 @@
-import type { Dish } from '../constants/dishLibrary';
-import { DISH_HEALTH_MAP } from '../constants/healthGuidelines';
+import type { Dish } from '../meal/constants/dishLibrary';
+import { DISH_HEALTH_MAP } from '../app/constants/healthGuidelines';
 import { scoreDish } from './nutritionScore';
 
 export type HealthSortKey = 'health-score' | 'protein' | 'fiber' | 'low-fat' | 'low-calorie';

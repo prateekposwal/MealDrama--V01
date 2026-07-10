@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, User, Loader2, Sparkles, Plus, ArrowLeftRight, Repeat } from 'lucide-react';
 import { generatePrimaryId } from '../../types/identity';
-import { useStore } from '../../store/useStore';
+import { useStore } from '../../app/store/useStore';
 
 interface LoginScreenProps {
     onLogin: (username: string) => void;

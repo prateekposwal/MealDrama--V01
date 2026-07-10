@@ -13,10 +13,11 @@ import {
   computeNextIndex,
   groupAssignmentsByDate,
   getLoopAssignment,
+  buildAssignmentMap,
   buildLoopSummary,
-} from '../utils/mealLoopEngine';
+} from '../plan/utils/mealLoopEngine';
 import type { MealLoopConfig, RotationQueueItem, MealLoopAssignment } from '../types/tray';
-import type { Dish } from '../constants/dishLibrary';
+import type { Dish } from '../meal/constants/dishLibrary';
 
 const makeDish = (id: string, name: string): Dish => ({
   id,
@@ -474,13 +475,15 @@ describe('getLoopAssignment', () => {
     const assignments: MealLoopAssignment[] = [
       { date: '2026-05-18', mealType: 'lunch', dishId: 'p1', dishName: 'A', order: 0 },
     ];
-    const result = getLoopAssignment(assignments, '2026-05-18', 'lunch');
+    const assignmentMap = buildAssignmentMap(assignments);
+    const result = getLoopAssignment(assignmentMap, '2026-05-18', 'lunch');
     expect(result).toBeDefined();
     expect(result!.dishId).toBe('p1');
   });
 
   it('returns undefined when no match', () => {
-    const result = getLoopAssignment([], '2026-05-18', 'breakfast');
+    const assignmentMap = buildAssignmentMap([]);
+    const result = getLoopAssignment(assignmentMap, '2026-05-18', 'breakfast');
     expect(result).toBeUndefined();
   });
 });
@@ -583,7 +586,7 @@ describe('DST / timezone edge cases', () => {
 
 // ─── FIX 7: Tests for new loop features ──────────────────────────────────────
 
-import { autoFillLoop, buildRotationState } from '../utils/mealLoopEngine';
+import { autoFillLoop, buildRotationState } from '../plan/utils/mealLoopEngine';
 
 describe('autoFillLoop (new feature)', () => {
   it('skips user-source meals and only fills empty slots', () => {
@@ -593,7 +596,7 @@ describe('autoFillLoop (new feature)', () => {
       skipDays: [],
       repeatPattern: 'sequential',
     };
-    const rotationState = buildRotationState({
+    const { queue: rotationQueue, pointer: rotationPointer } = buildRotationState({
       breakfast: [makeDish('b1', 'Poha')],
       lunch: [makeDish('l1', 'Dal')],
       snacks: [makeDish('sn1', 'Chai')],
@@ -603,7 +606,7 @@ describe('autoFillLoop (new feature)', () => {
       { date: '2026-05-20', mealType: 'lunch' as const, source: 'user' as const },
     ];
 
-    const result = autoFillLoop(config, rotationState, existingItems);
+    const result = autoFillLoop(config, rotationQueue, rotationPointer, existingItems);
 
     // Should NOT fill lunch on 2026-05-20 (user meal)
     const lunchOn20 = result.assignments.find(a => a.date === '2026-05-20' && a.mealType === 'lunch');
@@ -620,14 +623,14 @@ describe('autoFillLoop (new feature)', () => {
       skipDays: [],
       repeatPattern: 'sequential',
     };
-    const rotationState = buildRotationState({
+    const { queue: rotationQueue, pointer: rotationPointer } = buildRotationState({
       breakfast: [],
       lunch: [],
       snacks: [],
       dinner: [],
     });
 
-    const result = autoFillLoop(config, rotationState, []);
+    const result = autoFillLoop(config, rotationQueue, rotationPointer, []);
     expect(result.assignments).toEqual([]);
   });
 
@@ -638,14 +641,14 @@ describe('autoFillLoop (new feature)', () => {
       skipDays: [3], // Skip Wednesday
       repeatPattern: 'sequential',
     };
-    const rotationState = buildRotationState({
+    const { queue: rotationQueue, pointer: rotationPointer } = buildRotationState({
       breakfast: [makeDish('b1', 'Poha')],
       lunch: [makeDish('l1', 'Dal')],
       snacks: [makeDish('sn1', 'Chai')],
       dinner: [makeDish('d1', 'Roti')],
     });
 
-    const result = autoFillLoop(config, rotationState, []);
+    const result = autoFillLoop(config, rotationQueue, rotationPointer, []);
 
     // No assignments on 2026-05-20 (Wednesday)
     const wedAssignments = result.assignments.filter(a => a.date === '2026-05-20');
@@ -654,7 +657,7 @@ describe('autoFillLoop (new feature)', () => {
 });
 
 describe('buildRotationState (new feature)', () => {
-  it('creates per-slot queues from source pool', () => {
+  it('creates flat queue with mealType from source pool', () => {
     const pool = {
       breakfast: [makeDish('b1', 'Poha'), makeDish('b2', 'Upma')],
       lunch: [makeDish('l1', 'Dal')],
@@ -664,10 +667,16 @@ describe('buildRotationState (new feature)', () => {
 
     const result = buildRotationState(pool);
 
-    expect(result.breakfast.queue).toEqual(['b1', 'b2']);
-    expect(result.breakfast.pointer).toBe(0);
-    expect(result.lunch.queue).toEqual(['l1']);
-    expect(result.snacks.queue).toEqual([]);
-    expect(result.dinner.queue).toEqual(['d1', 'd2']);
+    expect(result.pointer).toBe(0);
+    expect(result.queue.length).toBe(5);
+    expect(result.queue.filter(i => i.mealType === 'breakfast').length).toBe(2);
+    expect(result.queue.filter(i => i.mealType === 'lunch').length).toBe(1);
+    expect(result.queue.filter(i => i.mealType === 'snacks').length).toBe(0);
+    expect(result.queue.filter(i => i.mealType === 'dinner').length).toBe(2);
+    expect(result.queue[0]!.dishId).toBe('b1');
+    expect(result.queue[1]!.dishId).toBe('b2');
+    expect(result.queue[2]!.dishId).toBe('l1');
+    expect(result.queue[3]!.dishId).toBe('d1');
+    expect(result.queue[4]!.dishId).toBe('d2');
   });
 });

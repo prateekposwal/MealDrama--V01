@@ -1,4 +1,4 @@
-import type { DishVariant } from '../constants/dishLibrary';
+import type { DishVariant } from '../meal/constants/dishLibrary';
 
 export function resolveDisplayName(dishName: string, variant?: DishVariant | null): string {
   if (!variant) return dishName;

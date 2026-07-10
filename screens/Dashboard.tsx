@@ -4,10 +4,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
-import { useTrayStore, MealType, TrayItem } from '../store/useTrayStore';
-import { useStore } from '../store/useStore';
+import { useTrayStore, MealType, TrayItem } from '../plan/store/useTrayStore';
+import { useLoopStore } from '../plan/store/useLoopStore';
+import { useStore } from '../app/store/useStore';
 import type { Meal } from '../types/tray';
-import type { SuggestionMeal } from '../lib/trayApi';
+import type { SuggestionMeal } from '../app/lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
 const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
 import TrayScreen from '../components/new/TrayScreen';
@@ -17,11 +18,11 @@ import { useBackendDishes } from '../hooks/useBackendDishes';
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../hooks/useBackButtonClose';
 import { MapPin, Flame, ChevronRight, Plus, X, Info, CheckCircle2, Heart, Phone, MessageCircle, RefreshCw, ArrowRight } from 'lucide-react';
-import type { Dish, DishVariant } from '../constants/dishLibrary';
+import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import { HealthTipsPanel } from '../components/health/HealthTipsPanel';
 import { PlateBalanceVisualizer } from '../components/health/PlateBalanceVisualizer';
 import { scorePlateBalance } from '../utils/nutritionScore';
-import { DISH_HEALTH_MAP, COMPONENT_HEALTH_MAP } from '../constants/healthGuidelines';
+import { DISH_HEALTH_MAP, COMPONENT_HEALTH_MAP } from '../app/constants/healthGuidelines';
 import { ServingsBreakdown } from '../components/meal/ServingsBreakdown';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
@@ -30,9 +31,10 @@ import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
 import { getShareStrings, ShareLanguage, SLOT_LABELS } from '../utils/share';
 
-import { computeStyleWarnings, type StyleWarning } from '../constants/dishStyles';
+import { computeStyleWarnings, type StyleWarning } from '../meal/constants/dishStyles';
 import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
 import PullToRefresh from '../components/new/PullToRefresh';
+import { slotKey } from '../plan/utils/planIndex';
 import { getISODate } from '../utils/dateUTC';
 
 /** Fallback whole-grain keywords matched against dish/component names when health maps are missing */
@@ -160,7 +162,7 @@ const categorizeSlots = (
     const result = slots.map(slot => {
         const meals = getMeals(today, slot.mealType);
         const { start, end } = resolveSlotTimes(meals, slot.mealType, preferences);
-        const key = `${today}::${slot.mealType}`;
+        const key = slotKey(today, slot.mealType);
         const isUserCompleted = completions?.[key] != null;
         const isSkipped = skipped?.[key] != null;
         const withinWindow = isSlotActive(start, end);
@@ -236,7 +238,7 @@ const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
 }) => {
   const slotMeals = useTrayStore(state => state.plan.days[date]?.[mealType] || []) as TrayItem[];
   const prefs = preferences;
-  const completionKey = `${today}::${mealType}`;
+  const completionKey = slotKey(today, mealType);
   const isUserCompleted = completions[completionKey] != null;
   const isSkipped = skipped[completionKey] != null;
   const isUndoing = undoSlot?.date === today && undoSlot?.mealType === mealType;
@@ -446,6 +448,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         handleOpenSearchStable();
     }, [handleOpenSearchStable]);
     const setToast = useStore(s => s.setToast);
+    const household = useStore(s => s.household);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
     const [showTrayScreen, setShowTrayScreen] = useState(false);
@@ -494,7 +497,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     useEffect(() => {
         const store = useTrayStore.getState();
         for (const slot of ACTIVE_SLOTS) {
-            const key = `${today}::${slot.mealType}`;
+            const key = slotKey(today, slot.mealType);
             const meals = store.getMeals(today, slot.mealType);
             if (meals.length === 0) continue;
             if (store.completions[key] != null || store.skipped[key] != null) continue;
@@ -523,7 +526,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     // Exclude undoSlot from completions/skipped so categorizeSlots treats it as not yet done during the undo window
     const committedCompletions = useMemo(() => {
         if (!undoSlot) return completions;
-        const key = `${undoSlot.date}::${undoSlot.mealType}`;
+        const key = slotKey(undoSlot.date, undoSlot.mealType);
         const next = { ...completions };
         delete next[key];
         return next;
@@ -694,7 +697,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         const slotsText = ACTIVE_SLOTS
             .filter(slot => selectedSlots.includes(slot.mealType))
             .filter(slot => {
-                const key = `${today}::${slot.mealType}`;
+                const key = slotKey(today, slot.mealType);
                 return !committedCompletions[key];
             })
             .map(slot => {
@@ -703,7 +706,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 const slotLabel = slotLabels[slot.mealType] || slot.label;
                 const dishNames = meals.map(m => {
                     const qty = (m.quantity || 1) > 1 ? ` x${m.quantity}` : '';
-                    return `${m.name}${qty}`;
+                    const requested = m.requestedBy
+                        ? ` 🙋${household?.members.find(mm => mm.id === m.requestedBy)?.name || '(left)'}`
+                        : '';
+                    return `${m.name}${qty}${requested}`;
                 });
                 const agg = aggregateSlotItems(meals);
                 const compItems = [
@@ -723,7 +729,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         const doneSlots = ACTIVE_SLOTS
             .filter(slot => selectedSlots.includes(slot.mealType))
             .filter(slot => {
-                const key = `${today}::${slot.mealType}`;
+                const key = slotKey(today, slot.mealType);
                 return committedCompletions[key];
             })
             .map(slot => slotLabels[slot.mealType] || slot.label);
@@ -737,7 +743,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         }
         msg += copy.sentFrom;
         return msg;
-    }, [getMeals, today, user, committedCompletions, preferences, stableGuestMode]);
+    }, [getMeals, today, user, committedCompletions, preferences, stableGuestMode, household]);
 
     const buildPantryMessage = useCallback((language: ShareLanguage, selectedSlots: string[]) => {
         const copy = getShareStrings(language);
@@ -746,7 +752,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         const items = ACTIVE_SLOTS
             .filter(slot => selectedSlots.includes(slot.mealType))
             .filter(slot => {
-                const key = `${today}::${slot.mealType}`;
+                const key = slotKey(today, slot.mealType);
                 return !committedCompletions[key];
             })
             .flatMap(slot => {
@@ -935,7 +941,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
       return result;
     }, [today, getMeals]);
-    const loopConfig = useTrayStore(s => s.mealLoop.config);
+    const loopConfig = useLoopStore(s => s.mealLoop.config);
     const loopConfigured = loopConfig !== null;
 
     return (
@@ -1408,7 +1414,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         <div className="space-y-2">
                             {ACTIVE_SLOTS.map(({ label, key, mealType }) => {
                                 const { start, end } = getSlotDefaultTimes(mealType, preferences);
-                                const completionKey = `${today}::${mealType}`;
+                                const completionKey = slotKey(today, mealType);
                                 const expired = isAfterEnd(start, end) || committedCompletions[completionKey] != null;
                                 return expired ? (
                                     <div

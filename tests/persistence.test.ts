@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useStore } from '../store/useStore';
+import { useStore } from '../app/store/useStore';
 
 // ─── Token Persistence Smoke Tests ────────────────────────────────────────
 // These verify the token lives inside Zustand (persisted via nativeStorage),

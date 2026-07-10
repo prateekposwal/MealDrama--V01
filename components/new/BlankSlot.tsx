@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import type { Dish } from '../../constants/dishLibrary';
+import type { Dish } from '../../meal/constants/dishLibrary';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import DishImage from './DishImage';
 

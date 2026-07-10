@@ -1,15 +1,19 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useStore } from '../../store/useStore';
-import { useTrayStore } from '../../store/useTrayStore';
+import { useStore } from '../../app/store/useStore';
+import { useTrayStore } from '../../plan/store/useTrayStore';
+import { useLoopStore } from '../../plan/store/useLoopStore';
 import type { MealType } from '../../types/tray';
-import type { SourcePool } from '../../utils/mealLoopEngine';
-import type { Dish, DishVariant } from '../../constants/dishLibrary';
-import type { Category } from '../../constants/dishLibrary';
+import type { SourcePool } from '../../plan/utils/mealLoopEngine';
+import type { Dish, DishVariant } from '../../meal/constants/dishLibrary';
+import type { Category } from '../../meal/constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import SwapCustomizeModal from '../meal/SwapCustomizeModal';
 import DishImage from './DishImage';
-import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Camera } from 'lucide-react';
+import CreateHouseholdModal from './CreateHouseholdModal';
+import JoinHouseholdModal from './JoinHouseholdModal';
+import InviteMemberModal from './InviteMemberModal';
+import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Camera, Users, Copy, LogIn } from 'lucide-react';
 import { getISODate } from '../../utils/dateUTC';
 
 
@@ -25,7 +29,7 @@ const ALLERGIES_LIST = ['Dairy', 'Nuts', 'Gluten', 'Soy', 'Seafood', 'Eggs'];
 const SPICE_LABELS: Record<string, string> = { 'mild': 'Mild 🌿', 'medium': 'Medium 🌶️', 'hot': 'Hot 🔥' };
 
 const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType) => void }> = ({ onLogout, onManageTray }) => {
-    const { user, updateProfile, openQuickSetup } = useStore();
+    const { user, updateProfile, openQuickSetup, household, householdId } = useStore();
     const defaultName = user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : '');
     const [nameDraft, setNameDraft] = useState<string>(defaultName);
     useEffect(() => {
@@ -49,6 +53,9 @@ const [editingRegion, setEditingRegion] = useState(false);
 const [editingAllergy, setEditingAllergy] = useState(false);
 const [editingCook, setEditingCook] = useState(false);
 const [editingSpice, setEditingSpice] = useState(false);
+const [showCreateHousehold, setShowCreateHousehold] = useState(false);
+const [showJoinHousehold, setShowJoinHousehold] = useState(false);
+const [showInviteMember, setShowInviteMember] = useState(false);
 const [cookInput, setCookInput] = useState(user?.cookContact || '');
 const [notifications, setNotifications] = useState(true);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
@@ -74,7 +81,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
     const dishes = useStore(s => s.dishes);
     const plan = useTrayStore(s => s.plan);
     const getMeals = useTrayStore(s => s.getMeals);
-    const { applyLoopConfig } = useTrayStore();
+    const { applyLoopConfig } = useLoopStore();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleAvatarUpload = useCallback(() => {
@@ -97,7 +104,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
         reader.readAsDataURL(file);
     }, [updateProfile, setToast]);
 
-    const mealLoop = useTrayStore(s => s.mealLoop);
+    const mealLoop = useLoopStore(s => s.mealLoop);
 
     // FIX 6: Live status indicator — refreshes on loop_updated events from background sync
     const [refreshKey, setRefreshKey] = useState(0);
@@ -280,13 +287,14 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
         }
 
         // FIX 2: Clean loop state — remove dish from rotationQueue, assignments, sourceDishIds
-        trayStore.setMealLoop(
-            trayStore.mealLoop.config,
-            trayStore.mealLoop.sourceDishIds.filter(id => id !== dish.id),
-            trayStore.mealLoop.assignments.filter(a => a.dishId !== dish.id)
+        const loopStoreState = useLoopStore.getState();
+        loopStoreState.setMealLoop(
+            loopStoreState.mealLoop.config,
+            loopStoreState.mealLoop.sourceDishIds.filter(id => id !== dish.id),
+            loopStoreState.mealLoop.assignments.filter(a => a.dishId !== dish.id)
         );
-        const ml = useTrayStore.getState().mealLoop;
-        useTrayStore.setState({
+        const ml = useLoopStore.getState().mealLoop;
+        useLoopStore.setState({
             mealLoop: {
                 ...ml,
                 rotationQueue: ml.rotationQueue.filter(item => item.dishId !== dish.id),
@@ -663,6 +671,64 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                 </section>
 
                 <section>
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Household</h4>
+                    <div className="p-5 rounded-[22px] bg-orange-50/50 border border-orange-200/50">
+                        {household ? (
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
+                                        <Users size={16} className="text-orange-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-bold text-gray-900">{household.name}</p>
+                                        <p className="text-[10px] text-gray-500">{household.members.length} member{household.members.length !== 1 ? 's' : ''}</p>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {household.members.map(m => (
+                                        <span key={m.id} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border ${
+                                            m.id === user?.id
+                                                ? 'bg-orange-100 border-orange-200 text-orange-700'
+                                                : m.role === 'admin'
+                                                ? 'bg-yellow-50 border-yellow-200 text-yellow-700'
+                                                : 'bg-white border-gray-200 text-gray-600'
+                                        }`}>
+                                            {m.name}
+                                            {m.id === user?.id && ' (You)'}
+                                            {m.role === 'admin' && m.id !== user?.id && ' 🏅'}
+                                        </span>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2 pt-1">
+                                    <button onClick={() => setShowInviteMember(true)} className="flex-1 py-2 rounded-xl bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
+                                        <Copy size={12} /> Invite
+                                    </button>
+                                    <button onClick={() => {
+                                        if (window.confirm('Leave household? Your requested items will remain.')) {
+                                            useStore.getState().leaveHousehold();
+                                        }
+                                    }} className="flex-1 py-2 rounded-xl border border-red-200 text-red-500 text-[10px] font-black uppercase tracking-widest">
+                                        Leave
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <p className="text-xs text-gray-500">Share a meal plan with family or roommates. One cook, everyone's requests.</p>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setShowCreateHousehold(true)} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
+                                        <Users size={14} /> Create
+                                    </button>
+                                    <button onClick={() => setShowJoinHousehold(true)} className="flex-1 py-2.5 rounded-xl border border-orange-200 text-orange-600 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
+                                        <LogIn size={14} /> Join
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </section>
+
+                <section>
                     <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Settings</h4>
                     <div className="space-y-3">
                         <div className="w-full p-5 rounded-[22px] bg-gray-50 flex items-center justify-between">
@@ -697,8 +763,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                                 {mealLoop.config && (
                                     <button
                                         onClick={() => {
-                                            const store = useTrayStore.getState();
-                                            store.refreshLoop(dishes);
+                                            useLoopStore.getState().refreshLoop(dishes);
                                         }}
                                         disabled={mealLoop.refreshing}
                                         className="px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-200 text-[10px] font-black uppercase tracking-widest text-emerald-600 disabled:opacity-40 active:scale-95 transition-all"
@@ -784,7 +849,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                     date={getISODate()}
                     mealType={trayEditSlot}
                     slotLabel={trayEditSlot.charAt(0).toUpperCase() + trayEditSlot.slice(1)}
-                    item={{ id: '', meal_id: '', name: '', icon: '', quantity: 1, servings: 1, smartVersion: 1, sides: [], beverages: [], itemQtys: {}, start_time: '', end_time: '' }}
+                    item={{ id: '', meal_id: '', name: '', icon: '', quantity: 1, servings: 1, smartVersion: 1, gravy: null, roti: null, rice: null, sides: [], beverages: [], dessert: [], itemQtys: {}, start_time: '', end_time: '' }}
                     dishes={dishes}
                     userRegion={user?.region || ''}
                     userDiet={user?.diet || 'veg'}
@@ -794,6 +859,9 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                 />
             )}
 
+            <CreateHouseholdModal isOpen={showCreateHousehold} onClose={() => setShowCreateHousehold(false)} />
+            <JoinHouseholdModal isOpen={showJoinHousehold} onClose={() => setShowJoinHousehold(false)} />
+            <InviteMemberModal isOpen={showInviteMember} onClose={() => setShowInviteMember(false)} />
         </div>
     );
 };

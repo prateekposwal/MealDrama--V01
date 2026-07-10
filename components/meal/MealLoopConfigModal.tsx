@@ -3,8 +3,9 @@ import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { X, Check, RefreshCw, Calendar } from 'lucide-react';
 import type { MealType, MealLoopConfig } from '../../types/tray';
-import { validateSourcePool, buildLoopAssignments, buildLoopSummary, type SourcePool } from '../../utils/mealLoopEngine';
-import { useTrayStore } from '../../store/useTrayStore';
+import { validateSourcePool, buildLoopAssignments, buildLoopSummary, type SourcePool } from '../../plan/utils/mealLoopEngine';
+import { useTrayStore } from '../../plan/store/useTrayStore';
+import { useLoopStore } from '../../plan/store/useLoopStore';
 import { getISODate } from '../../utils/dateUTC';
 import { CycleLengthSelector } from './CycleLengthSelector';
 import { SkipDaysPicker } from './SkipDaysPicker';
@@ -37,7 +38,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
 }) => {
   useLockBodyScroll(isOpen);
   useBackButtonClose(isOpen, onClose);
-  const mealLoop = useTrayStore(s => s.mealLoop);
+  const mealLoop = useLoopStore(s => s.mealLoop);
   const savedConfig = mealLoop.config;
   const savedDishIds = mealLoop.sourceDishIds;
   const [cycleLength, setCycleLength] = useState(savedConfig?.cycleLength ?? 7);
@@ -257,9 +258,9 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
 
           {/* Cycle Length */}
           <CycleLengthSelector value={cycleLength} onChange={setCycleLength} />
-          {validation.valid && previewAssignments.length > 0 && (
+          {validation.valid && previewAssignments && previewAssignments.length > 0 && (
             <p className="text-[11px] text-gray-400 mt-1 ml-0.5">
-              Fills {new Date(previewAssignments[0].date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – {new Date(previewAssignments[previewAssignments.length - 1].date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+              Fills {new Date(previewAssignments[0]!.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – {new Date(previewAssignments[previewAssignments.length - 1]!.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
             </p>
           )}
 

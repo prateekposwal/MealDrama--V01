@@ -1,8 +1,9 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
-import type { Dish, DishVariant, Category, Region } from '../../constants/dishLibrary';
+import type { Dish, DishVariant, Category, Region } from '../../meal/constants/dishLibrary';
 import { X, Search, Plus, Sparkles, Clock, Check, ChevronLeft, Edit3, Trash2, Loader2 } from 'lucide-react';
-import { useStore } from '../../store/useStore';
-import { useTrayStore } from '../../store/useTrayStore';
+import { useStore } from '../../app/store/useStore';
+import { useTrayStore } from '../../plan/store/useTrayStore';
+import { useLoopStore } from '../../plan/store/useLoopStore';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import DishImage from './DishImage';
@@ -244,8 +245,8 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                     }
                 }
             }
-            const ml = useTrayStore.getState().mealLoop;
-            useTrayStore.setState({
+            const ml = useLoopStore.getState().mealLoop;
+            useLoopStore.setState({
                 mealLoop: {
                     ...ml,
                     rotationQueue: ml.rotationQueue.filter(item => item.dishId !== dish.id),

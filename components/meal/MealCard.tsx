@@ -1,16 +1,17 @@
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
-import type { TrayItem, SaveStatus, MealType } from '../../store/useTrayStore';
+import type { TrayItem, SaveStatus, MealType } from '../../plan/store/useTrayStore';
 import {
     X, MessageCircle,
 } from 'lucide-react';
 import DishImage from '../new/DishImage';
-import type { Dish } from '../../constants/dishLibrary';
+import type { Dish } from '../../meal/constants/dishLibrary';
 import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import { scoreDish } from '../../utils/nutritionScore';
-import { STYLE_GROUP_ICONS } from '../../constants/dishStyles';
-import type { DishStyleGroup } from '../../constants/dishStyles';
+import { STYLE_GROUP_ICONS } from '../../meal/constants/dishStyles';
+import type { DishStyleGroup } from '../../meal/constants/dishStyles';
 import { getSlotDefaultTimes, isSlotActive } from '../../types/tray';
 import { TimeBadge, TimeEditor } from './TimeComponents';
+import { useStore } from '../../app/store/useStore';
 
 /** @deprecated `time` is hardcoded — use per-slot `start_time`/`end_time` from config instead */
 export const SLOT_META: Record<string, { icon: string; time: string; color: string; bg: string }> = {
@@ -64,6 +65,13 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
         () => dishes.find(d => d.id === item.meal_id),
         [dishes, item.meal_id]
     );
+    const household = useStore(s => s.household);
+    const requestedByLabel = useMemo(() => {
+        if (!item.requestedBy) return null;
+        if (!household) return '(left)';
+        const member = household.members.find(m => m.id === item.requestedBy);
+        return member ? member.name : '(left)';
+    }, [item.requestedBy, household]);
 
     // Detect meal_id change → trigger swap flash animation
     useEffect(() => {
@@ -176,7 +184,16 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                     <h4 className="font-extrabold text-xl tracking-tight leading-tight text-gray-900">
                         <span className="text-sm leading-snug line-clamp-2">{(item.title || item.name).replace(/ \+ /g, ' ')}</span>
                     </h4>
-                    <div className="flex items-center gap-1.5 mt-1">
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        {requestedByLabel && (
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                                requestedByLabel === '(left)'
+                                    ? 'bg-gray-100 border-gray-200 text-gray-400'
+                                    : 'bg-orange-100 border-orange-200 text-orange-700'
+                            }`}>
+                                {requestedByLabel === '(left)' ? '👋 Left' : `🙋 ${requestedByLabel}`}
+                            </span>
+                        )}
                         {item.quantity > 1 && (
                             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
                                 x{item.quantity}

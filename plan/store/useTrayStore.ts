@@ -264,6 +264,8 @@ export const useTrayStore = create<TrayStore>()(
           end_time: overrides?.end_time || timeDef.end,
           // Mark as user-added so autoFillLoop won't overwrite it
           source: overrides?.source || 'user',
+          // Household: who requested this meal
+          requestedBy: overrides?.requestedBy,
         };
 
         // Optimistic update (with dedup: same meal_id OR same name → update chips, keep quantity)

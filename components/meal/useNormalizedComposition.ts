@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { TrayItem } from '../../store/useTrayStore';
+import type { TrayItem } from '../../plan/store/useTrayStore';
 
 export interface NormalizedCategory {
   name: string;

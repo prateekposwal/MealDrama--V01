@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getIngredientsForMealOption } from '../utils/ingredientUtils';
-import { DISH_LIBRARY } from '../constants/dishLibrary';
-import type { Dish } from '../constants/dishLibrary';
+import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
+import type { Dish } from '../meal/constants/dishLibrary';
 
 const INFERRED_EMPTY_IDS = new Set([
   'sindhi-kadhi','sindhi-koki','murghi-na-farcha','spiced-hot-chocolate',

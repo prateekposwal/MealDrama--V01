@@ -4,13 +4,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useMemo, useCallback, useRef, useEffect, lazy, Suspense } from 'react';
-import type { MealType, TrayItem, GuestMode } from '../../store/useTrayStore';
+import type { MealType, TrayItem, GuestMode } from '../../plan/store/useTrayStore';
 import { computeEffectiveServings, resolveSlotTimes, isAfterEnd } from '../../types/tray';
 import type { AggregatedCategory } from '../../types/tray';
-import type { DishVariant } from '../../constants/dishLibrary';
+import type { DishVariant } from '../../meal/constants/dishLibrary';
 import { useNormalizedComposition } from './useNormalizedComposition';
-import type { Dish } from '../../constants/dishLibrary';
-import type { SuggestionMeal } from '../../lib/trayApi';
+import type { Dish } from '../../meal/constants/dishLibrary';
+import type { SuggestionMeal } from '../../app/lib/trayApi';
 import { MealCard } from './MealCard';
 import { SLOT_META } from './MealCard';
 import { SmartSuggestionChips } from './SmartSuggestionChips';
@@ -18,11 +18,12 @@ import { TimeBadge, TimeEditor } from './TimeComponents';
 const SwapCustomizeModal = lazy(() => import('./SwapCustomizeModal'));
 import DishImage from '../new/DishImage';
 import { CheckCheck, ChevronRight, Forward, Shuffle, Sparkles, X, Plus } from 'lucide-react';
-import type { StyleWarning } from '../../constants/dishStyles';
-import { useStore } from '../../store/useStore';
-import { useTrayStore } from '../../store/useTrayStore';
+import type { StyleWarning } from '../../meal/constants/dishStyles';
+import { useStore } from '../../app/store/useStore';
+import { useTrayStore } from '../../plan/store/useTrayStore';
+import { useLoopStore } from '../../plan/store/useLoopStore';
 import { generateMealTitle } from '../../utils/generateMealTitle';
-import { pickFeaturedMeals } from '../../utils/mealRotation';
+import { pickFeaturedMeals } from '../../plan/utils/mealRotation';
 import { getISODate } from '../../utils/dateUTC';
 
 export type SlotMode = 'active' | 'upcoming' | 'completed' | 'history' | 'builder' | 'skipped';
@@ -185,13 +186,13 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
   const completions = useTrayStore(s => s.completions);
   const skipped = useTrayStore(s => s.skipped);
-  const lastFeaturedTimes = useTrayStore(s => s.lastFeaturedTimes);
-  const markFeatured = useTrayStore(s => s.markFeatured);
+  const lastFeaturedTimes = useLoopStore(s => s.lastFeaturedTimes);
+  const markFeatured = useLoopStore(s => s.markFeatured);
   const featuredRef = useRef<string[] | null>(null);
 
   // Loop-aware guidance: check if this date+slot has a loop assignment
-  const loopConfig = useTrayStore(s => s.mealLoop.config);
-  const loopAssignments = useTrayStore(s => s.mealLoop.assignments);
+  const loopConfig = useLoopStore(s => s.mealLoop.config);
+  const loopAssignments = useLoopStore(s => s.mealLoop.assignments);
   const loopActive = !!loopConfig;
   const hasLoopAssignment = useMemo(() => {
     if (!loopActive) return false;
@@ -252,6 +253,11 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
   const aggregated = useNormalizedComposition(meals);
   const setToast = useStore(s => s.setToast);
+  const household = useStore(s => s.household);
+  const memberName = useCallback((memberId: string) => {
+    const member = household?.members.find(m => m.id === memberId);
+    return member ? member.name : '(left)';
+  }, [household?.members]);
 
   const handleAggregatedQty = useCallback((name: string, delta: number) => {
     const hasItem = (item: TrayItem) =>
@@ -471,7 +477,16 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                       <DishImage name={extra.name} slot={slotLabel} size="sm" />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {extra.requestedBy && (
+                          <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
+                            memberName(extra.requestedBy) === '(left)'
+                              ? 'bg-gray-100 border-gray-200 text-gray-400'
+                              : 'bg-orange-100 border-orange-200 text-orange-700'
+                          }`}>
+                            🙋 {memberName(extra.requestedBy)}
+                          </span>
+                        )}
                         <span className="text-xs font-bold text-gray-700 truncate">
                           {extra.style ? `${extra.style} ${extra.name}` : extra.name}
                         </span>

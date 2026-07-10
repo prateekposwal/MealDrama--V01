@@ -1,4 +1,4 @@
-import type { Ingredient } from '../constants/dishLibrary';
+import type { Ingredient } from '../meal/constants/dishLibrary';
 
 const INGREDIENT_CACHE = new Map<string, Ingredient[]>();
 

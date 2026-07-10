@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Lightbulb, X, ChevronRight } from 'lucide-react';
-import type { HealthTip } from '../../constants/healthGuidelines';
+import type { HealthTip } from '../../app/constants/healthGuidelines';
 
 interface HealthTipCardProps {
   tip: HealthTip;

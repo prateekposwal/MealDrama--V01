@@ -1,6 +1,6 @@
 'use client';
 import type { MealType } from '../../types/tray';
-import { useLoopAutoFill } from '../../hooks/useLoopAutoFill';
+import { useLoopAutoFill } from '../../plan/hooks/useLoopAutoFill';
 
 interface LoopAutoFillSlotProps {
   date: string;

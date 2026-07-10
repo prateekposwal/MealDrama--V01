@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import type { Dish } from '../constants/dishLibrary';
-import { DISH_LIBRARY } from '../constants/dishLibrary';
-import { useStore } from '../store/useStore';
+import type { Dish } from '../meal/constants/dishLibrary';
+import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
+import { useStore } from '../app/store/useStore';
 
 // Static import of DISH_LIBRARY ensures Vite tracks the dependency for HMR.
 // When dishLibrary.ts is updated, Vite invalidates this module too,

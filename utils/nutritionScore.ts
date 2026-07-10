@@ -1,9 +1,9 @@
-import type { Dish, DishVariant } from '../constants/dishLibrary';
+import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import type { NutritionInfo, PlateBalanceScore, HealthCategory } from '../types/nutrition';
-import { DISH_HEALTH_MAP } from '../constants/healthGuidelines';
+import { DISH_HEALTH_MAP } from '../app/constants/healthGuidelines';
 import { checkWithFallback } from './dpTimeout';
 import { recordMetricAndReturn, recordMetric } from './dpTelemetry';
-import { DpCache } from './dpCache';
+import { DpCache } from '../app/utils/dpCache';
 
 const HEALTH_CATEGORY_SCORES: Record<string, number> = {
   'whole-grain': 10,

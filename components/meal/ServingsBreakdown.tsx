@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp, Users, Pizza, Wheat, GlassWater, Utensils } from 'lucide-react';
-import type { TrayItem } from '../../store/useTrayStore';
+import type { TrayItem } from '../../plan/store/useTrayStore';
 
 interface ComponentCount {
   label: string;

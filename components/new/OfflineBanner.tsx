@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { WifiOff, Wifi } from 'lucide-react';
-import { getPendingCount } from '../../utils/offlineQueue';
-import { onConnectivityChange, isOnline } from '../../utils/connectivity';
+import { getPendingCount } from '../../app/utils/offlineQueue';
+import { onConnectivityChange, isOnline } from '../../app/utils/connectivity';
 
 export const OfflineBanner: React.FC = () => {
   const [online, setOnline] = useState(isOnline());

@@ -1,4 +1,4 @@
-import { GravyType, type Dish, type DishVariant } from '../constants/dishLibrary';
+import { GravyType, type Dish, type DishVariant } from '../meal/constants/dishLibrary';
 import type { Meal } from '../types/tray';
 import { resolveDisplayName } from './resolveDisplayName';
 

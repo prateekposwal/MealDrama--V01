@@ -3,8 +3,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { Meal } from '../types/tray';
-import type { SuggestionMeal } from '../lib/trayApi';
-import { DISH_LIBRARY, type Region } from '../constants/dishLibrary';
+import type { SuggestionMeal } from '../app/lib/trayApi';
+import { DISH_LIBRARY, type Region } from '../meal/constants/dishLibrary';
 
 /**
  * Convert SuggestionMeal (API response) to Meal (defaults engine input).

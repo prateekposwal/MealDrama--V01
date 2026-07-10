@@ -1,5 +1,5 @@
 import type { MealType } from '../types/tray';
-import { getDishStyle, getStyleRouting, indian_meal_categories } from '../constants/dishStyles';
+import { getDishStyle, getStyleRouting, indian_meal_categories } from '../meal/constants/dishStyles';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
