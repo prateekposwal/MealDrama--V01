@@ -24,7 +24,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
     });
 
     if (existing) {
-      const token = generateAccessToken({ userId: existing.id, email: existing.email || '', phone: existing.phone });
+      const token = generateAccessToken({ userId: existing.id, email: existing.email || '', phone: existing.phone, name: existing.name || undefined });
       return res.json({ success: true, data: { user: existing, token } });
     }
 
@@ -36,7 +36,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
       data: { userId: user.id },
     });
 
-    const token = generateAccessToken({ userId: user.id, email: user.email || '', phone: user.phone });
+    const token = generateAccessToken({ userId: user.id, email: user.email || '', phone: user.phone, name: user.name || undefined });
 
     res.status(201).json({
       success: true,
@@ -71,7 +71,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       throw new APIError('USER_NOT_FOUND', 'User not found. Please register first.', 404);
     }
 
-    const token = generateAccessToken({ userId: user.id, email: user.email || '', phone: user.phone });
+    const token = generateAccessToken({ userId: user.id, email: user.email || '', phone: user.phone, name: user.name || undefined });
 
     res.json({
       success: true,

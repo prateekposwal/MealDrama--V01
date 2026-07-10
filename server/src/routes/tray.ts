@@ -17,6 +17,7 @@ const TrayItemSchema = z.object({
   riceType: z.string().default('Plain'),
   sides: z.array(z.string()).default([]),
   beverages: z.array(z.string()).default([]),
+  requestedBy: z.string().optional(),
   sortOrder: z.number().int().default(0),
 }).refine(data => data.mealId || data.customDishId, {
   message: 'Either mealId or customDishId is required',
@@ -448,6 +449,7 @@ const CustomizeSlotSchema = z.object({
     riceType: z.string().optional(),
     sides: z.array(z.string()).default([]),
     beverages: z.array(z.string()).default([]),
+    requestedBy: z.string().optional(),
     sortOrder: z.number().int().optional(),
   })).min(1).max(5),
 });
