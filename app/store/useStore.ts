@@ -5,7 +5,7 @@ import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
 import api, { setAuthReady } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
-import { householdApi } from '../utils/householdApi';
+import { householdApi, setDevCurrentUser } from '../utils/householdApi';
 import type { Household } from '../../types/household';
 
 
