@@ -164,7 +164,6 @@ app.use('/api/v1/users', require('./routes/users').default);
 app.use('/api/v1/tray', require('./routes/tray').default);
 app.use('/api/v1/variants', require('./routes/variants').default);
 app.use('/api/v1/custom-dishes', require('./routes/custom-dishes').default);
-app.use('/api/v1/roommates', require('./routes/roommates').default);
 app.use('/api/v1/loop-config', require('./routes/loopConfig').default);
 app.use('/api/v1/tts', require('./routes/tts').default);
 

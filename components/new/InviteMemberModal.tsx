@@ -52,7 +52,7 @@ const InviteMemberModal: React.FC<Props> = ({ isOpen, onClose }) => {
         </div>
 
         <p className="text-sm text-gray-500 mb-5">
-          Share this code with family or roommates. They enter it in their app to join.
+          Share this code with your household. They enter it in their app to join.
         </p>
 
         <div className="bg-gray-50 rounded-2xl p-5 mb-5 border border-gray-100">

@@ -714,7 +714,7 @@ const [ingredientUnit, setIngredientUnit] = useState('g');
                             </div>
                         ) : (
                             <div className="space-y-3">
-                                <p className="text-xs text-gray-500">Share a meal plan with family or roommates. One cook, everyone's requests.</p>
+                                <p className="text-xs text-gray-500">Share a meal plan with your household. Everyone can add their requests.</p>
                                 <div className="flex gap-2">
                                     <button onClick={() => setShowCreateHousehold(true)} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
                                         <Users size={14} /> Create

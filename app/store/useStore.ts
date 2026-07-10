@@ -377,14 +377,6 @@ interface StoreState {
   addCustomDish: (dish: Dish) => void;
   updateCustomDish: (id: string, updates: Partial<Dish>) => void;
   removeCustomDish: (id: string) => void;
-  // Roommate sharing
-  roommateLink: RoommateLink | null;
-  roommateSuggestions: RoommateSuggestion[];
-  generateRoommateLink: () => Promise<void>;
-  revokeRoommateLink: () => Promise<void>;
-  fetchRoommateSuggestions: () => Promise<void>;
-  approveSuggestion: (id: string) => Promise<void>;
-  rejectSuggestion: (id: string) => Promise<void>;
   // Household sharing
   householdId: string | null;
   household: Household | null;
@@ -413,8 +405,6 @@ export const useStore = create<StoreState>()(
       smartQueue: { week2: [], favorites: [] },
       trayBuilt: initialAuth.trayBuilt,
       customDishes: [],
-      roommateLink: null,
-      roommateSuggestions: [],
       householdId: null,
       household: null,
       setToast: (toast) => set({ toast }),
@@ -516,8 +506,6 @@ export const useStore = create<StoreState>()(
       trayLibrary: initialTrayLibrary,
       trayBuilt: false,
           customDishes: [],
-          roommateLink: null,
-          roommateSuggestions: [],
         });
       },
 
@@ -867,57 +855,6 @@ export const useStore = create<StoreState>()(
         customDishes: s.customDishes.filter(d => d.id !== id),
       })),
 
-      // ─── Roommate Actions ──────────────────────────────────────────────────
-      generateRoommateLink: async () => {
-        try {
-          const res = await api.post<RoommateLink>('/roommates/link/generate');
-          set({ roommateLink: { ...res, linkId: res.linkId || res.id, isActive: true } });
-          get().setToast({ message: 'Magic link generated! Share it with your roommates.', type: 'success' });
-        } catch {
-          get().setToast({ message: 'Failed to generate link. Try again.', type: 'error' });
-        }
-      },
-
-      revokeRoommateLink: async () => {
-        const link = get().roommateLink;
-        if (!link) return;
-        try {
-          await api.delete(`/roommates/link/${link.linkId || link.id}`);
-          set({ roommateLink: null });
-          get().setToast({ message: 'Link revoked.', type: 'success' });
-        } catch {
-          get().setToast({ message: 'Failed to revoke link.', type: 'error' });
-        }
-      },
-
-      fetchRoommateSuggestions: async () => {
-        try {
-          const res = await api.get<RoommateSuggestion[]>('/roommates/suggestions');
-          set({ roommateSuggestions: res });
-        } catch {
-          console.warn('[Store] Failed to fetch roommate suggestions');
-        }
-      },
-
-      approveSuggestion: async (id) => {
-        try {
-          await api.patch(`/roommates/suggestion/${id}`, { status: 'approved' });
-          get().fetchRoommateSuggestions();
-          window.dispatchEvent(new Event('pantry:invalidate'));
-        } catch {
-          get().setToast({ message: 'Failed to approve suggestion.', type: 'error' });
-        }
-      },
-
-      rejectSuggestion: async (id) => {
-        try {
-          await api.patch(`/roommates/suggestion/${id}`, { status: 'rejected' });
-          get().fetchRoommateSuggestions();
-        } catch {
-          get().setToast({ message: 'Failed to reject suggestion.', type: 'error' });
-        }
-      },
-
       // ─── Household ─────────────────────────────────────────────────
       createHousehold: async (name) => {
         try {
@@ -984,8 +921,6 @@ export const useStore = create<StoreState>()(
         trayBuilt: state.trayBuilt,
         smartQueue: state.smartQueue,
         customDishes: state.customDishes,
-        roommateLink: state.roommateLink,
-        roommateSuggestions: state.roommateSuggestions,
         householdId: state.householdId,
         // Don't persist: toast, notifications, pendingMutations, deadLetterMutations, trayEditSession, household (fetched on demand)
       }),

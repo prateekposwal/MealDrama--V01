@@ -135,7 +135,6 @@ router.get('/slots', async (req: Request, res: Response) => {
             customDish: { select: { id: true, name: true, category: true, dietType: true } },
           },
         },
-        roommateSuggestions: { where: { status: 'pending' } },
       },
       orderBy: [{ date: 'asc' }, { slot: 'asc' }],
     });

@@ -24,7 +24,6 @@ model User {
   householdMembers HouseholdMember[]
   traySlots        TraySlot[]
   customDishes     CustomDish[]
-  roommateLinks    RoommateLink[]
   loopConfig       LoopConfig?
 }
 
@@ -223,9 +222,8 @@ model TraySlot {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items               TrayItem[]
-  roommateSuggestions RoommateSuggestion[]
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items TrayItem[]
 
   @@unique([userId, date, slot])
   @@index([userId, date])
@@ -248,10 +246,9 @@ model TrayItem {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  traySlot            TraySlot             @relation(fields: [traySlotId], references: [id], onDelete: Cascade)
-  meal                Meal?                @relation(fields: [mealId], references: [id], onDelete: SetNull)
-  customDish          CustomDish?          @relation(fields: [customDishId], references: [id], onDelete: SetNull)
-  roommateSuggestions RoommateSuggestion[]
+  traySlot   TraySlot    @relation(fields: [traySlotId], references: [id], onDelete: Cascade)
+  meal       Meal?       @relation(fields: [mealId], references: [id], onDelete: SetNull)
+  customDish CustomDish? @relation(fields: [customDishId], references: [id], onDelete: SetNull)
 
   @@index([traySlotId])
   @@index([mealId])
@@ -294,53 +291,6 @@ model CustomDishIngredient {
   customDish CustomDish @relation(fields: [customDishId], references: [id], onDelete: Cascade)
 
   @@index([customDishId])
-}
-
-model RoommateLink {
-  id        String    @id @default(uuid())
-  userId    String
-  token     String    @unique
-  expiresAt DateTime
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  usedAt    DateTime?
-
-  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  suggestions RoommateSuggestion[]
-
-  @@index([userId])
-  @@index([token])
-  @@index([expiresAt])
-}
-
-model RoommateSuggestion {
-  id           String   @id @default(uuid())
-  linkId       String
-  traySlotId   String
-  trayItemId   String?
-  mealName     String
-  date         DateTime @db.Date
-  slot         String
-  quantity     Int      @default(1)
-  gravyStyle   String?
-  rotiType     String?
-  riceType     String?
-  sides        String[]
-  beverages    String[]
-  roommateName String
-  status       String   @default("pending") // pending, approved, rejected
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  link     RoommateLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
-  traySlot TraySlot     @relation(fields: [traySlotId], references: [id], onDelete: Cascade)
-  trayItem TrayItem?    @relation(fields: [trayItemId], references: [id], onDelete: SetNull)
-
-  @@index([linkId])
-  @@index([traySlotId])
-  @@index([trayItemId])
-  @@index([status])
-  @@index([date])
 }
 
 model LoopConfig {
