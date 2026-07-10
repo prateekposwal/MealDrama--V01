@@ -17,9 +17,12 @@ const CreateHouseholdModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const handleCreate = async () => {
     if (!name.trim()) return;
     setLoading(true);
-    await createHousehold(name.trim());
-    setLoading(false);
-    onClose();
+    try {
+      await createHousehold(name.trim());
+      onClose();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

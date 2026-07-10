@@ -927,6 +927,7 @@ export const useStore = create<StoreState>()(
           get().setToast({ message: `Household "${name}" created!`, type: 'success' });
         } catch (err) {
           get().setToast({ message: 'Failed to create household.', type: 'error' });
+          throw err;
         }
       },
 
@@ -937,6 +938,7 @@ export const useStore = create<StoreState>()(
           get().setToast({ message: `Joined ${hh.name}!`, type: 'success' });
         } catch (err) {
           get().setToast({ message: 'Failed to join household. Check the code.', type: 'error' });
+          throw err;
         }
       },
 
