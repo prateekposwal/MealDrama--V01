@@ -19,6 +19,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
           ...(email ? [{ email }] : []),
           ...(phone ? [{ phone }] : []),
           ...(systemId ? [{ systemId }] : []),
+          ...(id ? [{ id }] : []),
         ],
       },
     });

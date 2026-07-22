@@ -20,7 +20,7 @@ export function suggestionToMeal(s: SuggestionMeal): Meal {
     id: match?.id ?? s.id,
     name: s.name,
     icon: match?.icon ?? s.icon,
-    region: normalizeRegion(s.region),
+    region: normalizeRegion(s.region) as 'north' | 'south' | 'east' | 'west' | 'central' | 'northeast',
     baseGravy: s.defaultGravy,
     rotiOptions: s.defaultRoti ? [s.defaultRoti] : undefined,
     riceOptions: s.defaultRice ? [s.defaultRice] : undefined,

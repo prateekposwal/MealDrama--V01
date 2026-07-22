@@ -9,7 +9,7 @@ import { nanoid } from 'nanoid';
 import { trayApi, offlineQueue as trayOfflineQueue } from '../../app/lib/trayApi';
 import { applySmartDefaults } from './helpers/applySmartDefaults';
 import { SLOT_TIME_DEFAULTS, getSlotDefaultTimes } from '../../types/tray';
-import type { Meal, MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, SavedTemplate } from '../../types/tray';
+import type { Meal, MealType, TrayItem, TrayItemDefaults, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, SavedTemplate } from '../../types/tray';
 import { dishToMeal } from '../../utils/dishToMeal';
 import { generateMealTitle } from '../../utils/generateMealTitle';
 import { getDishStyle } from '../../meal/constants/dishStyles';
@@ -24,7 +24,9 @@ import { mealRepository } from '../../app/lib/MealRepository';
 import type { PlanIndex } from '../utils/planIndex';
 import { slotKey, buildPlanIndex, updatePlanIndexOnAdd, updatePlanIndexOnRemove, extendPlanIndex } from '../utils/planIndex';
 import { updateSlot, getTimeDef, emptyDayMeals, uid, getIngredientNamesForMeal } from '../utils/trayUtils';
-import { clearAllDebounceTimers, getDebounceTimerCount, debounceSave } from '../utils/trayDebounce';
+import { clearAllDebounceTimers, getDebounceTimerCount, debounceSave, cancelDebounce } from '../utils/trayDebounce';
+import { fireMealChanged, useNotificationStore } from '../../app/notifications';
+import { logActivity } from '../../app/utils/logActivity';
 
 export type { MealType, TrayItem, DayMeals, GuestMode, SwapRecord, OfflineAction, SaveStatus, Meal };
 
@@ -102,19 +104,21 @@ export function seedTodayFromTray() {
   const trayState = useStore.getState();
   const trayLibrary = trayState.trayLibrary;
   if (!trayLibrary?.breakfast) return;
+  if (typeof useLoopStore === 'undefined') return;
   const loopState = useLoopStore.getState();
   const loopMl = loopState.mealLoop;
   const mlh = loopMl.config !== null || loopMl.assignments.length > 0 || loopMl.sourceDishIds.length > 0;
   if (!mlh && loopMl.config === null && loopMl.assignments.length === 0) {
     queueMicrotask(() => {
+      if (typeof useLoopStore === 'undefined') return;
       const rl = useLoopStore.getState().mealLoop;
       if (rl.config || rl.assignments.length > 0) seedTodayFromTray();
     });
     return;
   }
   cleanupLegacyTodayDump();
-  const todayLoopAssignments = loopMl.assignments.filter((a: any) => a.date === _today);
-  const loopAssignedSlots = new Set(todayLoopAssignments.map((a: any) => a.mealType));
+  const todayLoopAssignments = loopMl.assignments.filter((a: { date: string }) => a.date === _today);
+  const loopAssignedSlots = new Set(todayLoopAssignments.map((a: { mealType: string }) => a.mealType));
   const trayStore = useTrayStore.getState();
   const newDays: Record<string, any> = {};
   for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
@@ -371,25 +375,27 @@ export const useTrayStore = create<TrayStore>()(
        * 3. Replaces meal_id/name/icon + resets chips
        * 4. Debounce PATCH → offline queue → revert on error
        */
-       swapMealInSlot: (date, mealType, itemId, newMeal) => {
-        let oldMealId = '';
-        let oldName = '';
-        let oldIcon: string | undefined;
-        let oldQuantity = 1;
-        let oldServings = 1;
-        let oldGravy: string | null | undefined;
-        let oldRoti: string | null | undefined;
-        let oldRice: string | null | undefined;
-        let oldSides: string[] = [];
-        let oldBeverages: string[] = [];
-        let oldDessert: string[] | undefined;
-        let oldVariant: string | undefined;
-        let oldVariantId: string | undefined;
-        let oldAddon: string | undefined;
-        let oldStyle: string | undefined;
-        let oldItemQtys: Record<string, number> | undefined;
-        let oldStartTime: string | undefined;
-        let oldEndTime: string | undefined;
+        swapMealInSlot: (date, mealType, itemId, newMeal) => {
+         let oldMealId = '';
+         let oldName = '';
+         let oldIcon: string | undefined;
+         let oldQuantity = 1;
+         let oldServings = 1;
+         let oldGravy: string | null | undefined;
+         let oldRoti: string | null | undefined;
+         let oldRice: string | null | undefined;
+         let oldSides: string[] = [];
+         let oldBeverages: string[] = [];
+         let oldDessert: string[] | undefined;
+         let oldVariant: string | undefined;
+         let oldVariantId: string | undefined;
+         let oldAddon: string | undefined;
+         let oldStyle: string | undefined;
+         let oldItemQtys: Record<string, number> | undefined;
+         let oldStartTime: string | undefined;
+         let oldEndTime: string | undefined;
+         let defaults: TrayItemDefaults | undefined;
+         let swapTitle: string | undefined;
 
         set((s) => {
           const day = s.plan.days[date];
@@ -417,10 +423,10 @@ export const useTrayStore = create<TrayStore>()(
           oldEndTime = target.end_time;
 
           // Call helper with NEW meal + slot context for fresh defaults
-          const defaults = applySmartDefaults(newMeal, mealType, undefined, { useSmartSuggestions: true });
+          defaults = applySmartDefaults(newMeal, mealType, undefined, { useSmartSuggestions: true });
           const timeDef = getTimeDef(mealType);
           const swapCarb = defaults.roti ?? defaults.rice ?? undefined;
-          const swapTitle = generateMealTitle(newMeal.name, defaults.sides, defaults.beverages, swapCarb);
+          swapTitle = generateMealTitle(newMeal.name, defaults.sides, defaults.beverages, swapCarb);
 
           const updatedItems = items.map(item =>
             item.id === itemId
@@ -433,13 +439,13 @@ export const useTrayStore = create<TrayStore>()(
                   smartVersion: 1,
                   style: getDishStyle(newMeal.id),
                   // Reset chips to NEW meal's smart defaults
-                  gravy: defaults.gravy,
-                  roti: defaults.roti,
-                  rice: defaults.rice,
-                  sides: defaults.sides,
-                  beverages: defaults.beverages,
-                  dessert: defaults.dessert,
-                  itemQtys: defaults.itemQtys,
+                  gravy: defaults!.gravy,
+                  roti: defaults!.roti,
+                  rice: defaults!.rice,
+                  sides: defaults!.sides,
+                  beverages: defaults!.beverages,
+                  dessert: defaults!.dessert,
+                  itemQtys: defaults!.itemQtys,
                   // Preserve custom time window, fall back to slot default
                   start_time: item.start_time || timeDef.start,
                   end_time: item.end_time || timeDef.end,
@@ -489,6 +495,22 @@ export const useTrayStore = create<TrayStore>()(
           };
         });
 
+        // Fire notification for the meal change
+        fireMealChanged(date, mealType, oldName, newMeal.name);
+
+        // First swap tip for new users
+        const notifStore = useNotificationStore.getState();
+        if (notifStore.enabled) {
+          const swapCount = useTrayStore.getState().swapHistory.length;
+          if (swapCount <= 2) {
+            notifStore.addNotification({
+              type: 'tip',
+              title: '🔄 Quick Tip',
+              message: 'You can also swap by tapping any meal on the Plan screen. Try different dishes from your tray!',
+            });
+          }
+        }
+
         // Auto-add new meal ingredient names to pantry
         const swappedIngredients = getIngredientNamesForMeal(newMeal.id);
         if (swappedIngredients.length > 0) {
@@ -518,18 +540,24 @@ export const useTrayStore = create<TrayStore>()(
           type: 'swap',
           payload: {
             date, mealType, itemId, newMealId: newMeal.id, oldMealId,
-            gravy: defaults.gravy,
-            roti: defaults.roti,
-            rice: defaults.rice,
-            sides: defaults.sides,
-            beverages: defaults.beverages,
-            dessert: defaults.dessert,
-            itemQtys: defaults.itemQtys,
-            title: swapTitle,
+            gravy: (defaults as TrayItemDefaults).gravy,
+            roti: (defaults as TrayItemDefaults).roti,
+            rice: (defaults as TrayItemDefaults).rice,
+            sides: (defaults as TrayItemDefaults).sides,
+            beverages: (defaults as TrayItemDefaults).beverages,
+            dessert: (defaults as TrayItemDefaults).dessert,
+            itemQtys: (defaults as TrayItemDefaults).itemQtys,
+            title: swapTitle ?? '',
             style: getDishStyle(newMeal.id),
           },
         });
         window.dispatchEvent(new Event('pantry:invalidate'));
+
+        // Log activity
+        const userId = useStore.getState().user?.name || 'Someone';
+        if (useStore.getState().householdId) {
+          logActivity(useStore.getState().householdId, userId, 'swapped', `${oldName} → ${newMeal.name} on ${date} ${mealType}`);
+        }
 
         // Debounce PATCH — sends new defaults server-side
         debounceSave(`swap_${itemId}`, async () => {
@@ -765,8 +793,8 @@ export const useTrayStore = create<TrayStore>()(
         if (navigator.onLine) {
           mealRepository.removeItem(itemId)
             .then(() => set((s) => ({ saveStatus: { ...s.saveStatus, [itemId]: 'saved' } })))
-            .catch(() => {
-              // DELETE failed — offline queue will retry on next drain
+            .catch((err) => {
+              console.warn('[TrayStore] DELETE failed, queueing for retry:', err);
               set((s) => ({ saveStatus: { ...s.saveStatus, [itemId]: 'error' } }));
             });
         }
@@ -972,10 +1000,7 @@ export const useTrayStore = create<TrayStore>()(
       undoSkipSlot: (date, mealType) => {
         const key = slotKey(date, mealType);
         // Cancel any pending skip debounce to prevent re-sync from API
-        if (debounceTimers.has(`skip_${key}`)) {
-          clearTimeout(debounceTimers.get(`skip_${key}`));
-          debounceTimers.delete(`skip_${key}`);
-        }
+        cancelDebounce(`skip_${key}`);
         set((s) => {
           const next = { ...s.skipped };
           delete next[key];
@@ -985,7 +1010,9 @@ export const useTrayStore = create<TrayStore>()(
         });
         // Sync unskip to server
         if (navigator.onLine) {
-          mealRepository.unskipSlot(date, mealType).catch(() => {});
+          mealRepository.unskipSlot(date, mealType).catch((err) => {
+            console.warn('[TrayStore] unskipSlot API call failed:', err);
+          });
         }
       },
 
@@ -997,14 +1024,15 @@ export const useTrayStore = create<TrayStore>()(
       version: 7,
       storage: nativeStorage,
       migrate: (persistedState: unknown, fromVersion: number) => {
-        let state = persistedState as any;
+        let state = persistedState as Record<string, unknown>;
         // Safely restore date strings to Date objects if needed
-        if (state.plan) {
-          for (const key of Object.keys(state.plan.days || {})) {
+        const plan = state.plan as Record<string, unknown> | undefined;
+        if (plan) {
+          for (const key of Object.keys((plan.days as Record<string, unknown>) ?? {})) {
             // no-op, just ensure dates exist
           }
         }
-        return state as TrayStore;
+        return state as unknown as TrayStore;
       },
       partialize: (state) => {
         try {
@@ -1029,7 +1057,7 @@ export const useTrayStore = create<TrayStore>()(
             skipped: pruneRecord(state.skipped),
           };
 
-          console.log('[TrayStore] partialize success, plan.days:', Object.keys(state.plan.days).length);
+          if (import.meta.env.DEV) console.log('[TrayStore] partialize success, plan.days:', Object.keys(state.plan.days).length);
           return result;
         } catch (err) {
           console.error('[TrayStore] partialize FAILED — returning full state to prevent data loss:', err);
@@ -1050,7 +1078,7 @@ export const useTrayStore = create<TrayStore>()(
         }
         if (!state) return;
 
-        console.log('[TrayStore] Hydrated successfully, plan.days:', Object.keys(state.plan.days).length);
+        if (import.meta.env.DEV) console.log('[TrayStore] Hydrated successfully, plan.days:', Object.keys(state.plan.days).length);
 
         // Rebuild plan index after hydration
         state.plan._planIndex = buildPlanIndex(state.plan.days);
@@ -1081,7 +1109,7 @@ if (typeof window !== 'undefined') {
   _logoutHandler = () => {
     clearAllDebounceTimers();
     useTrayStore.setState({
-      plan: { period: 'week', days: {}, _planIndex: { occupied: {}, bySource: {}, version: 0 } },
+      plan: { period: 'week', days: {}, _planIndex: { occupied: {}, bySource: {}, version: 0, dates: [] } },
       swapHistory: [],
       completions: {},
       skipped: {},

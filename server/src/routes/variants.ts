@@ -13,21 +13,23 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const { category } = req.query;
 
-    const where: any = { isActive: true };
+    const where: any = {};
     if (category && typeof category === 'string') {
-      where.category = category;
+      where.meal = { category };
     }
 
-    const options = await prisma.variantOption.findMany({
+    const options = await prisma.mealVariant.findMany({
       where,
-      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }],
+      include: { meal: { select: { category: true } } },
+      orderBy: [{ name: 'asc' }],
     });
 
     // Group by category
     const grouped: Record<string, typeof options> = {};
     for (const opt of options) {
-      if (!grouped[opt.category]) grouped[opt.category] = [];
-      (grouped[opt.category] as typeof options).push(opt);
+      const cat = opt.meal.category;
+      if (!grouped[cat]) grouped[cat] = [];
+      (grouped[cat] as typeof options).push(opt);
     }
 
     res.json({ options, grouped });

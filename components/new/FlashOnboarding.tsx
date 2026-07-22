@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Check, MessageCircle } from 'lucide-react';
 
 const REGIONS = [
   { label: 'North India', icon: '🌾', note: 'Ghee overload' },
@@ -17,24 +17,20 @@ const DIETS = [
   { label: 'Vegan', icon: '🌱', note: 'No dairy, no sorry' },
 ] as const;
 
-const SLOT_OPTIONS = [
-  { label: 'Breakfast', icon: '🌅', note: 'Chai pe charcha' },
-  { label: 'Lunch', icon: '🌞', note: 'Thali therapy' },
-  { label: 'Dinner', icon: '🌙', note: 'Light... ish' },
-  { label: 'Snacks', icon: '🍵', note: 'The real main course' },
-] as const;
-
-const SPICE_LEVELS = [
-  { value: 1, label: 'Mild', icon: '🫑' },
-  { value: 2, label: 'Medium', icon: '🌶️' },
-  { value: 3, label: 'Hot', icon: '🔥' },
+const HEALTH_GOALS = [
+  { label: 'Balanced', icon: '⚖️', note: 'No restrictions' },
+  { label: 'High Protein', icon: '🥩', note: 'Build & recover' },
+  { label: 'High Fiber', icon: '🌾', note: 'Gut health first' },
+  { label: 'Low Calorie', icon: '🥗', note: 'Light eating' },
+  { label: 'Low Fat', icon: '🫒', note: 'Cut the grease' },
+  { label: 'Weight Loss', icon: '🔥', note: 'Calorie deficit' },
 ] as const;
 
 const STEPS = [
   { key: 'region', title: 'PICK YOUR FOOD REGION' },
-  { key: 'slots', title: 'YOUR MEAL SLOTS' },
   { key: 'diet', title: 'YOUR FOOD PREFERENCE' },
-  { key: 'spice', title: 'SPICE PREFERENCE' },
+  { key: 'health', title: 'ANY HEALTH FOCUS?' },
+  { key: 'cook', title: "YOUR COOK'S NUMBER" },
 ] as const;
 
 interface FlashOnboardingProps {
@@ -44,6 +40,7 @@ interface FlashOnboardingProps {
     spiceLevel: number;
     cookContact: string;
     plannedSlots: ('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[];
+    healthGoal: string;
     onboardingComplete?: boolean;
   }) => void;
   isEditMode?: boolean;
@@ -53,6 +50,7 @@ interface FlashOnboardingProps {
     spiceLevel?: number;
     plannedSlots?: ('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[];
     cookContact?: string;
+    healthGoal?: string;
   };
 }
 
@@ -60,9 +58,10 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
   const [step, setStep] = useState(0);
   const [region, setRegion] = useState(prefill?.region ?? 'North India');
   const [diet, setDiet] = useState(prefill?.diet ?? 'Veg');
-  const [spiceLevel, setSpiceLevel] = useState(prefill?.spiceLevel ?? 2);
+  const [spiceLevel] = useState(prefill?.spiceLevel ?? 2);
+  const [healthGoal, setHealthGoal] = useState(prefill?.healthGoal ?? 'Balanced');
   const [cookContact, setCookContact] = useState(prefill?.cookContact ?? '');
-  const [plannedSlots, setPlannedSlots] = useState<('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[]>(
+  const [plannedSlots] = useState<('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[]>(
     prefill?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'],
   );
   const [direction, setDirection] = useState(0);
@@ -71,19 +70,11 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
     if (isEditMode && prefill) {
       if (prefill.region) setRegion(prefill.region);
       if (prefill.diet) setDiet(prefill.diet);
-      if (typeof prefill.spiceLevel === 'number') setSpiceLevel(prefill.spiceLevel);
-      if (prefill.plannedSlots) setPlannedSlots(prefill.plannedSlots);
       if (prefill.cookContact !== undefined) setCookContact(prefill.cookContact);
     }
   }, [isEditMode, prefill]);
 
-  const canContinue = step === 1 ? plannedSlots.length > 0 : true;
-
-  const toggleSlot = useCallback((slot: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snacks') => {
-    setPlannedSlots(prev =>
-      prev.includes(slot) ? prev.filter(s => s !== slot) : [...prev, slot],
-    );
-  }, []);
+  const canContinue = step === 0 ? true : step === 1 ? true : step === 2 ? true : step === 3 ? cookContact.trim().length >= 10 : true;
 
   const goNext = useCallback(() => {
     if (step < STEPS.length - 1) {
@@ -104,11 +95,12 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
       region,
       diet,
       spiceLevel,
+      healthGoal,
       cookContact,
       plannedSlots,
       onboardingComplete: true,
     });
-  }, [onComplete, region, diet, spiceLevel, cookContact, plannedSlots]);
+  }, [onComplete, region, diet, spiceLevel, healthGoal, cookContact, plannedSlots]);
 
   const isLastStep = step === STEPS.length - 1;
 
@@ -167,38 +159,11 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
           </div>
         )}
 
-        {/* Step 2: Meal Slots */}
+        {/* Step 2: Diet Preference */}
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
             <div className="mb-6">
               <h2 className="text-2xl font-black tracking-tight text-gray-900">{STEPS[1].title}</h2>
-              <p className="text-sm text-gray-500 mt-1.5">Choose the meals you usually plan for. You can edit anytime later.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              {SLOT_OPTIONS.map(opt => {
-                const active = plannedSlots.includes(opt.label);
-                return (
-                  <button
-                    key={opt.label}
-                    onClick={() => toggleSlot(opt.label)}
-                    className={`p-4 rounded-[22px] border-2 text-left transition-all active:scale-[0.98] ${
-                      active ? 'border-[#FF385C] bg-[#FF385C]/5' : 'border-gray-100 bg-white hover:border-gray-200'
-                    }`}
-                  >
-                    <p className="font-bold text-sm text-gray-900">{opt.icon} {opt.label}</p>
-                    <p className="text-[11px] text-gray-500 mt-1">{opt.note}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Step 3: Diet Preference */}
-        {step === 2 && (
-          <div className="animate-in fade-in slide-in-from-right-2 duration-300">
-            <div className="mb-6">
-              <h2 className="text-2xl font-black tracking-tight text-gray-900">{STEPS[2].title}</h2>
               <p className="text-sm text-gray-500 mt-1.5">Pick what fits your lifestyle.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -218,45 +183,51 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
           </div>
         )}
 
-        {/* Step 4: Spice + Cook Contact */}
-        {step === 3 && (
-          <div className="animate-in fade-in slide-in-from-right-2 duration-300 space-y-7">
-            <div>
-              <div className="mb-5">
-                <h2 className="text-2xl font-black tracking-tight text-gray-900">{STEPS[3].title}</h2>
-                <p className="text-sm text-gray-500 mt-1.5">Set your comfort level.</p>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {SPICE_LEVELS.map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setSpiceLevel(opt.value)}
-                    className={`p-4 rounded-[20px] border-2 text-center transition-all active:scale-[0.98] ${
-                      spiceLevel === opt.value
-                        ? 'border-[#FF385C] bg-[#FF385C] text-white'
-                        : 'border-gray-100 bg-white text-gray-700 hover:border-gray-200'
-                    }`}
-                  >
-                    <p className="text-xl mb-1">{opt.icon}</p>
-                    <p className="font-bold text-sm">{opt.label}</p>
-                  </button>
-                ))}
-              </div>
+        {/* Step 3: Health Goal */}
+        {step === 2 && (
+          <div className="animate-in fade-in slide-in-from-right-2 duration-300">
+            <div className="mb-6">
+              <h2 className="text-2xl font-black tracking-tight text-gray-900">{STEPS[2].title}</h2>
+              <p className="text-sm text-gray-500 mt-1.5">We'll auto-apply this when suggesting dishes. Change anytime.</p>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              {HEALTH_GOALS.map(opt => (
+                <button
+                  key={opt.label}
+                  onClick={() => setHealthGoal(opt.label)}
+                  className={`p-4 rounded-[20px] border-2 text-left transition-all active:scale-[0.98] ${
+                    healthGoal === opt.label ? 'border-[#FF385C] bg-[#FF385C]/5' : 'border-gray-100 bg-white hover:border-gray-200'
+                  }`}
+                >
+                  <p className="font-bold text-sm text-gray-900">{opt.icon} {opt.label}</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5">{opt.note}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
-            <div>
-              <div className="mb-3">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">Cook Contact <span className="font-medium normal-case text-gray-400">(optional)</span></h3>
-                <p className="text-[11px] text-gray-400 mt-1">MealDrama can help share meal plans before the daily:</p>
-              </div>
+        {/* Step 4: Cook Contact */}
+        {step === 3 && (
+          <div className="animate-in fade-in slide-in-from-right-2 duration-300">
+            <div className="mb-6">
+              <h2 className="text-2xl font-black tracking-tight text-gray-900">Cook's WhatsApp Number</h2>
+              <p className="text-sm text-gray-500 mt-1.5">This is where your daily meal plan gets sent. Your cook will receive the full plan — dishes, accompaniments, quantities — every morning.</p>
+            </div>
+            <div className="rounded-[24px] border border-gray-100 bg-gray-50 p-5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">WhatsApp Number</label>
               <input
                 type="tel"
                 value={cookContact}
                 onChange={e => setCookContact(e.target.value)}
                 placeholder="+91 98765 43210"
-                className="w-full bg-gray-50 border border-gray-200 rounded-[20px] px-5 py-4 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-[#FF385C]"
+                className="w-full bg-white border border-gray-200 rounded-[20px] px-5 py-4 text-sm font-bold mt-2 focus:outline-none focus:ring-2 focus:ring-[#FF385C]"
+                autoFocus
               />
-              <p className="text-[11px] text-gray-500 mt-2 italic">"Aaj kya banana hai?" conversation starts.</p>
+              <p className="text-[11px] text-gray-500 mt-3 flex items-center gap-1.5">
+                <MessageCircle size={14} className="text-green-500" />
+                Plan will be shared daily via WhatsApp
+              </p>
             </div>
           </div>
         )}

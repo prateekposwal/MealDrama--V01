@@ -265,10 +265,10 @@ function computeRegionScore(candidate: string, region: string, dish: Meal): { sc
   const centralItems = ['bafla'];
   const northeastItems = ['sticky rice'];
 
-  const isNorth = regionLower.includes('north') || dish.region === 'north';
-  const isSouth = regionLower.includes('south') || dish.region === 'south';
-  const isWest = regionLower.includes('west') || dish.region === 'west';
-  const isEast = regionLower.includes('east') || dish.region === 'east';
+  const isNorth = regionLower === 'north';
+  const isSouth = regionLower === 'south';
+  const isWest = regionLower === 'west';
+  const isEast = regionLower === 'east';
 
   const candidateLower = candidate.toLowerCase();
 

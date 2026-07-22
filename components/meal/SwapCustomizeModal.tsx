@@ -11,6 +11,8 @@ import { resolveDisplayName } from '../../utils/resolveDisplayName';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { scoreDish } from '../../utils/nutritionScore';
+import { DISH_HEALTH_MAP } from '../../app/constants/healthGuidelines';
+import type { DayMeals } from '../../plan/store/useTrayStore';
 import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import {
   indian_meal_categories, categoryGroups, getRecommendedCategories, getDishStyle,
@@ -21,7 +23,10 @@ import {
 import type { IndianMealCategory, DishStyleGroup } from '../../meal/constants/dishStyles';
 import { useStore } from '../../app/store/useStore';
 import { HealthFilterBar } from '../health/HealthFilterBar';
-import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
+import { goalToPreset, normalizeGoal } from '../../utils/healthSortFilter';
+import { getRecentDishes, addRecentDish } from '../../utils/recentDishes';
+import { recordDishAdded } from '../../utils/dishPreferences';
+import { rankDishes, getRegionKey } from '../../utils/dishSearch';
 import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
 import DishImage from '../new/DishImage';
 import { generateMealTitle } from '../../utils/generateMealTitle';
@@ -29,13 +34,6 @@ import { detectEmbeddedCarb, isRotiLike, isBreadLike } from '../../utils/normali
 import {
   X, Search, Sparkles, Check, ChevronLeft, ChevronDown, Plus, Minus, AlertTriangle, Info,
 } from 'lucide-react';
-
-const DIET_FILTER: Record<string, string[]> = {
-  veg: ['veg', 'vegan'],
-  'non-veg': ['veg', 'non-veg', 'eggitarian'],
-  eggitarian: ['veg', 'eggitarian', 'non-veg'],
-  vegan: ['veg', 'vegan'],
-};
 
 const ICON_MAP: Record<string, string> = {
   curry: '🍛', dry: '🥘', tadka: '🫕', gravy: '🍛',
@@ -71,11 +69,11 @@ const ICON_MAP: Record<string, string> = {
   'barfi (milk/coconut)': '🍬', 'modak': '🥟', 'phirni': '🍮',
   'ladoo (besan/motichoor)': '🍬', 'malpua': '🥞', 'kulfi': '🍦', 'ras malai': '🍥',
   // Canonical names from normalizeCategory
-  'roti': '🫓', 'phulka': '🫓', 'rice': '🍚', 'tandoori roti': '🫓',
+  'phulka': '🫓', 'rice': '🍚',
   'rumali roti': '🫓', 'chapati': '🫓', 'plain roti': '🫓', 'tawa roti': '🫓',
   'atta roti': '🫓', 'wheat roti': '🫓', 'tandoori': '🫓',
-  'naan': '🫓', 'tandoori naan': '🫓', 'masala paratha': '🫓',
-  'lacha paratha': '🫓', 'plain paratha': '🫓', 'paratha': '🫓',
+  'tandoori naan': '🫓', 'masala paratha': '🫓',
+  'lacha paratha': '🫓', 'plain paratha': '🫓',
   'millet roti': '🫓', 'corn roti': '🫓', 'oats roti': '🫓',
   'quinoa roti': '🫓', 'rajgira roti': '🫓', 'kuttu roti': '🫓',
   'singhara roti': '🫓', 'other grain roti': '🫓',
@@ -86,16 +84,59 @@ const ICON_MAP: Record<string, string> = {
   // South Indian essentials
   'sambar': '🍲', 'rasam': '🍲', 'curry leaves chutney': '🫘',
   // Curd & Dairy
-  'curd': '🥛', 'dahi': '🥛', 'butter': '🧈', 'ghee': '🧈',
+  'dahi': '🥛', 'ghee': '🧈',
   // Biryani accompaniments
-  'cucumber raita': '🥣', 'boondi raita': '🥣', 'masala raita': '🥣',
   'mirchi ka salan': '🌶️', 'bagara baingan': '🍆',
   // Chaat/street food
   'imli chutney': '🫘', 'green chutney': '🫘',
   'sev': '🍜', 'murukku': '🥨', 'boondi': '🟡',
-  // Soup accompaniments
-  'papad': '🫓',
 };
+
+const ROLE_CHECK: Record<string, { check: (m: TrayItem) => boolean; label: string; emoji: string }> = {
+  protein: {
+    check: (m) => {
+      const n = m.name.toLowerCase();
+      return ['dal', 'paneer', 'chicken', 'egg', 'fish', 'mutton', 'soya', 'tofu', 'sprout'].some(k => n.includes(k))
+        || (m.sides ?? []).some(s => ['dal', 'paneer', 'chicken', 'egg', 'fish', 'soya'].some(k => s.toLowerCase().includes(k)));
+    },
+    label: 'protein', emoji: '🥩',
+  },
+  fiber: {
+    check: (m) => {
+      const n = m.name.toLowerCase();
+      return ['salad', 'raita', 'sabzi', 'bhaji', 'saag', 'leafy', 'green', 'fruit'].some(k => n.includes(k))
+        || (m.sides ?? []).some(s => ['salad', 'raita', 'sabzi', 'bhaji'].some(k => s.toLowerCase().includes(k)));
+    },
+    label: 'fiber / veggies', emoji: '🥗',
+  },
+  dessert: {
+    check: (m) => (m.dessert ?? []).length > 0 || ['halwa', 'kheer', 'gulab', 'jalebi', 'rasgulla', 'ice cream', 'cake', 'mithai'].some(k => m.name.toLowerCase().includes(k)),
+    label: 'dessert', emoji: '🍨',
+  },
+};
+
+function getDayGapTip(
+  dayMeals: DayMeals | undefined,
+  currentType: MealType,
+  healthGoal?: string,
+): { label: string; emoji: string; tip: string } | null {
+  if (!dayMeals) return null;
+  const allItems = Object.entries(dayMeals)
+    .filter(([slot]) => slot !== currentType)
+    .flatMap(([, meals]) => meals);
+  if (allItems.length === 0) return null;
+
+  for (const [role, cfg] of Object.entries(ROLE_CHECK)) {
+    const has = allItems.some(cfg.check);
+    if (!has) {
+      if (normalizeGoal(healthGoal) === 'high-protein' && role === 'protein') {
+        return { ...cfg, tip: `Today needs more ${cfg.label} — pick a protein-rich dish to hit your goal` };
+      }
+      return { ...cfg, tip: `Your day is light on ${cfg.label}` };
+    }
+  }
+  return null;
+}
 
 interface SwapCustomizeModalProps {
   isOpen: boolean;
@@ -175,6 +216,11 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const slotMeals = useTrayStore(
     useShallow((state) => state.plan.days[date]?.[mealType] ?? [])
   );
+  const allDayMeals = useTrayStore(
+    useShallow((state) => state.plan.days[date])
+  );
+  const healthGoal = useStore(s => s.user?.healthGoals?.[0]);
+  const dayGapTip = useMemo(() => getDayGapTip(allDayMeals, mealType, healthGoal), [allDayMeals, mealType, healthGoal]);
   const [dish, setDish] = useState<Dish | null>(null);
   const [meal, setMeal] = useState<Meal | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<Record<IndianMealCategory, string[]>>({
@@ -185,15 +231,24 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const [showSwapSearch, setShowSwapSearch] = useState(initialAddMode);
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
+  const [focusedResultIndex, setFocusedResultIndex] = useState(-1);
+  const resultRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+
   const [showGlobal, setShowGlobal] = useState(false);
   const [showAllSwapResults, setShowAllSwapResults] = useState(false);
-  const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(null);
+  const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(() => {
+    const g = useStore.getState().user?.healthGoals?.[0];
+    return goalToPreset(g);
+  });
   const [healthSort, setHealthSort] = useState<HealthSortKey | null>(null);
   const [selectedSwapDish, setSelectedSwapDish] = useState<Dish | null>(null);
   const selectedSwapDishRef = useRef<Dish | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<DishVariant | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [justAddedDish, setJustAddedDish] = useState<string | null>(null);
+  const [healthDelta, setHealthDelta] = useState<{ currentScore: number; newScore: number; currentName: string; newName: string } | null>(null);
+  const healthDeltaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Async safety: latest-request-wins + modal lifecycle protection ──
@@ -215,16 +270,34 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     if (!dish?.name) return '';
     return resolveDisplayName(dish.name, selectedVariant);
   }, [dish?.name, selectedVariant]);
-  const regionKey = (userRegion ?? '').toLowerCase().replace(' india', '');
+  const regionKey = getRegionKey(userRegion);
   const user = useStore(s => s.user);
   const updateProfile = useStore(s => s.updateProfile);
   const customDishes = useStore(s => s.customDishes);
+
+  // Autocomplete: top 5 quick matches from Trie (instant, no debounce)
+  const autocompleteResults = useMemo(() => {
+    if (!showSwapSearch || !searchQuery || searchQuery.length < 2) return [];
+    const q = searchQuery.toLowerCase();
+    const autoDishes = rankDishes({
+      dishes,
+      slot: mealType,
+      diet: userDiet,
+      regionKey,
+      query: q,
+      showGlobal,
+      customDishes,
+      excludeIds: slotMeals.map((m: { meal_id: string }) => m.meal_id),
+    });
+    return autoDishes.slice(0, 5);
+  }, [showSwapSearch, searchQuery, dishes, customDishes, mealType, userDiet, regionKey, showGlobal, slotMeals]);
   const addCustomDish = useStore(s => s.addCustomDish);
   const allergyMode = user?.allergyMode ?? false;
   const [expandedCategories, setExpandedCategories] = useState<Partial<Record<IndianMealCategory, boolean>>>({});
   const [overrideLimit, setOverrideLimit] = useState(false);
   const [showStylePicker, setShowStylePicker] = useState(false);
   const [addAnotherMode, setAddAnotherMode] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const initRef = useRef<string | null>(null);
   const seededMealRef = useRef<string | null>(null);
   const explicitlyRemovedRef = useRef<Set<string>>(new Set());
@@ -438,6 +511,8 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     }
     if (addAnotherMode) {
       onAddAnother?.(date, mealType, newDish, relevantVariants.length === 1 ? relevantVariants[0] : undefined);
+      addRecentDish(newDish);
+      recordDishAdded(newDish.id, newDish.tags);
       setJustAddedDish(newDish.name);
       setSearchQuery('');
       // Auto-dismiss toast after 1.5s but keep modal open
@@ -471,7 +546,17 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
       setSelectedVariant(null);
     }
     syncNeeded.current = true;
-  }, [addAnotherMode, mealType, userDiet, onAddAnother, date]);
+
+    const newScore = scoreDish(newDish);
+    const curScore = dish ? scoreDish(dish) : 0;
+    if (curScore !== newScore) {
+      setHealthDelta({ currentScore: curScore, currentName: dish?.name ?? '', newScore, newName: newDish.name });
+      if (healthDeltaTimerRef.current) clearTimeout(healthDeltaTimerRef.current);
+      healthDeltaTimerRef.current = setTimeout(() => setHealthDelta(null), 3500);
+    }
+    addRecentDish(newDish);
+    recordDishAdded(newDish.id, newDish.tags);
+  }, [addAnotherMode, mealType, userDiet, onAddAnother, date, dish]);
 
   const handleSwapVariantSelect = useCallback((variant: DishVariant) => {
     const d = selectedSwapDish ?? selectedSwapDishRef.current;
@@ -506,7 +591,15 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
     setSelectedSwapDish(null);
     selectedSwapDishRef.current = null;
     syncNeeded.current = true;
-  }, [addAnotherMode, mealType, selectedSwapDish, onAddAnother, date]);
+
+    const newScore = scoreDish(d);
+    const curScore = dish ? scoreDish(dish) : 0;
+    if (curScore !== newScore) {
+      setHealthDelta({ currentScore: curScore, currentName: dish?.name ?? '', newScore, newName: d.name });
+      if (healthDeltaTimerRef.current) clearTimeout(healthDeltaTimerRef.current);
+      healthDeltaTimerRef.current = setTimeout(() => setHealthDelta(null), 3500);
+    }
+  }, [addAnotherMode, mealType, selectedSwapDish, onAddAnother, date, dish]);
 
   const handleCreateCustomDish = useCallback(() => {
     const name = customDishName.trim();
@@ -684,94 +777,83 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
   const swapSearchDishes = useMemo(() => {
     if (!showSwapSearch) return [];
 
-    const q = debouncedSearchQuery.toLowerCase();
-    const category = mealType;
-    const isVegan = userDiet?.toLowerCase() === 'vegan';
-    const allowedTypes = DIET_FILTER[userDiet?.toLowerCase() || 'veg'] || ['veg'];
+    const slotDishIds = slotMeals.map(m => m.meal_id);
 
-    const dishPool = [...dishes, ...customDishes];
-    const slotDishIds = new Set(slotMeals.map(m => m.meal_id));
-    let filtered = dishPool.filter(d => {
-      if (slotDishIds.has(d.id)) return false;
-      if (!d.category.some(c => c.includes(category))) {
-        if (!q) return false;
-      }
-      if (isVegan && d.type !== 'veg' && d.type !== 'vegan') return false;
-      if (!isVegan && !allowedTypes.includes(d.type)) return false;
-      if (q) {
-        const matchName = d.name.toLowerCase().includes(q);
-        const matchTags = d.tags.some(t => t.toLowerCase().includes(q));
-        const matchVariant = d.variants.some(v => v.name.toLowerCase().includes(q));
-        if (!matchName && !matchTags && !matchVariant) return false;
-      }
-      return true;
+    const results = rankDishes({
+      dishes,
+      slot: mealType,
+      diet: userDiet,
+      regionKey,
+      query: debouncedSearchQuery,
+      showGlobal,
+      healthPreset,
+      healthSort,
+      customDishes,
+      excludeIds: slotDishIds,
     });
 
-    if (healthPreset) {
-      filtered = filterDishesByHealth(filtered, getFilterPreset(healthPreset));
+    // Boost recently used dishes to top
+    if (!debouncedSearchQuery) {
+      const recent = getRecentDishes();
+      if (recent.length > 0) {
+        const recentIds = new Set(recent.map(r => r.id));
+        const boosted: typeof results = [];
+        const rest: typeof results = [];
+        for (const item of results) {
+          if (recentIds.has(item.dish.id)) {
+            boosted.push(item);
+          } else {
+            rest.push(item);
+          }
+        }
+        boosted.sort((a, b) => {
+          const aIdx = recent.findIndex(r => r.id === a.dish.id);
+          const bIdx = recent.findIndex(r => r.id === b.dish.id);
+          return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+        });
+        return [...boosted, ...rest];
+      }
     }
 
-    const scored = filtered.map(d => {
-      let score = 0;
-      if (d.region.toLowerCase().includes(regionKey)) score += 10;
-      if (d.tags.includes('popular') || d.tags.includes('hero')) score += 5;
-      if (d.states.some(s => s.toLowerCase().includes(regionKey))) score += 3;
-      return { dish: d, score, healthScore: scoreDish(d) };
-    });
-
-    if (healthSort) {
-      const sortedIds = sortDishesByHealth(scored.map(s => s.dish), healthSort).map(d => d.id);
-      scored.sort((a, b) => sortedIds.indexOf(a.dish.id) - sortedIds.indexOf(b.dish.id));
-    } else {
-      scored.sort((a, b) => b.score - a.score);
-    }
-
-    const regional = scored.filter(s => s.dish.region.toLowerCase().includes(regionKey));
-    const global_ = scored.filter(s => !s.dish.region.toLowerCase().includes(regionKey));
-    return showGlobal ? [...global_, ...regional] : [...regional, ...global_];
-  }, [showSwapSearch, dishes, customDishes, mealType, userDiet, userRegion, debouncedSearchQuery, showGlobal, healthPreset, healthSort, slotMeals]);
+    return results;
+  }, [showSwapSearch, dishes, customDishes, mealType, userDiet, regionKey, debouncedSearchQuery, showGlobal, healthPreset, healthSort, slotMeals]);
 
   const renderSwapItem = useCallback(({ dish, healthScore }: { dish: Dish; healthScore: number }) => {
-    const isRegional = dish.region.toLowerCase().includes(regionKey);
+    const isRegional = dish.region === 'all' || dish.region === regionKey;
     const hScore = healthScore;
-    const meal = dishToMeal(dish);
-    const defaults = applySmartDefaults(meal, mealType);
-    const previewChips: { key: string; label: string }[] = [];
-    if (defaults.gravy) previewChips.push({ key: 'g', label: defaults.gravy });
-    if (defaults.roti) previewChips.push({ key: 'r', label: defaults.roti });
-    if (defaults.rice) previewChips.push({ key: 'ri', label: defaults.rice });
-    const topChips = previewChips.slice(0, 2);
-    const extraCount = previewChips.length - topChips.length;
+    const meta = DISH_HEALTH_MAP[dish.id];
+    const tags = meta?.tags ?? [];
+    const goodFor: string[] = [];
+    if (hScore >= 8 && tags.includes('high-protein')) goodFor.push('High Protein');
+    if (hScore >= 12 && (tags.includes('fiber') || tags.includes('high-fiber'))) goodFor.push('High Fiber');
+    if (hScore >= 8 && tags.includes('low-calorie')) goodFor.push('Low Cal');
+    if (hScore >= 8 && tags.includes('low-fat')) goodFor.push('Low Fat');
+    if (hScore >= 15) goodFor.push('Light');
 
     return (
       <button
         key={dish.id}
         onClick={() => handleSwapSelect(dish)}
-        className="flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all active:scale-[0.97] bg-white border border-gray-100 hover:border-gray-200 text-center"
+        className="flex items-center gap-3 p-2.5 rounded-2xl transition-all active:scale-[0.97] bg-white border border-gray-100 hover:border-gray-300 hover:shadow-sm"
         aria-label={`Select ${dish.name}`}>
-        <DishImage name={dish.name} slot={mealType} size="sm" />
-        <span className="text-[11px] font-bold leading-tight text-gray-900 line-clamp-2">
-          {dish.name}
-        </span>
-        <div className="flex items-center gap-1">
-          <span className="text-[8px] font-medium text-gray-400 capitalize">{dish.region}</span>
-          <HealthScoreBadge score={hScore} size="sm" />
+        <div className="relative w-14 h-14 shrink-0 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center overflow-hidden border border-gray-50">
+          <DishImage name={dish.name} slot={mealType} size="md" />
+          {isRegional && (
+            <span className="absolute -top-0.5 -right-0.5 text-[6px] font-bold bg-[#FF385C] text-white px-1 rounded-full shadow-sm">L</span>
+          )}
         </div>
-        {topChips.length > 0 && (
-          <div className="flex items-center gap-1 flex-wrap justify-center">
-            {topChips.map(chip => (
-              <span key={chip.key} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-gray-50 border border-gray-200 text-gray-500 text-[8px] font-medium">
-                {chip.label}
-              </span>
-            ))}
-            {extraCount > 0 && (
-              <span className="text-[8px] text-gray-400 font-medium">+{extraCount}</span>
-            )}
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-bold text-gray-900 leading-tight block">
+            {dish.name}
+          </span>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-[9px] font-medium text-gray-400 capitalize">{dish.region}</span>
+            <HealthScoreBadge score={hScore} size="sm" />
           </div>
-        )}
-        {isRegional && (
-          <span className="text-[7px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1 py-0.5 rounded">Local</span>
-        )}
+          {goodFor.length > 0 && (
+            <span className="text-[8px] font-bold text-emerald-600 mt-0.5 block">{goodFor[0]}</span>
+          )}
+        </div>
       </button>
     );
   }, [handleSwapSelect, regionKey, mealType]);
@@ -862,7 +944,26 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
               ) : (
                 <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-100">
                   <Search size={14} className="text-gray-400" />
-                  <input ref={searchInputRef} type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={addAnotherMode ? "Search dishes to add..." : "Search dishes..."} className="bg-transparent text-sm w-full outline-none placeholder:text-gray-400 text-gray-800" aria-label="Search dishes" />
+                  <input ref={searchInputRef} type="text" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setFocusedResultIndex(-1); }} placeholder={addAnotherMode ? "Search dishes to add..." : "Search dishes..."} className="bg-transparent text-sm w-full outline-none placeholder:text-gray-400 text-gray-800" aria-label="Search dishes" aria-expanded={swapSearchDishes.length > 0} aria-controls="search-results" onKeyDown={e => {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      const max = Math.min(swapSearchDishes.length, showAllSwapResults ? swapSearchDishes.length : 40);
+                      setFocusedResultIndex(prev => Math.min(prev + 1, max - 1));
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      setFocusedResultIndex(prev => Math.max(prev - 1, -1));
+                    } else if (e.key === 'Enter' && focusedResultIndex >= 0) {
+                      e.preventDefault();
+                      const item = swapSearchDishes[focusedResultIndex];
+                      if (item) {
+                        const el = document.getElementById(`swap-result-${item.dish.id}`);
+                        el?.click();
+                      }
+                    } else if (e.key === 'Escape') {
+                      setSearchQuery('');
+                      setFocusedResultIndex(-1);
+                    }
+                  }} />
                   {searchQuery && (
                     <button onClick={() => setSearchQuery('')} aria-label="Clear search">
                       <X size={12} className="text-gray-400" />
@@ -1020,6 +1121,29 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                     onPresetChange={setHealthPreset}
                     onSortChange={setHealthSort}
                   />
+                  {/* Household member selector */}
+                  {(() => {
+                    const h = useStore.getState().household;
+                    if (!h || h.members.length <= 1) return null;
+                    return (
+                      <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-gray-100">
+                        <span className="text-[9px] font-bold text-gray-400 mr-1 self-center">For:</span>
+                        {h.members.map(m => (
+                          <button
+                            key={m.id}
+                            onClick={() => setSelectedMemberId(m.id === selectedMemberId ? null : m.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all active:scale-95 ${
+                              selectedMemberId === m.id
+                                ? 'bg-[#FF385C] text-white border-[#FF385C]'
+                                : 'bg-white text-gray-500 border-gray-200 hover:border-[#FF385C]/30'
+                            }`}
+                          >
+                            {m.name}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex items-center justify-between mb-4">
@@ -1032,6 +1156,40 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                     {swapSearchDishes.length} dishes
                   </span>
                 </div>
+
+                {!searchQuery && dayGapTip && (
+                  <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200">
+                    <span className="text-sm shrink-0">{dayGapTip.emoji}</span>
+                    <p className="text-[10px] font-medium text-amber-800 leading-tight">
+                      {dayGapTip.tip}
+                    </p>
+                  </div>
+                )}
+
+                {/* Autocomplete dropdown — instant suggestions while typing */}
+                {autocompleteResults.length > 0 && searchQuery.length >= 2 && debouncedSearchQuery !== searchQuery && (
+                  <div className="mb-2 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden z-20 max-h-[200px] overflow-y-auto">
+                    <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-100 bg-gray-50">
+                      Suggestions
+                    </div>
+                    {autocompleteResults.map((item: { dish: { id: string; name: string; icon?: string; region?: string }; healthScore: number }, idx: number) => (
+                      <button
+                        key={item.dish.id}
+                        onClick={() => {
+                          setSearchQuery(item.dish.name);
+                          setFocusedResultIndex(0);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 active:bg-gray-100 transition-all text-left border-b border-gray-50 last:border-0"
+                      >
+                        <DishImage name={item.dish.name} slot={mealType} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-xs font-bold text-gray-800">{item.dish.name}</span>
+                          <span className="text-[9px] text-gray-400 ml-1.5 capitalize">{item.dish.region}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 {swapSearchDishes.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center p-8">
@@ -1057,15 +1215,17 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                   </div>
                   ) : (
                   <>
-                    <div className="grid grid-cols-2 gap-2 overflow-y-auto flex-1 min-h-0 px-0.5 pb-2 content-start">
-                      {swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 40).map(item => (
-                        renderSwapItem(item)
+                    <div className="grid grid-cols-2 gap-2 overflow-y-auto flex-1 min-h-0 px-0.5 pb-2 content-start" id="search-results" role="listbox" aria-label="Search results">
+                      {swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 80).map((item, idx) => (
+                        <div key={item.dish.id} id={`swap-result-${item.dish.id}`} ref={el => { resultRefs.current[idx] = el as HTMLButtonElement | null; }} role="option" aria-selected={idx === focusedResultIndex} className={idx === focusedResultIndex ? 'ring-2 ring-emerald-400 rounded-2xl' : ''}>
+                        {renderSwapItem(item)}
+                        </div>
                       ))}
                     </div>
-                    {!showAllSwapResults && swapSearchDishes.length > 40 && (
+                    {!showAllSwapResults && swapSearchDishes.length > 80 && (
                       <div className="flex flex-col items-center gap-2 mt-2 shrink-0">
                         <p className="text-[10px] text-center text-gray-400 font-medium">
-                          Showing 40 of {swapSearchDishes.length}
+                          Showing 80 of {swapSearchDishes.length}
                         </p>
                         <button
                           onClick={() => setShowAllSwapResults(true)}
@@ -1107,6 +1267,29 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                       </div>
                     </div>
                   </div>
+
+                  {healthDelta && (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-300 mx-1">
+                      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold ${
+                        healthDelta.newScore > healthDelta.currentScore
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : healthDelta.newScore < healthDelta.currentScore
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          : 'bg-gray-50 text-gray-500 border border-gray-200'
+                      }`}>
+                        <span className="truncate">{healthDelta.currentName}</span>
+                        <span className="text-gray-400 shrink-0">{healthDelta.currentScore}</span>
+                        <span className="text-gray-300 shrink-0">→</span>
+                        <span className="truncate">{healthDelta.newName}</span>
+                        <span className="shrink-0">{healthDelta.newScore}</span>
+                        <span className="shrink-0 ml-auto">
+                          {healthDelta.newScore > healthDelta.currentScore ? '✨ Healthier' :
+                           healthDelta.newScore < healthDelta.currentScore ? '⬇️ Less healthy' :
+                           '— Same'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* ─── Quantity ─── */}
                   <div className="flex items-center gap-2 mt-3">
@@ -1327,7 +1510,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                                             const nutWarning = isNutItem(opt);
                                             const blocked = allergyMode && nutWarning && !active;
                                             const itemRegion = getItemRegion(opt);
-                                            const regionMismatch = itemRegion && dishRegion && !dishRegion.toLowerCase().includes(itemRegion);
+                                            const regionMismatch = itemRegion && dishRegion && dishRegion !== itemRegion;
                                             return (
                                               <div key={opt} className="relative">
                                                 <button
@@ -1374,7 +1557,7 @@ export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(
                                     const nutWarning = isNutItem(opt);
                                     const blocked = allergyMode && nutWarning && !active;
                                     const itemRegion = getItemRegion(opt);
-                                    const regionMismatch = itemRegion && dishRegion && !dishRegion.toLowerCase().includes(itemRegion);
+                                    const regionMismatch = itemRegion && dishRegion && dishRegion !== itemRegion;
 
                                     return (
                                       <div key={opt} className="relative">

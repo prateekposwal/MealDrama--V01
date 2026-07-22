@@ -2,7 +2,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --primary: #FF385C; /* Airbnb-like red */
+  /* Brand */
+  --md-primary: #FF385C;
+  --md-primary-dark: #d91a4a;
+  --md-primary-light: #FF6B81;
+  --md-primary-bg: #FFF0F3;
+  --md-whatsapp: #25D366;
+  
+  /* Warm neutrals */
+  --md-bg: #FEFBF7;
+  --md-surface: #FFFFFF;
+  --md-surface-secondary: #F8F5F0;
+  --md-border: #EDE8E0;
+  --md-text-primary: #2C2416;
+  --md-text-secondary: #8B7D6B;
+  --md-text-tertiary: #BFB5A8;
+  
+  /* Legacy (keep for backward compat) */
+  --primary: #FF385C;
   --bg-primary: #FFFFFF;
   --bg-secondary: #F7F7F7;
   --text-primary: #222222;

@@ -39,9 +39,18 @@ export function applySmartDefaults(
   // ─── PRIORITY 1: Explicit defaultPairings from dishToMeal ─────
   if (meal.defaultPairings) {
     const dp = meal.defaultPairings;
-    const sides = dp.sides ?? [];
-    const beverages = dp.beverages ?? [];
+    let sides = dp.sides ?? [];
+    let beverages = dp.beverages ?? [];
     const dessert = dp.dessert ?? [];
+
+    // ─── DEDUPLICATE: Collapse aliases within each category ──
+    sides = deduplicateSides(sides);
+    beverages = deduplicateSides(beverages);
+
+    // ─── CROSS-CATEGORY: If a side normalizes to the same as a beverage (e.g. Chaas→Buttermilk), remove from sides ──
+    const bevNormals = new Set(beverages.map(normalizeCategory));
+    sides = sides.filter(s => !bevNormals.has(normalizeCategory(s)));
+
     // ─── GUARDRAIL: Seed carb from meal options when not in explicit defaults ──
     // 1. Only for lunch/dinner dishes (meal.rotiOptions/riceOptions are set)
     // 2. Never override explicitly set dp.roti/dp.rice
@@ -127,7 +136,7 @@ export function applySmartDefaults(
           central: ['Salad', 'Pickle'],
           northeast: ['Salad', 'Pickle'],
         };
-        sides = (regionSides[region] ?? regionSides.north).slice(0, 2);
+        sides = (regionSides[region] ?? regionSides.north!).slice(0, 2);
       }
       const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
       let bestBev = pickBestBeverage(allBevs);
@@ -177,7 +186,7 @@ export function applySmartDefaults(
           return !['naan', 'butter naan', 'garlic naan', 'tandoori naan', 'biryani', 'fried rice', 'pulao'].some(hc => lower.includes(hc));
         });
         if (lightCarbs.length > 0) {
-          const bestLight = pickBestCarb(lightCarbs, region);
+          const bestLight = pickBestCarb(lightCarbs, region) ?? lightCarbs[0]!;
           if (isRotiLike(bestLight) || isBreadLike(bestLight)) {
             roti = bestLight;
           } else {
@@ -194,7 +203,7 @@ export function applySmartDefaults(
           return ['paratha', 'idli', 'dosa', 'poha', 'upma', 'puttu', 'appam', 'pongal'].some(lc => lower.includes(lc));
         });
         if (lightCarbs.length > 0) {
-          const bestLight = pickBestCarb(lightCarbs, region);
+          const bestLight = pickBestCarb(lightCarbs, region) ?? lightCarbs[0]!;
           if (isRotiLike(bestLight) || isBreadLike(bestLight)) {
             roti = bestLight;
           } else {
@@ -222,9 +231,9 @@ export function applySmartDefaults(
           }
         } else if (ROTI_REGIONS.has(region)) {
           // Fallback: North gets roti, others get rice
-          roti = explicitRoti ? normalizeCategory(meal.rotiOptions![0]) : 'Wheat Roti';
+          roti = explicitRoti ? normalizeCategory(meal.rotiOptions![0]!) : 'Wheat Roti';
         } else {
-          rice = explicitRice ? normalizeCategory(meal.riceOptions![0]) : 'Rice';
+          rice = explicitRice ? normalizeCategory(meal.riceOptions![0]!) : 'Rice';
         }
       }
     }
@@ -339,7 +348,7 @@ export function applySmartDefaults(
         central: ['Salad', 'Pickle'],
         northeast: ['Salad', 'Pickle'],
       };
-      sides = (regionSides[region] ?? regionSides.north).slice(0, 2);
+      sides = (regionSides[region] ?? regionSides.north!).slice(0, 2);
     }
 
     // Pick best beverage, normalize

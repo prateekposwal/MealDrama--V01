@@ -9,8 +9,8 @@ export function memoize<T extends (arg: string) => R, R>(fn: T, maxSize = 100): 
     if (cache.has(arg)) return cache.get(arg)!;
     const result = fn(arg);
     if (cache.size >= maxSize) {
-      const firstKey = cache.keys().next().value;
-      cache.delete(firstKey);
+      const firstKey = cache.keys().next().value as string | undefined;
+      if (firstKey) cache.delete(firstKey);
     }
     cache.set(arg, result);
     return result;
@@ -25,8 +25,8 @@ export function memoizeMulti<T extends (...args: string[]) => R, R>(fn: T, maxSi
     if (cache.has(key)) return cache.get(key)!;
     const result = fn(...args);
     if (cache.size >= maxSize) {
-      const firstKey = cache.keys().next().value;
-      cache.delete(firstKey);
+      const firstKey = cache.keys().next().value as string | undefined;
+      if (firstKey) cache.delete(firstKey);
     }
     cache.set(key, result);
     return result;

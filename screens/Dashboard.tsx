@@ -17,13 +17,14 @@ import WhatsAppShareModal from '../components/new/WhatsAppShareModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../hooks/useBackButtonClose';
-import { MapPin, Flame, ChevronRight, Plus, X, Info, CheckCircle2, Heart, Phone, MessageCircle, RefreshCw, ArrowRight } from 'lucide-react';
+import DishImage from '../components/new/DishImage';
+import NotificationCenter from '../components/notification/NotificationCenter';
+import { MapPin, ChevronRight, Plus, X, Info, CheckCircle2, ArrowRight } from 'lucide-react';
 import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import { HealthTipsPanel } from '../components/health/HealthTipsPanel';
 import { PlateBalanceVisualizer } from '../components/health/PlateBalanceVisualizer';
 import { scorePlateBalance } from '../utils/nutritionScore';
 import { DISH_HEALTH_MAP, COMPONENT_HEALTH_MAP } from '../app/constants/healthGuidelines';
-import { ServingsBreakdown } from '../components/meal/ServingsBreakdown';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
@@ -248,18 +249,18 @@ const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
   const styleWarnings = computeStyleWarnings(slotMeals.map(m => ({ mealId: m.meal_id, name: m.name })));
 
   return (
-    <div key={slot.key} className={`border-l-2 pl-3 ${sectionColors[section]}`}>
+    <div key={slot.key} id={`slot-${mealType}`} className={`rounded-xl px-3 py-2 ${sectionColors[section]}`}>
       <LoopAutoFillSlot date={today} mealType={mealType} />
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">
+        <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">
           {slot.label}
         </span>
-        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
           section === 'active'
             ? 'bg-[#FF385C]/10 text-[#FF385C]'
             : section === 'upcoming'
               ? 'bg-gray-100 text-gray-500'
-              : 'bg-gray-100 text-gray-400'
+              : 'bg-gray-100 text-gray-500'
         }`}>
           {sectionLabels[section]}
         </span>
@@ -376,10 +377,10 @@ interface DashboardProps {
 const getTodayISO = getISODate;
 
 const SECTION_COLORS: Record<string, string> = {
-  active: 'border-l-[#FF385C]',
-  upcoming: 'border-l-gray-300',
-  completed: 'border-l-gray-200',
-  skipped: 'border-l-amber-300',
+  active: 'bg-[#FF385C]/5 border border-[#FF385C]/20',
+  upcoming: 'bg-gray-50 border border-gray-100',
+  completed: 'bg-emerald-50 border border-emerald-100',
+  skipped: 'bg-amber-50 border border-amber-100',
 };
 const SECTION_LABELS: Record<string, string> = {
   active: 'Now',
@@ -458,8 +459,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     useBackButtonClose(showSlotPicker, () => setShowSlotPicker(false));
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addDishSlot, setAddDishSlot] = useState<MealType>('breakfast');
-    const [editingCookContact, setEditingCookContact] = useState(false);
-    const [cookContactInput, setCookContactInput] = useState('');
+    const [pendingDish, setPendingDish] = useState<Dish | null>(null);
 
     const ADD_DISH_DUMMY = useMemo<TrayItem>(() => ({
         id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
@@ -471,16 +471,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const currentSlotMeals = useTrayStore(s => s.plan.days[today]?.[quickAddSlot.toLowerCase() as MealType]);
     const todayMealData = useTrayStore(s => s.plan.days[today]);
     const selectedDishIds = useMemo(() => currentSlotMeals?.map(item => item.meal_id) ?? [], [currentSlotMeals]);
-    const [showGuide, setShowGuide] = useState(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('mealdrama_guide_dismissed') !== 'true';
-        }
-        return true;
-    });
-    const dismissGuide = useCallback(() => {
-        localStorage.setItem('mealdrama_guide_dismissed', 'true');
-        setShowGuide(false);
-    }, []);
     const [shareType, setShareType] = useState<'prep' | 'pantry' | null>(null);
     const [sharePreselectSlot, setSharePreselectSlot] = useState<string | null>(null);
     const onShareSlotAction = useCallback((mealType: MealType) => {
@@ -770,6 +760,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const displayCompletedSlots = useMemo(() => categorizedSlots.filter(s => s.section === 'completed' || s.section === 'skipped'), [categorizedSlots]);
 
     const [healthExpanded, setHealthExpanded] = useState(false);
+    const [showCompleted, setShowCompleted] = useState(true);
 
     // H11: plateScore only depends on meal content, not slot timing.
     // We derive slot lists directly from getMeals to avoid recomputing
@@ -946,7 +937,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
     return (
         <PullToRefresh onRefresh={() => useTrayStore.getState().syncOfflineQueue()}>
-        <div className="pb-40 animate-in fade-in duration-300 bg-white">
+        <div className="pb-40 animate-in fade-in duration-300 bg-white ">
             <style>{`
         .card-section-enter {
           animation: fadeInUp 0.45s ease-out both;
@@ -1009,209 +1000,255 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         }
       `}</style>
             {/* Header */}
-            <header className="flex justify-between items-end px-6 pt-4 pb-2">
-                <div>
-                    <span className="text-2xl font-black tracking-tight leading-none">
+            <header className="flex justify-between items-end px-4 pt-4 pb-2">
+                <div className="min-w-0 flex-1">
+                    <span className="text-xl sm:text-2xl font-bold sm:font-black tracking-tight leading-none" style={{ WebkitFontSmoothing: 'antialiased' }}>
                         Meal<span className="text-[#FF385C]">Drama</span>
                     </span>
-                    <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest mt-1.5 mb-1 text-gray-400">
-                        <MapPin size={11} className="text-[#FF385C]" />
-                        <span>{user?.region}</span>
-                    </div>
-                    <h2 className="text-[1.7rem] font-extrabold tracking-tight">
-                        {new Date().getHours() < 8 ? 'Up before the cook? 👀' : "What's Cooking?"}
+                    <h2 className="text-xl sm:text-[1.5rem] lg:text-[1.7rem] font-bold sm:font-extrabold tracking-tight whitespace-nowrap overflow-hidden text-ellipsis mt-1" style={{ WebkitFontSmoothing: 'antialiased' }}>
+                        {new Date().getHours() < 8 ? "Up before the cook? 👀" : "Today's spread"}
                     </h2>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold border px-3 py-1.5 rounded-full flex items-center gap-1 bg-orange-50 text-orange-500 border-orange-100">
-                        <Flame size={11} fill="currentColor" />
-                        {spiceLabel}
-                    </span>
                     <button
-                        onClick={() => onNavigate?.('profile')}
-                        className="w-10 h-10 rounded-2xl shadow border flex items-center justify-center active:scale-95 transition-all bg-white border-gray-100 overflow-hidden"
-                        aria-label="Open profile settings"
+                        onClick={() => {
+                            const levels: ('mild' | 'medium' | 'hot')[] = ['mild', 'medium', 'hot'];
+                            const current = user?.spiceLevel || 'medium';
+                            const idx = levels.indexOf(current);
+                            const next = levels[(idx + 1) % levels.length];
+                            updateProfile({ spiceLevel: next });
+                        }}
+                        className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-orange-50 text-orange-500 border-orange-100 active:scale-95 transition-all"
                     >
-                        {user?.avatarUrl ? (
-                            <img src={user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
-                        ) : (
-                            <img src="/logo.png" alt="Profile" className="w-full h-full object-cover" />
-                        )}
+                        {spiceLabel}
                     </button>
+                    <NotificationCenter />
                 </div>
             </header>
 
             {/* Guide */}
-            {showGuide && (
-                <div className="mx-6 mt-4 p-4 border rounded-[20px] flex items-start gap-3 bg-[#FF385C]/5 border-[#FF385C]/15">
-                    <Info size={16} className="text-[#FF385C] mt-0.5 flex-shrink-0" />
-                    <div className="flex-1">
-                        <p className="text-xs font-bold mb-1 text-gray-800">2-Tap Swap™ 101</p>
-                        <p className="text-[11px] leading-relaxed text-gray-500">
-                            Swap dishes, add dishes, or adjust your meal flavour flow anytime. Changes save automatically.
-                        </p>
-                    </div>
-                    <button onClick={dismissGuide} aria-label="Dismiss guide"><X size={14} className="text-gray-400" /></button>
-                </div>
-            )}
-
-            {/* Loop config CTA — UPDATED: now points to Profile → Plan Settings instead of Tray screen */}
+            {/* Loop config inline tip */}
             {!loopConfigured && displayActiveUpcomingSlots.length > 0 && (
-              <div className="mx-6 mt-4 p-4 rounded-[20px] border-2 border-amber-200 bg-amber-50">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                    <RefreshCw size={18} className="text-amber-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-black text-amber-800">Future days are empty</p>
-                    <p className="text-[11px] text-amber-700 leading-tight mt-0.5">Set up a meal loop in Profile → Plan Settings to auto-fill upcoming days</p>
-                  </div>
-                  <button
-                    onClick={() => onNavigate?.('profile')}
-                    className="shrink-0 px-4 py-2 rounded-xl bg-amber-600 text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all flex items-center gap-1"
-                    aria-label="Go to Profile to configure meal loop"
-                  >
-                    Go <ArrowRight size={12} />
-                  </button>
-                </div>
+              <div className="mx-6 mt-2">
+                <p className="text-[10px] text-amber-600">
+                  Set up a meal loop in Profile to auto-fill upcoming days
+                </p>
               </div>
             )}
 
-            {/* Health Insights */}
-            <div className="mx-6 mt-4">
-                <button
-                    onClick={() => setHealthExpanded(!healthExpanded)}
-                    className="w-full flex items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-100 active:scale-[0.99] transition-all"
-                    aria-label="Toggle health insights"
-                    aria-expanded={healthExpanded}
-                >
-                    <div className="flex items-center gap-2">
-                        <Heart size={14} className="text-emerald-500" />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Health Insights</span>
+            {/* ─── Suggested local dishes — horizontal scroll ─── */}
+            {dishes.length > 0 && (
+                <div className="px-4 mt-6">
+                    <div className="flex items-center gap-2 mb-4">
+                        <p className="text-xs font-black uppercase tracking-widest text-gray-500">
+                            {displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length > 0 ? 'Build tomorrow\u2019s meals' : 'Try these'}
+                        </p>
+                        <span className="text-[10px] font-bold text-gray-500">{regionKey} · {userDiet}</span>
                     </div>
-                    <ChevronRight size={14} className={`text-emerald-400 transition-transform ${healthExpanded ? 'rotate-90' : ''}`} />
-                </button>
-                {healthExpanded && (
-                    <div className="mt-3 space-y-3">
-                        {displaySlots.some(({ slot }) => getMealsCapped(today, slot.mealType).length > 0) ? (
-                            <PlateBalanceVisualizer score={plateScore} diet={userDiet} />
-                        ) : (
-                            <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100 text-center">
-                                <p className="text-xs text-gray-500">Add meals to see your meal balance</p>
-                            </div>
-                        )}
-                        <HealthTipsPanel maxTips={2} compact />
+                    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                        {dishes
+                            .filter(d => {
+                                const regionMatch = !d.region || d.region === 'all' || regionKey.includes(d.region);
+                                const dietMatch = !d.diet || d.diet === 'all' || (
+                                  userDiet === 'veg'
+                                    ? (d.diet === 'veg' || d.diet === 'vegan')
+                                    : d.diet !== 'vegan'
+                                );
+                                return regionMatch && dietMatch;
+                            })
+                            .sort((a, b) => {
+                                const slotOrder: Record<string, number> = { breakfast: 0, lunch: 1, snacks: 2, dinner: 3 };
+                                const aSlot = Math.min(...(a.category || []).map(c => slotOrder[c.toLowerCase()] ?? 4));
+                                const bSlot = Math.min(...(b.category || []).map(c => slotOrder[c.toLowerCase()] ?? 4));
+                                return aSlot - bSlot || Math.random() - 0.5;
+                            })
+                            .slice(0, 8)
+                            .map(d => (
+                                <button
+                                    key={d.id}
+                                    onClick={() => {
+                                        setPendingDish(d);
+                                        setShowSlotPicker(true);
+                                    }}
+                                    className="flex flex-col items-center gap-1.5 flex-shrink-0 active:scale-95 transition-all"
+                                >
+                                    <div className="relative w-16 h-16 rounded-full overflow-hidden border-2 border-gray-100 shadow-sm bg-gray-50">
+                                        <DishImage name={d.name} size="full" className="w-full h-full object-cover" />
+                                        <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-all flex items-center justify-center">
+                                            <Plus size={16} className="text-white opacity-0 hover:opacity-100 transition-opacity drop-shadow" />
+                                        </div>
+                                    </div>
+                                    <p className="text-[11px] font-bold text-gray-800 leading-tight max-w-[72px] text-center truncate">{d.name}</p>
+                                    <span className="text-[10px] font-bold text-[#FF385C] uppercase tracking-wider">+ Add</span>
+                                </button>
+                            ))
+                        }
                     </div>
-                )}
-            </div>
-
-            {/* Quick Actions */}
-            <div className="px-6 mt-6 grid grid-cols-2 gap-2.5">
-                <button
-                    onClick={() => onNavigate?.('plan')}
-                    className="p-4 rounded-[24px] bg-gray-900 text-white flex items-center gap-2 active:scale-95 transition-all"
-                    aria-label="Open weekly meal plan"
-                >
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black uppercase tracking-widest opacity-50 mb-0.5">Weekly</p>
-                        <p className="text-[13px] font-bold whitespace-nowrap">Let's Cook</p>
-                    </div>
-                    <ChevronRight size={16} className="opacity-50 shrink-0" />
-                </button>
-                <button
-                    onClick={() => onNavigate?.('pulse')}
-                    className="p-4 rounded-[24px] bg-[#FF385C] text-white flex items-center gap-2 active:scale-95 transition-all"
-                    aria-label="Open pantry pulse"
-                >
-                    <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-0.5">Pantry</p>
-                        <p className="text-[13px] font-bold whitespace-nowrap">What's Needed</p>
-                    </div>
-                    <ChevronRight size={16} className="opacity-70 shrink-0" />
-                </button>
-            </div>
+                </div>
+            )}
 
             {/* ─── TODAY'S MEALS — Day-wise view with all slots ─── */}
-            <div className="px-6 mt-6">
-                <div className="flex items-center gap-2 mb-3">
-                    <div className="text-base" aria-hidden="true">📅</div>
-                    <p className="text-[11px] font-black uppercase tracking-widest text-gray-900">
-                        Today's Meals
-                    </p>
-                    <span className="text-[11px] font-bold text-gray-600 ml-auto">
+            <div className="px-4 mt-4">
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                        {displaySlots.some(({ slot }) => getMealsCapped(today, slot.mealType).length > 0) && (
+                            <button onClick={() => setHealthExpanded(!healthExpanded)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100 active:scale-95 transition-all"
+                            >
+                                <span className="text-xs leading-none">{plateScore.total / (plateScore.max || 1) > 0.7 ? '🌿' : plateScore.total / (plateScore.max || 1) > 0.4 ? '🌱' : '🔥'}</span>
+                                <span className="text-[10px] font-bold text-emerald-700">
+                                    {(() => {
+                                        const pct = Math.round((plateScore.total / (plateScore.max || 30)) * 100);
+                                        const label = pct >= 70 ? 'Great' : pct >= 40 ? 'Okay' : 'Needs work';
+                                        return `${pct}% · ${label}`;
+                                    })()}
+                                </span>
+                            </button>
+                        )}
+                    </div>
+                    <span className="text-[11px] font-bold text-gray-500">
                         {new Date(today).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                     </span>
                 </div>
 
-                {/* ─── TODAY'S ACTIVE & UPCOMING ─── */}
-                {displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length === 0 ? (
-                    <div className="py-8 text-center">
-                        <div className="text-4xl mb-2">🎉</div>
-                        <p className="text-sm font-bold text-gray-800">All done for today!</p>
-                        <p className="text-xs text-gray-500 mt-1">Add meals to get started</p>
-                    </div>
-                ) : (
-                    <>
-                        <div className="space-y-5">
-                            {displayActiveUpcomingSlots.map(({ section, slot }) => (
-                                <DashboardSlotSection
-                                    key={slot.key}
-                                    date={today}
-                                    mealType={slot.mealType}
-                                    slot={slot}
-                                    section={section}
-                                    sectionColors={SECTION_COLORS}
-                                    sectionLabels={SECTION_LABELS}
-                                    onOpenSearchAction={openSearchAction}
-                                    onCompleteAction={handleCompleteSlot}
-                                    onUndoCompleteAction={handleUndoComplete}
-                                    onSkipSlotAction={handleSkipSlot}
-                                    onUndoSkipAction={handleUndoSkip}
-                                    onShareSlotAction={onShareSlotAction}
-                                    swapOpenKey={swapOpenKey}
-                                    stableSwapOpen={stableSwapOpen}
-                                    stableSwapClose={stableSwapClose}
-                                    handleSwapSelect={handleSwapSelect}
-                                    handleUpdateInline={handleUpdateInline}
-                                    handleRemove={handleRemove}
-                                    handleSuggestionAdd={handleSuggestionAdd}
-                                    swapCustomizeOpenKey={swapCustomizeOpenKey}
-                                    stableSwapCustomizeOpen={stableSwapCustomizeOpen}
-                                    stableSwapCustomizeClose={stableSwapCustomizeClose}
-                                    handleSwapCustomizeApply={handleSwapCustomizeApply}
-                                    handleAddAnother={handleAddAnother}
-                                    preferences={preferences}
-                                    today={today}
-                                    dishes={dishes}
-                                    user={user}
-                                    pantryStaples={pantryStaples}
-                                    stableGuestMode={stableGuestMode}
-                                    completions={completions}
-                                    skipped={skipped}
-                                    undoSlot={undoSlot}
-                                    handleCompleteSlot={handleCompleteSlot}
-                                    handleUndoComplete={handleUndoComplete}
-                                    handleSkipSlot={handleSkipSlot}
-                                    handleUndoSkip={handleUndoSkip}
-                                />
-                            ))}
-                        </div>
-
-                        {/* ─── TODAY'S HISTORY (Completed & Skipped) ─── */}
-                        {displayCompletedSlots.length > 0 && (
-                            <div className="space-y-5 mt-5">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <div className="text-base" aria-hidden="true">📋</div>
-                                    <p className="text-[11px] font-black uppercase tracking-widest text-gray-500">
-                                        Today's History
-                                    </p>
-                                    <span className="text-[11px] font-bold text-gray-400 ml-auto">
-                                        {displayCompletedSlots.length} slot{displayCompletedSlots.length > 1 ? 's' : ''}
+                {/* ─── TODAY'S SLOTS ─── */}
+                {(() => {
+                    if (displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length === 0) {
+                        return (
+                            <div className="py-8 text-center">
+                                <div className="text-4xl mb-2">🎉</div>
+                                <p className="text-sm font-bold text-gray-800">All done for today!</p>
+                                <p className="text-xs text-gray-500 mt-1">Add meals to get started</p>
+                            </div>
+                        );
+                    }
+                    if (displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length > 0) {
+                        const tomorrow = getISODate(new Date(new Date(today).getTime() + 86400000));
+                        const tomorrowSlots = ACTIVE_SLOTS
+                            .filter(s => getMealsCapped(tomorrow, s.mealType).length > 0)
+                            .map(s => ({ section: 'upcoming' as const, slot: s }));
+                        return (
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-bold text-gray-900">Tomorrow</span>
+                                    <span className="text-[10px] text-gray-500">
+                                        {new Date(tomorrow).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                                     </span>
                                 </div>
-                                {displayCompletedSlots.map(({ section, slot }) => (
+                                {tomorrowSlots.length > 0 ? (
+                                    <div className="space-y-4">
+                                        {tomorrowSlots.map(({ section, slot }) => (
+                                            <DashboardSlotSection
+                                                key={slot.key}
+                                                date={tomorrow}
+                                                mealType={slot.mealType}
+                                                slot={slot}
+                                                section={section}
+                                                sectionColors={SECTION_COLORS}
+                                                sectionLabels={SECTION_LABELS}
+                                                onOpenSearchAction={openSearchAction}
+                                                onCompleteAction={handleCompleteSlot}
+                                                onUndoCompleteAction={handleUndoComplete}
+                                                onSkipSlotAction={handleSkipSlot}
+                                                onUndoSkipAction={handleUndoSkip}
+                                                onShareSlotAction={onShareSlotAction}
+                                                swapOpenKey={swapOpenKey}
+                                                stableSwapOpen={stableSwapOpen}
+                                                stableSwapClose={stableSwapClose}
+                                                handleSwapSelect={handleSwapSelect}
+                                                handleUpdateInline={handleUpdateInline}
+                                                handleRemove={handleRemove}
+                                                handleSuggestionAdd={handleSuggestionAdd}
+                                                swapCustomizeOpenKey={swapCustomizeOpenKey}
+                                                stableSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                                stableSwapCustomizeClose={stableSwapCustomizeClose}
+                                                handleSwapCustomizeApply={handleSwapCustomizeApply}
+                                                handleAddAnother={handleAddAnother}
+                                                preferences={preferences}
+                                                today={today}
+                                                dishes={dishes}
+                                                user={user}
+                                                pantryStaples={pantryStaples}
+                                                stableGuestMode={stableGuestMode}
+                                                completions={completions}
+                                                skipped={skipped}
+                                                undoSlot={undoSlot}
+                                                handleCompleteSlot={handleCompleteSlot}
+                                                handleUndoComplete={handleUndoComplete}
+                                                handleSkipSlot={handleSkipSlot}
+                                                handleUndoSkip={handleUndoSkip}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="py-6 text-center bg-gray-50 rounded-2xl border border-gray-100">
+                                        <p className="text-sm font-bold text-gray-700">No meals planned for tomorrow</p>
+                                        <p className="text-xs text-gray-500 mt-1">Add dishes to get started</p>
+                                    </div>
+                                )}
+                                {/* Today's history — collapsed */}
+                                <button
+                                    onClick={() => setShowCompleted(!showCompleted)}
+                                    className="flex items-center gap-2 text-[11px] font-bold text-gray-500 active:opacity-70 transition-opacity"
+                                >
+                                    <ChevronRight size={12} className={`transition-transform duration-200 ${showCompleted ? 'rotate-90' : ''}`} />
+                                    {displayCompletedSlots.length} slot{displayCompletedSlots.length > 1 ? 's' : ''} completed today
+                                </button>
+                                {showCompleted && (
+                                    <div className="space-y-3">
+                                        {displayCompletedSlots.map(({ section, slot }) => (
+                                            <DashboardSlotSection
+                                                key={`hist-${slot.key}`}
+                                                date={today}
+                                                mealType={slot.mealType}
+                                                slot={slot}
+                                                section={section}
+                                                sectionColors={SECTION_COLORS}
+                                                sectionLabels={SECTION_LABELS}
+                                                onOpenSearchAction={openSearchAction}
+                                                onCompleteAction={handleCompleteSlot}
+                                                onUndoCompleteAction={handleUndoComplete}
+                                                onSkipSlotAction={handleSkipSlot}
+                                                onUndoSkipAction={handleUndoSkip}
+                                                onShareSlotAction={onShareSlotAction}
+                                                swapOpenKey={swapOpenKey}
+                                                stableSwapOpen={stableSwapOpen}
+                                                stableSwapClose={stableSwapClose}
+                                                handleSwapSelect={handleSwapSelect}
+                                                handleUpdateInline={handleUpdateInline}
+                                                handleRemove={handleRemove}
+                                                handleSuggestionAdd={handleSuggestionAdd}
+                                                swapCustomizeOpenKey={swapCustomizeOpenKey}
+                                                stableSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                                stableSwapCustomizeClose={stableSwapCustomizeClose}
+                                                handleSwapCustomizeApply={handleSwapCustomizeApply}
+                                                handleAddAnother={handleAddAnother}
+                                                preferences={preferences}
+                                                today={today}
+                                                dishes={dishes}
+                                                user={user}
+                                                pantryStaples={pantryStaples}
+                                                stableGuestMode={stableGuestMode}
+                                                completions={completions}
+                                                skipped={skipped}
+                                                undoSlot={undoSlot}
+                                                handleCompleteSlot={handleCompleteSlot}
+                                                handleUndoComplete={handleUndoComplete}
+                                                handleSkipSlot={handleSkipSlot}
+                                                handleUndoSkip={handleUndoSkip}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }
+                    return (
+                        <>
+                            <div className="space-y-5">
+                                {displayActiveUpcomingSlots.map(({ section, slot }) => (
                                     <DashboardSlotSection
-                                        key={`hist-${slot.key}`}
+                                        key={slot.key}
                                         date={today}
                                         mealType={slot.mealType}
                                         slot={slot}
@@ -1252,101 +1289,71 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     />
                                 ))}
                             </div>
-                        )}
-                    </>
-                )}
 
-                {/* All-day servings breakdown */}
-                <div className="mt-4">
-                    <ServingsBreakdown
-                        items={displaySlots.flatMap(({ slot }) => getMealsCapped(today, slot.mealType))}
-                        title="Today's Serving Load"
-                    />
-                </div>
-            </div>
-
-            {/* ─── COOK SHARE ─── */}
-            <div className="px-6 mt-8">
-                <div className="p-4 rounded-[24px] border border-gray-100 bg-gray-50 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 bg-green-500 rounded-full flex items-center justify-center">
-                            <Phone size={16} fill="white" className="text-white" />
-                        </div>
-                        <div>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-gray-400">Cook</p>
-                            {editingCookContact ? (
-                                <div className="flex items-center gap-2 mt-0.5">
-                                    <input
-                                        type="tel"
-                                        value={cookContactInput}
-                                        onChange={(e) => setCookContactInput(e.target.value)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                const trimmed = cookContactInput.trim();
-                                                if (trimmed) {
-                                                    updateProfile({ cookContact: trimmed });
-                                                    setToast({ message: 'Cook number saved!', type: 'success' });
-                                                }
-                                                setEditingCookContact(false);
-                                            }
-                                            if (e.key === 'Escape') setEditingCookContact(false);
-                                        }}
-                                        className="text-sm font-bold text-gray-800 bg-white border border-gray-200 rounded-lg px-2 py-0.5 w-32 focus:outline-none focus:border-[#FF385C]"
-                                        placeholder="Enter number"
-                                        autoFocus
-                                    />
+                            {/* ─── TODAY'S HISTORY (Completed & Skipped) ─── */}
+                            {displayCompletedSlots.length > 0 && (
+                                <div className="space-y-5 mt-5">
                                     <button
-                                        onClick={() => {
-                                            const trimmed = cookContactInput.trim();
-                                            if (trimmed) {
-                                                updateProfile({ cookContact: trimmed });
-                                                setToast({ message: 'Cook number saved!', type: 'success' });
-                                            }
-                                            setEditingCookContact(false);
-                                        }}
-                                        className="text-[10px] font-bold text-[#FF385C] px-2 py-0.5 rounded-lg bg-[#FF385C]/10 active:scale-95"
+                                        onClick={() => setShowCompleted(!showCompleted)}
+                                        className="flex items-center gap-2 mb-1 w-full text-left active:scale-[0.99] transition-all"
+                                        aria-expanded={showCompleted}
                                     >
-                                        Save
+                                        <span className="text-base">📋</span>
+                                        <span className="text-[11px] font-bold text-gray-500">{displayCompletedSlots.length} completed</span>
+                                        <ChevronRight size={12} className={`text-gray-500 transition-transform duration-200 ${showCompleted ? 'rotate-90' : ''}`} />
                                     </button>
-                                    <button
-                                        onClick={() => setEditingCookContact(false)}
-                                        className="text-[10px] font-bold text-gray-400 px-2 py-0.5 rounded-lg bg-gray-100 active:scale-95"
-                                    >
-                                        Cancel
-                                    </button>
+                                    {showCompleted && (
+                                    <>
+                                    {displayCompletedSlots.map(({ section, slot }) => (
+                                        <DashboardSlotSection
+                                            key={`hist-${slot.key}`}
+                                            date={today}
+                                            mealType={slot.mealType}
+                                            slot={slot}
+                                            section={section}
+                                            sectionColors={SECTION_COLORS}
+                                            sectionLabels={SECTION_LABELS}
+                                            onOpenSearchAction={openSearchAction}
+                                            onCompleteAction={handleCompleteSlot}
+                                            onUndoCompleteAction={handleUndoComplete}
+                                            onSkipSlotAction={handleSkipSlot}
+                                            onUndoSkipAction={handleUndoSkip}
+                                            onShareSlotAction={onShareSlotAction}
+                                            swapOpenKey={swapOpenKey}
+                                            stableSwapOpen={stableSwapOpen}
+                                            stableSwapClose={stableSwapClose}
+                                            handleSwapSelect={handleSwapSelect}
+                                            handleUpdateInline={handleUpdateInline}
+                                            handleRemove={handleRemove}
+                                            handleSuggestionAdd={handleSuggestionAdd}
+                                            swapCustomizeOpenKey={swapCustomizeOpenKey}
+                                            stableSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                            stableSwapCustomizeClose={stableSwapCustomizeClose}
+                                            handleSwapCustomizeApply={handleSwapCustomizeApply}
+                                            handleAddAnother={handleAddAnother}
+                                            preferences={preferences}
+                                            today={today}
+                                            dishes={dishes}
+                                            user={user}
+                                            pantryStaples={pantryStaples}
+                                            stableGuestMode={stableGuestMode}
+                                            completions={completions}
+                                            skipped={skipped}
+                                            undoSlot={undoSlot}
+                                            handleCompleteSlot={handleCompleteSlot}
+                                            handleUndoComplete={handleUndoComplete}
+                                            handleSkipSlot={handleSkipSlot}
+                                            handleUndoSkip={handleUndoSkip}
+                                        />
+                                    ))}
+                                    </>
+                                    )}
                                 </div>
-                            ) : (
-                                <p
-                                    className="text-sm font-bold text-gray-800 cursor-pointer active:opacity-60"
-                                    onClick={() => {
-                                        setCookContactInput(user?.cookContact || '');
-                                        setEditingCookContact(true);
-                                    }}
-                                >
-                                    {user?.cookContact || '— Tap to add'}
-                                </p>
                             )}
-                        </div>
-                    </div>
-                    {!editingCookContact && (
-                        <button
-                            onClick={() => {
-                                if (!user?.cookContact) {
-                                    setCookContactInput('');
-                                    setEditingCookContact(true);
-                                    return;
-                                }
-                                setShareType('prep');
-                            }}
-                            className="bg-white px-4 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest text-[#FF385C] border border-gray-100 active:scale-95 transition-all shadow-sm"
-                        >
-                            <span className="flex items-center gap-1.5">
-                                <MessageCircle size={12} />
-                                {user?.cookContact ? 'Share' : 'Add'}
-                            </span>
-                        </button>
-                    )}
-                </div>
+                        </>
+                    );
+                })()}
+
             </div>
 
             {/* WhatsApp Share Modal */}
@@ -1365,7 +1372,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
             {/* Undo toast */}
             {undoSlot && (
-                <div className="fixed bottom-40 left-4 right-4 z-50 mx-auto max-w-lg">
+                <div className="fixed bottom-40 left-4 right-4 z-50 ">
                     <div className="bg-gray-900 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-between">
                         <span className="text-sm font-medium">
                             {undoSlot.type === 'skip'
@@ -1400,8 +1407,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             )}
 
             {/* Slot picker */}
-            {showSlotPicker && (
-                <div className="fixed inset-0 z-[60]" onClick={() => setShowSlotPicker(false)}>
+            {showSlotPicker && (() => {
+                const pickDate = pendingDish && displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length > 0
+                    ? getISODate(new Date(new Date(today).getTime() + 86400000))
+                    : today;
+                return (
+                <div className="fixed inset-0 z-[60]" onClick={() => { setShowSlotPicker(false); setPendingDish(null); }}>
                     <div className="absolute inset-0 bg-black/30" />
                     <div
                         className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-6 pb-[max(40px,env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-200 max-w-lg mx-auto"
@@ -1409,12 +1420,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     >
                         <h3 className="text-lg font-black text-gray-900 mb-1">Add to which meal?</h3>
                         <p className="text-xs text-gray-500 mb-4">
-                            {new Date(today).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
+                            {new Date(pickDate).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
+                            {pickDate !== today && <span className="text-[#FF385C] ml-1">· Tomorrow</span>}
                         </p>
                         <div className="space-y-2">
                             {ACTIVE_SLOTS.map(({ label, key, mealType }) => {
                                 const { start, end } = getSlotDefaultTimes(mealType, preferences);
-                                const completionKey = slotKey(today, mealType);
+                                const completionKey = slotKey(pickDate, mealType);
                                 const expired = isAfterEnd(start, end) || committedCompletions[completionKey] != null;
                                 return expired ? (
                                     <div
@@ -1426,7 +1438,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         </span>
                                         <div className="text-left">
                                             <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                            <span className="text-[10px] text-gray-400">
+                                            <span className="text-[10px] text-gray-500">
                                                 {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                             </span>
                                         </div>
@@ -1435,9 +1447,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                     <button
                                         key={key}
                                         onClick={() => {
-                                            setAddDishSlot(key.toLowerCase() as MealType);
-                                            setAddDishOpen(true);
-                                            setShowSlotPicker(false);
+                                            if (pendingDish) {
+                                                handleQuickAddMeal(pickDate, key, pendingDish);
+                                                setPendingDish(null);
+                                                setShowSlotPicker(false);
+                                            } else {
+                                                setAddDishSlot(key.toLowerCase() as MealType);
+                                                setAddDishOpen(true);
+                                                setShowSlotPicker(false);
+                                            }
                                         }}
                                         className="w-full flex items-center gap-4 p-4 rounded-2xl border border-gray-100 active:scale-[0.98] transition-all hover:bg-gray-50"
                                     >
@@ -1446,7 +1464,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         </span>
                                         <div className="text-left">
                                             <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                            <span className="text-[10px] text-gray-400">
+                                            <span className="text-[10px] text-gray-500">
                                                 {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                             </span>
                                         </div>
@@ -1455,14 +1473,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             })}
                         </div>
                         <button
-                            onClick={() => setShowSlotPicker(false)}
+                            onClick={() => { setShowSlotPicker(false); setPendingDish(null); }}
                             className="w-full mt-3 py-3 rounded-2xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
                         >
                             Cancel
                         </button>
                     </div>
                 </div>
-            )}
+            );
+            })()}
 
             {/* Quick Add Modal */}
             <QuickAddModal

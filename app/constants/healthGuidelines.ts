@@ -187,21 +187,6 @@ export interface HealthTip {
   category: 'general' | 'veg-fruit' | 'whole-grain' | 'protein' | 'fats' | 'beverages' | 'fiber' | 'sodium';
 }
 
-export const VITAMIN_RDA: Record<string, { women?: string; men?: string; upperLimit?: string }> = {
-  'Vitamin A': { women: '700 mcg (2,333 IU)', men: '900 mcg (3,000 IU)', upperLimit: '3,000 mcg (10,000 IU)' },
-  'Vitamin C': { women: '75 mg', men: '90 mg', upperLimit: '2,000 mg' },
-  'Vitamin D': { women: '15 mcg (600 IU)', men: '15 mcg (600 IU)', upperLimit: '100 mcg (4,000 IU)' },
-  'Vitamin E': { women: '15 mg', men: '15 mg', upperLimit: '1,000 mg' },
-  'Vitamin B12': { women: '2.4 mcg', men: '2.4 mcg' },
-  Folate: { women: '400 mcg', men: '400 mcg', upperLimit: '1,000 mcg' },
-  Iron: { women: '18 mg', men: '8 mg', upperLimit: '45 mg' },
-  Calcium: { women: '1,000 mg', men: '1,000 mg', upperLimit: '2,500 mg' },
-  Magnesium: { women: '310-320 mg', men: '400-420 mg', upperLimit: '350 mg (supplements only)' },
-  Potassium: { women: '2,600 mg', men: '3,400 mg' },
-  Sodium: { women: '1,500 mg', men: '1,500 mg' },
-  Zinc: { women: '8 mg', men: '11 mg', upperLimit: '40 mg' },
-};
-
 export const DISH_HEALTH_MAP: Record<string, { healthCategories: string[]; tags: string[] }> = {
   'aloo-paratha': {
     healthCategories: ['whole-grain', 'fried'],

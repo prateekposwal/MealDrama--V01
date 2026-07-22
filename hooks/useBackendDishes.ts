@@ -1,23 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { Dish } from '../meal/constants/dishLibrary';
-import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
 import { useStore } from '../app/store/useStore';
 
-// Static import of DISH_LIBRARY ensures Vite tracks the dependency for HMR.
-// When dishLibrary.ts is updated, Vite invalidates this module too,
-// so the new dishes are always available without a full page reload.
-function getLocalDishes(): Dish[] {
-    return DISH_LIBRARY;
-}
-
-// Module-level load guard: ensures dishes are loaded exactly once,
-// regardless of how many components call useBackendDishes or StrictMode double-mounts.
 let _loaded = false;
 
-function loadLocalDishesOnce(): Dish[] {
-    if (_loaded) return DISH_LIBRARY;
+const getDishLibrary = () => import('../meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
+
+async function loadLocalDishesOnce(): Promise<Dish[]> {
+    if (_loaded) {
+        const storeDishes = useStore.getState().dishes;
+        return storeDishes as Dish[];
+    }
     _loaded = true;
-    const local = getLocalDishes();
+    const local = await getDishLibrary();
     useStore.getState().setDishes(local);
     return local;
 }
@@ -31,19 +26,22 @@ export function useBackendDishes() {
 
     useEffect(() => {
         let cancelled = false;
-        const local = loadLocalDishesOnce();
-        const best = local.length >= (storeDishes?.length || 0) ? local : storeDishes;
-        if (cancelled) return;
-        setDishes(best);
-        setSource(best === local ? 'local' : 'store');
-        setIsLoading(false);
-        setError(null);
+        (async () => {
+            const local = await loadLocalDishesOnce();
+            const storeDishes = useStore.getState().dishes;
+            const best = local.length >= (storeDishes?.length || 0) ? local : storeDishes;
+            if (cancelled) return;
+            setDishes(best);
+            setSource(best === local ? 'local' : 'store');
+            setIsLoading(false);
+            setError(null);
+        })();
         return () => { cancelled = true; };
     }, []);
 
-    const retry = useCallback(() => {
+    const retry = useCallback(async () => {
         _loaded = false;
-        const local = loadLocalDishesOnce();
+        const local = await loadLocalDishesOnce();
         setDishes(local);
         setSource('local');
         setIsLoading(false);

@@ -34,6 +34,7 @@ export const verifyToken = (token: string): TokenPayload | null => {
   try {
     return jwt.verify(token, JWT_SECRET!) as TokenPayload;
   } catch {
+    console.debug('[Auth] Token verification failed');
     return null;
   }
 };
@@ -65,7 +66,10 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
   if (!decoded) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
-  req.user = decoded;
+  if (!decoded.userId || typeof decoded.userId !== 'string' || decoded.userId.length === 0) {
+    return res.status(401).json({ error: 'Invalid token payload' });
+  }
+  req.user = { userId: decoded.userId, email: decoded.email || '', phone: decoded.phone || null, name: decoded.name };
   next();
 };
 

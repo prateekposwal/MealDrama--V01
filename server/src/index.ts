@@ -1,6 +1,7 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import passport from 'passport';
 import dotenv from 'dotenv';
 import { prisma } from './lib/prisma';
 import './lib/auth';
@@ -25,6 +26,7 @@ app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 // Cookie parsing (for session token)
 app.use(cookieParser());
+app.use(passport.initialize());
 
 // CORS
 const corsOptions: cors.CorsOptions = {
@@ -146,17 +148,31 @@ app.get('/', (req: Request, res: Response) => {
       health: '/health',
       auth: '/api/v1/auth',
       households: '/api/v1/households',
-      members: '/api/v1/members',
-      'health-profiles': '/api/v1/health-profiles',
     },
   });
 });
 
+// ============================================================================
+// RESPONSE WRAPPER MIDDLEWARE — wraps all API responses in { success, data }
+// ============================================================================
+
+app.use('/api/v1', (_req: Request, res: Response, next: NextFunction) => {
+  const originalJson = res.json.bind(res);
+  res.json = function (body: unknown) {
+    const obj = body as Record<string, unknown> | null;
+    if (obj && typeof obj === 'object' && !('success' in obj) && !('error' in obj)) {
+      return originalJson({ success: true, data: obj, metadata: { timestamp: new Date().toISOString() } });
+    }
+    return originalJson(body);
+  };
+  next();
+});
+
 // API v1 routes
 app.use('/api/v1/auth', require('./routes/auth').default);
+app.use('/api/v1/auth', require('./routes/oauth').default);
 app.use('/api/v1/households', require('./routes/households').default);
-app.use('/api/v1/members', require('./routes/members').default);
-app.use('/api/v1/health-profiles', require('./routes/healthProfiles').default);
+app.use('/api/v1/households', require('./routes/expenses').default);
 app.use('/api/v1/meals', require('./routes/meals').default);
 app.use('/api/v1/plan', require('./routes/plan').default);
 app.use('/api/v1/complete', require('./routes/complete').default);
@@ -166,6 +182,7 @@ app.use('/api/v1/variants', require('./routes/variants').default);
 app.use('/api/v1/custom-dishes', require('./routes/custom-dishes').default);
 app.use('/api/v1/loop-config', require('./routes/loopConfig').default);
 app.use('/api/v1/tts', require('./routes/tts').default);
+app.use('/api/v1/households', require('./routes/pantry').default);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

@@ -17,11 +17,12 @@ import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import type { TrayItem } from '../../types/tray';
 import { nativeStorage } from '../../app/utils/nativeStorage';
-import { slotKey, getExistingItemsInRange, getDishIdsInRange, getBySourceInRange } from '../utils/planIndex';
+import { slotKey, getExistingItemsInRange, getDishIdsInRange, getBySourceInRange, type SlotKey } from '../utils/planIndex';
 import { toDishMap } from '../../utils/dishMap';
 import { PersistentMap, rehydrateMap } from '../../app/utils/PersistentMap';
 
 import { getTrayStore } from './_boot';
+import type { TrayStore } from './useTrayStore';
 
 export interface LoopStore {
   mealLoop: MealLoopState;
@@ -160,10 +161,27 @@ export function getLoopDebugInfo(): LoopDebugInfo | null {
 }
 
 if (typeof window !== 'undefined' && import.meta.env.DEV) {
-  (window as any).getLoopDebugInfo = getLoopDebugInfo;
+  (window as unknown as { getLoopDebugInfo: typeof getLoopDebugInfo }).getLoopDebugInfo = getLoopDebugInfo;
 }
 
 const emptyDayMeals = (): DayMeals => ({ breakfast: [], lunch: [], snacks: [], dinner: [] });
+
+function mergeDays(base: Record<string, DayMeals>, overlay: Record<string, DayMeals>): Record<string, DayMeals> {
+  const result = { ...base };
+  for (const [date, meals] of Object.entries(overlay)) {
+    const existing = result[date];
+    if (existing) {
+      const merged: DayMeals = { ...existing };
+      for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+        if (meals[mt].length > 0) merged[mt] = meals[mt];
+      }
+      result[date] = merged;
+    } else {
+      result[date] = meals;
+    }
+  }
+  return result;
+}
 
 function pushUndo(ml: MealLoopState): MealLoopState['undoStack'] {
   return [{
@@ -201,8 +219,8 @@ export const useLoopStore = create<LoopStore>()(
       mealLoop: EMPTY_LOOP_STATE,
       lastFeaturedTimes: {},
 
-      setMealLoop: (config, sourceDishIds, assignments) => {
-        set((s) => ({
+      setMealLoop: (config: MealLoopConfig | null, sourceDishIds: string[], assignments: MealLoopAssignment[]) => {
+        set((s: LoopStore) => ({
           mealLoop: {
             ...s.mealLoop,
             config,
@@ -214,16 +232,16 @@ export const useLoopStore = create<LoopStore>()(
         }));
       },
 
-      applyLoopConfig: (config, pool, dishes) => {
+      applyLoopConfig: (config: MealLoopConfig, pool: SourcePool, dishes?: Dish[]) => {
         clearAutoFillCache();
         const dishMap = toDishMap(dishes);
-        const trayState = getTrayStore().getState();
-        const sourceDishIds = Object.values(pool).flat().map((d: Dish) => d.id);
+        const trayState = getTrayStore<TrayStore>().getState();
+        const sourceDishIds = (Object.values(pool) as Dish[][]).flat().map(d => d.id);
 
-        let trayUpdater: ((prev: Record<string, unknown>) => Record<string, unknown>) | null = null;
+        let trayUpdater: ((prev: TrayStore) => Partial<TrayStore>) | null = null;
         let enqueuePayload: { config: MealLoopConfig; sourceDishIds: string[]; assignments: MealLoopAssignment[] } | null = null;
 
-        set((s) => {
+        set((s: LoopStore) => {
           const ml = s.mealLoop;
 
           if (ml.config) {
@@ -240,8 +258,8 @@ export const useLoopStore = create<LoopStore>()(
                 config.startDate, loopEndStr,
               );
               const result = autoFillLoopEngine(config, newQueue, pointer, existingItems, ml.lastFillDate);
-              const existingKeys = new Set(ml.assignments.map(a => `${a.date}|${a.mealType}`));
-              const dedupedNew = result.assignments.filter(a => !existingKeys.has(`${a.date}|${a.mealType}`));
+              const existingKeys = new Set(ml.assignments.map((a: MealLoopAssignment) => `${a.date}|${a.mealType}`));
+              const dedupedNew = result.assignments.filter((a: MealLoopAssignment) => !existingKeys.has(`${a.date}|${a.mealType}`));
 
               const newDays: Record<string, DayMeals> = {};
               for (const a of dedupedNew) {
@@ -252,8 +270,8 @@ export const useLoopStore = create<LoopStore>()(
               }
 
               enqueuePayload = { config, sourceDishIds, assignments: [...ml.assignments, ...dedupedNew] };
-              trayUpdater = (prev: any) => ({
-                plan: { ...prev.plan, days: { ...prev.plan.days, ...newDays } },
+              trayUpdater = (prev: TrayStore) => ({
+                plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
               });
 
               return {
@@ -264,12 +282,13 @@ export const useLoopStore = create<LoopStore>()(
                   undoStack: pushUndo(ml),
                   refreshing: false, lastRefreshStart: undefined,
                   lastFillDate: result.lastFillDate,
+                  analytics: { ...ml.analytics, cyclesCompleted: ml.analytics.cyclesCompleted + 1 },
                 },
               };
             }
 
             const oldIds = ml.sourceDishIds;
-            const newIds = Object.values(pool).flat().map((d: Dish) => d.id);
+            const newIds = (Object.values(pool) as Dish[][]).flat().map(d => d.id);
             const result = handleMidCycleAdd(
               oldIds, newIds, pool, config,
               ml.rotationQueue, ml.next_index, ml.assignments, dishes,
@@ -286,8 +305,8 @@ export const useLoopStore = create<LoopStore>()(
             }
 
             enqueuePayload = { config, sourceDishIds: newIds, assignments: result.assignments };
-            trayUpdater = (prev: any) => ({
-              plan: { ...prev.plan, days: { ...prev.plan.days, ...newDays } },
+            trayUpdater = (prev: TrayStore) => ({
+              plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
             });
 
             return {
@@ -298,6 +317,7 @@ export const useLoopStore = create<LoopStore>()(
                 assignments: result.assignments,
                 undoStack: pushUndo(ml),
                 refreshing: false, lastRefreshStart: undefined,
+                analytics: { ...ml.analytics, cyclesCompleted: ml.analytics.cyclesCompleted + 1 },
               },
             };
           }
@@ -310,10 +330,10 @@ export const useLoopStore = create<LoopStore>()(
           const newCompletions: Record<string, number> = {};
           const newSkipped: Record<string, number> = {};
           for (const [k, v] of Object.entries(trayState.completions || {})) {
-            if (!clearKeys.has(k as any)) newCompletions[k] = v as number;
+            if (!clearKeys.has(k as SlotKey)) newCompletions[k] = v;
           }
           for (const [k, v] of Object.entries(trayState.skipped || {})) {
-            if (!clearKeys.has(k as any)) newSkipped[k] = v as number;
+            if (!clearKeys.has(k as SlotKey)) newSkipped[k] = v;
           }
 
           for (const a of newAssignments) {
@@ -324,8 +344,8 @@ export const useLoopStore = create<LoopStore>()(
           }
 
           enqueuePayload = { config, sourceDishIds, assignments: newAssignments };
-          trayUpdater = (prev: any) => ({
-            plan: { ...prev.plan, days: { ...prev.plan.days, ...newDays } },
+          trayUpdater = (prev: TrayStore) => ({
+            plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
             completions: newCompletions,
             skipped: newSkipped,
           });
@@ -336,7 +356,8 @@ export const useLoopStore = create<LoopStore>()(
               next_index: Math.min(newAssignments.length, queue.length),
               assignments: newAssignments, overrides: ml.overrides,
               undoStack: ml.config ? pushUndo(ml) : ml.undoStack,
-              analytics: ml.analytics, refreshing: false, lastRefreshStart: undefined,
+              analytics: { ...ml.analytics, cyclesCompleted: ml.analytics.cyclesCompleted + 1 },
+              refreshing: false, lastRefreshStart: undefined,
             },
           };
         });
@@ -345,19 +366,18 @@ export const useLoopStore = create<LoopStore>()(
           enqueueUtil('loop_save', enqueuePayload);
           window.dispatchEvent(new Event('pantry:invalidate'));
         }
-        if (trayUpdater) getTrayStore().setState(trayUpdater as any);
+        if (trayUpdater) getTrayStore<TrayStore>().setState(trayUpdater);
       },
 
-      detectLoopPoolChange: (pool, dishes) => {
-        const { useTrayStore } = require('./useTrayStore');
+      detectLoopPoolChange: (pool: SourcePool, dishes?: Dish[]) => {
         const dishMap = toDishMap(dishes);
 
-        set((s) => {
+        set((s: LoopStore) => {
           const oldIds = s.mealLoop.sourceDishIds;
-          const newIds = Object.values(pool).flat().map((d: Dish) => d.id);
+          const newIds = (Object.values(pool) as Dish[][]).flat().map(d => d.id);
           const oldSet = new Set(oldIds);
           const newSet = new Set(newIds);
-          const hasChanges = newIds.some(id => !oldSet.has(id)) || oldIds.some(id => !newSet.has(id));
+          const hasChanges = newIds.some((id: string) => !oldSet.has(id)) || oldIds.some((id: string) => !newSet.has(id));
           if (!hasChanges) return s;
           const cfg = s.mealLoop.config;
           if (!cfg) return s;
@@ -394,7 +414,7 @@ export const useLoopStore = create<LoopStore>()(
       },
 
       undoLoopChange: () => {
-        set((s) => {
+        set((s: LoopStore) => {
           const prev = s.mealLoop.undoStack[0];
           if (!prev) return s;
           const cfg = prev.config;
@@ -409,13 +429,12 @@ export const useLoopStore = create<LoopStore>()(
         });
       },
 
-      refreshLoop: (dishes) => {
-        const { useTrayStore } = require('./useTrayStore');
+      refreshLoop: (dishes?: Dish[]) => {
         const dishMap = toDishMap(dishes);
 
-        let trayUpdater: ((prev: Record<string, unknown>) => Record<string, unknown>) | null = null;
+        let trayUpdater: ((prev: TrayStore) => Partial<TrayStore>) | null = null;
 
-        set((s) => {
+        set((s: LoopStore) => {
           if (s.mealLoop.refreshing) {
             useStore.getState().setToast({ message: '⏳ Loop is already refreshing. Please wait.', type: 'info' });
             return s;
@@ -429,7 +448,7 @@ export const useLoopStore = create<LoopStore>()(
           loopEndDate.setDate(loopEndDate.getDate() + cfg.cycleLength * 7);
           const loopEndStr = getISODate(loopEndDate);
 
-          const trayState = getTrayStore().getState();
+          const trayState = getTrayStore<TrayStore>().getState();
           const { plan } = trayState;
           const currentDishIds = getDishIdsInRange(plan._planIndex, plan.days, cfg.startDate, loopEndStr);
 
@@ -450,8 +469,8 @@ export const useLoopStore = create<LoopStore>()(
           const existingItems = getExistingItemsInRange(plan._planIndex, plan.days, cfg.startDate, loopEndStr);
 
           const result = autoFillLoopEngine(cfg, newQueue, newPointer, existingItems, s.mealLoop.lastFillDate);
-          const existingKeys = new Set(s.mealLoop.assignments.map(a => `${a.date}|${a.mealType}`));
-          const dedupedNew = result.assignments.filter(a => !existingKeys.has(`${a.date}|${a.mealType}`));
+          const existingKeys = new Set(s.mealLoop.assignments.map((a: MealLoopAssignment) => `${a.date}|${a.mealType}`));
+          const dedupedNew = result.assignments.filter((a: MealLoopAssignment) => !existingKeys.has(`${a.date}|${a.mealType}`));
 
           if (dedupedNew.length === 0) {
             useStore.getState().setToast({ message: '✅ All future slots are already filled — nothing to refresh.', type: 'info' });
@@ -466,15 +485,15 @@ export const useLoopStore = create<LoopStore>()(
             if (item) day[a.mealType].push(item);
           }
 
-          trayUpdater = (prev: any) => ({
-            plan: { ...prev.plan, days: { ...prev.plan.days, ...newDays } },
+          trayUpdater = (prev: TrayStore) => ({
+            plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
           });
 
           useStore.getState().setToast({ message: '🔄 Loop refreshed! Future days updated.', type: 'success' });
 
           return {
             mealLoop: {
-              ...s.mealLoop, sourceDishIds: Object.values(pool).flat().map((d: Dish) => d.id),
+              ...s.mealLoop, sourceDishIds: (Object.values(pool) as Dish[][]).flat().map(d => d.id),
               rotationQueue: result.rotationQueue, rotationPointer: result.rotationPointer,
               assignments: [...s.mealLoop.assignments, ...dedupedNew],
               lastFillDate: result.lastFillDate,
@@ -483,16 +502,20 @@ export const useLoopStore = create<LoopStore>()(
           };
         });
 
-        if (trayUpdater) getTrayStore().setState(trayUpdater as any);
+        
+        if (trayUpdater) getTrayStore<TrayStore>().setState(trayUpdater);
       },
 
-      autoFillLoop: (dishes) => {
-        const { useTrayStore } = require('./useTrayStore');
+
+
+
+
+      autoFillLoop: (dishes?: Dish[]) => {
         const dishMap = toDishMap(dishes);
 
-        let trayUpdater: ((prev: Record<string, unknown>) => Record<string, unknown>) | null = null;
+        let trayUpdater: ((prev: TrayStore) => Partial<TrayStore>) | null = null;
 
-        set((s) => {
+        set((s: LoopStore) => {
           const cfg = s.mealLoop.config;
           if (!cfg) return s;
 
@@ -506,7 +529,7 @@ export const useLoopStore = create<LoopStore>()(
           loopEndDate.setDate(loopEndDate.getDate() + cfg.cycleLength * 7);
           const loopEndStr = getISODate(loopEndDate);
 
-          const trayState = getTrayStore().getState();
+          const trayState = getTrayStore<TrayStore>().getState();
           const existingItems = getExistingItemsInRange(
             trayState.plan._planIndex, trayState.plan.days,
             cfg.startDate, loopEndStr,
@@ -518,8 +541,8 @@ export const useLoopStore = create<LoopStore>()(
             return s;
           }
 
-          const existingKeys = new Set(s.mealLoop.assignments.map(a => `${a.date}|${a.mealType}`));
-          const dedupedNew = result.assignments.filter(a => !existingKeys.has(`${a.date}|${a.mealType}`));
+          const existingKeys = new Set(s.mealLoop.assignments.map((a: MealLoopAssignment) => `${a.date}|${a.mealType}`));
+          const dedupedNew = result.assignments.filter((a: MealLoopAssignment) => !existingKeys.has(`${a.date}|${a.mealType}`));
 
           const newDays: Record<string, DayMeals> = {};
           for (const a of dedupedNew) {
@@ -529,8 +552,8 @@ export const useLoopStore = create<LoopStore>()(
             if (item) day[a.mealType].push(item);
           }
 
-          trayUpdater = (prev: any) => ({
-            plan: { ...prev.plan, days: { ...prev.plan.days, ...newDays } },
+          trayUpdater = (prev: TrayStore) => ({
+            plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
           });
 
           return {
@@ -542,7 +565,7 @@ export const useLoopStore = create<LoopStore>()(
           };
         });
 
-        if (trayUpdater) getTrayStore().setState(trayUpdater as any);
+        if (trayUpdater) getTrayStore<TrayStore>().setState(trayUpdater);
 
         const loopState = get().mealLoop;
         if (loopState.config) {
@@ -554,17 +577,17 @@ export const useLoopStore = create<LoopStore>()(
         }
       },
 
-      addLoopOverride: (key, dishId) => {
-        set((s) => {
+      addLoopOverride: (key: string, dishId: string) => {
+        set((s: LoopStore) => {
           const next = new Map(s.mealLoop.overrides);
           next.set(key, dishId);
           return { mealLoop: { ...s.mealLoop, overrides: next } };
         });
       },
 
-      markFeatured: (dishIds) => {
+      markFeatured: (dishIds: string[]) => {
         const now = Date.now();
-        set((s) => {
+        set((s: LoopStore) => {
           const updated = { ...s.lastFeaturedTimes };
           for (const id of dishIds) updated[id] = now;
           return { lastFeaturedTimes: updated };
@@ -575,7 +598,7 @@ export const useLoopStore = create<LoopStore>()(
       name: 'mealdrama-loop-store',
       version: 3,
       storage: nativeStorage,
-      migrate: (persisted: any, version: number) => {
+      migrate: (persisted: Record<string, unknown>, version: number) => {
         if (version < 2) {
           const old = persisted?.mealLoop;
           if (old?.rotationState) {
@@ -621,13 +644,13 @@ export const useLoopStore = create<LoopStore>()(
         return {
           mealLoop: {
             ...ml,
-            overrides: new PersistentMap(ml.overrides),
+            overrides: new PersistentMap(ml.overrides instanceof Map ? ml.overrides : Object.entries(ml.overrides ?? {})),
             undoStack: [],
           },
           lastFeaturedTimes: state.lastFeaturedTimes,
         };
       },
-      merge: (persisted: any, current: any) => {
+      merge: (persisted: Record<string, unknown>, current: Record<string, unknown>) => {
         const ml = persisted.mealLoop;
         return {
           ...current,

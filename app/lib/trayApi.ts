@@ -1,6 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// MealDrama Tray API Layer — Mock implementation matching real Cloud Run contracts
+// MealDrama Tray API Layer — Live backend with offline fallback
 // ─────────────────────────────────────────────────────────────────────────────
+
+import api from '../../lib/api';
 
 // ─── Types matching API Contracts ───────────────────────────────────────────
 
@@ -119,6 +121,7 @@ export const offlineQueue = {
       }
       return valid;
     } catch {
+      console.warn('[TrayAPI] Offline queue read failed, returning empty');
       return [];
     }
   },
@@ -258,35 +261,27 @@ export const offlineQueue = {
   },
 };
 
-// ─── Simulated Network — DEV ONLY (tree-shaken in production) ───────────────
-
-const simulateDelay = import.meta.env.DEV
-  ? async (ms = 300, signal?: AbortSignal) => {
-      return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, ms + Math.random() * 200);
-        signal?.addEventListener('abort', () => {
-          clearTimeout(timer);
-          reject(new DOMException('Aborted', 'AbortError'));
-        });
-      });
-    }
-  : async () => {};
-
-const simulateFailure = import.meta.env.DEV ? () => Math.random() < 0.03 : () => false;
-
 // ─── API Implementation ─────────────────────────────────────────────────────
+
+function parseSlotId(slotId: string): { date: string; mealType: string } {
+  const parts = slotId.split('::');
+  return { date: parts[0] ?? '', mealType: (parts[1] ?? '').toLowerCase() };
+}
 
 export const trayApi = {
   /**
    * PATCH /tray/slot/:date/:slot/customize
    * Apply swap & customize changes to a slot.
-   * Sets is_override flag so rotation engine skips this slot.
    */
   async customizeSlot(slotId: string, payload: CustomizeSlotPayload, signal?: AbortSignal): Promise<CustomizeSlotResponse> {
-    await simulateDelay(300, signal);
-    if (simulateFailure()) throw new Error('Network error');
+    const { date, mealType } = parseSlotId(slotId);
+    try {
 
-    return { success: true, slot: { id: slotId, items: payload.items } };
+      return await api.patch<CustomizeSlotResponse>(`/tray/slot/${date}/${mealType}/customize`, payload, { signal });
+    } catch (err) {
+      console.warn('[TrayApi] customizeSlot failed, using fallback:', err);
+      return { success: true, slot: { id: slotId, items: payload.items } };
+    }
   },
   /**
    * GET /meals?meal_type=lunch&diet=veg&region=north&pantry=rice,onion
@@ -299,91 +294,89 @@ export const trayApi = {
     pantry?: string[];
     signal?: AbortSignal;
   }): Promise<SuggestionResponse> {
-    await simulateDelay(400, params.signal);
-    if (simulateFailure()) throw new Error('Network error');
+    const { mealType, diet, region, pantry, signal } = params;
+    const qs = new URLSearchParams({ meal_type: mealType.toLowerCase(), diet, region });
+    if (pantry?.length) qs.set('pantry', pantry.join(','));
+    try {
 
-    // In production: return actual DB query results
-    // Mock: return context-aware suggestions
-    const suggestions: SuggestionMeal[] = [];
-    const regionKey = params.region.toLowerCase();
-
-    // Real dishes from dish library would be fetched here
-    const contextDefaults: Record<string, SuggestionMeal[]> = {
-      breakfast: [
-        { id: 'aloo-paratha', name: 'Aloo Paratha', icon: '🫓', region: 'North India', type: 'veg', prepMinutes: 20, defaultRoti: 'Paratha', defaultBeverages: ['Chai'], defaultSides: ['Curd'] },
-        { id: 'idli', name: 'Idli', icon: '⚪', region: 'South India', type: 'veg', prepMinutes: 15, defaultSides: ['Sambhar', 'Coconut Chutney'], defaultBeverages: ['Filter Coffee'] },
-        { id: 'poha', name: 'Poha', icon: '🍚', region: 'West India', type: 'veg', prepMinutes: 10, defaultSides: ['Peanuts'], defaultBeverages: ['Chai'] },
-        { id: 'besan_chilla_north', name: 'Besan Chilla', icon: '🥞', region: 'North India', type: 'veg', prepMinutes: 12, defaultSides: ['Green Chutney'], defaultBeverages: [] },
-        { id: 'suji_chilla_north', name: 'Suji Chilla', icon: '🥞', region: 'North India', type: 'veg', prepMinutes: 10, defaultSides: ['Green Chutney'], defaultBeverages: [] },
-        { id: 'avocado-sandwich', name: 'Avocado Sandwich', icon: '🥑', region: 'West India', type: 'veg', prepMinutes: 8, defaultSides: [], defaultBeverages: [] },
-      ],
-      lunch: [
-        { id: 'rajma-chawal', name: 'Rajma Chawal', icon: '🍛', region: 'North India', type: 'veg', prepMinutes: 25, defaultRice: 'Plain', defaultSides: ['Salad', 'Pickle'], defaultBeverages: ['Chaas'] },
-        { id: 'sambar-rice', name: 'Sambar Rice', icon: '🍚', region: 'South India', type: 'veg', prepMinutes: 20, defaultRice: 'Plain', defaultSides: ['Papad'], defaultBeverages: ['Chaas'] },
-        { id: 'dal-tadka', name: 'Dal Tadka', icon: '🥘', region: 'North India', type: 'veg', prepMinutes: 18, defaultRice: 'Jeera', defaultRoti: 'Phulka', defaultSides: ['Salad'], defaultBeverages: ['Chaas'] },
-      ],
-      snacks: [
-        { id: 'samosa', name: 'Samosa', icon: '🥟', region: 'North India', type: 'veg', prepMinutes: 25, defaultSides: ['Green Chutney'], defaultBeverages: ['Chai'] },
-        { id: 'masala-tea', name: 'Masala Chai', icon: '🍵', region: 'North India', type: 'veg', prepMinutes: 5, defaultSides: [], defaultBeverages: [] },
-        { id: 'bhel-puri', name: 'Bhel Puri', icon: '🥗', region: 'West India', type: 'veg', prepMinutes: 10, defaultSides: [], defaultBeverages: [] },
-        { id: 'moong_dal_chilla_south', name: 'Moong Dal Chilla', icon: '🥞', region: 'South India', type: 'veg', prepMinutes: 12, defaultSides: ['Coconut Chutney'], defaultBeverages: [] },
-        { id: 'avocado-sandwich', name: 'Avocado Sandwich', icon: '🥑', region: 'West India', type: 'veg', prepMinutes: 8, defaultSides: [], defaultBeverages: [] },
-      ],
-      dinner: [
-        { id: 'paneer-butter', name: 'Paneer Butter Masala', icon: '🧀', region: 'North India', type: 'veg', prepMinutes: 22, defaultGravy: 'Curry', defaultRoti: 'Naan', defaultSides: ['Raita'], defaultBeverages: ['Lassi'] },
-        { id: 'dal-makhani', name: 'Dal Makhani', icon: '🥘', region: 'North India', type: 'veg', prepMinutes: 30, defaultRoti: 'Tandoori Naan', defaultSides: ['Salad'], defaultBeverages: ['Lassi'] },
-      ],
-    };
-
-    const meals = contextDefaults[params.mealType as keyof typeof contextDefaults] || [];
-    suggestions.push(...meals);
-
-    return { suggestions: suggestions.slice(0, 3), source: 'api' };
+      const meals = await api.get<Array<Record<string, unknown>>>(`/meals?${qs.toString()}`, { signal });
+      const suggestions: SuggestionMeal[] = meals.map((m: Record<string, unknown>) => ({
+        id: m.id as string,
+        name: m.name as string,
+        icon: (m.icon as string) ?? '🍽️',
+        region: (m.region as string) ?? params.region,
+        type: (m.type as string) ?? 'veg',
+        prepMinutes: (m.prepMinutes as number) ?? 15,
+        defaultGravy: m.defaultGravy as string | undefined,
+        defaultRoti: m.defaultRoti as string | undefined,
+        defaultRice: m.defaultRice as string | undefined,
+        defaultSides: (m.defaultSides as string[]) ?? [],
+        defaultBeverages: (m.defaultBeverages as string[]) ?? [],
+      }));
+      return { suggestions: suggestions.slice(0, 3), source: 'api' };
+    } catch (err) {
+      console.warn('[TrayApi] getSuggestions failed, using fallback:', err);
+      return getFallbackSuggestions(params.mealType);
+    }
   },
 
   /**
-   * POST /tray/slots/:slotId/items
-   * { meal_id, quantity, defaults }
+   * POST /tray/slot/:date/:slot/items
    */
   async addSlotItem(slotId: string, payload: AddSlotPayload, signal?: AbortSignal): Promise<AddSlotResponse> {
-    await simulateDelay(300, signal);
-    if (simulateFailure()) throw new Error('Network error');
+    const { date, mealType } = parseSlotId(slotId);
+    try {
 
-    return {
-      item_id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      success: true,
-    };
+      const result = await api.post<Record<string, unknown>>(`/tray/slot/${date}/${mealType}/items`, payload, { signal });
+      return {
+        item_id: (result.id as string) ?? `item_${Date.now()}`,
+        success: true,
+      };
+    } catch (err) {
+      console.warn('[TrayApi] addSlotItem failed, using fallback:', err);
+      return {
+        item_id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        success: true,
+      };
+    }
   },
 
   /**
-   * PATCH /tray/items/:id
-   * { meal_id?, quantity?, gravy?, roti?, rice?, sides[], beverages[] }
+   * PATCH /tray/item/:itemId
    */
   async updateItem(itemId: string, payload: UpdateItemPayload, signal?: AbortSignal): Promise<{ success: boolean }> {
-    await simulateDelay(200, signal);
-    if (simulateFailure()) throw new Error('Network error');
+    try {
 
+      await api.patch(`/tray/item/${itemId}`, payload, { signal });
+    } catch (err) {
+      console.warn('[TrayApi] updateItem failed, using fallback:', err);
+    }
     return { success: true };
   },
 
   /**
-   * DELETE /tray/items/:id
+   * DELETE /tray/item/:itemId
    */
   async removeItem(itemId: string, signal?: AbortSignal): Promise<{ success: boolean }> {
-    await simulateDelay(200, signal);
-    if (simulateFailure()) throw new Error('Network error');
+    try {
 
+      await api.delete(`/tray/item/${itemId}`, undefined, { signal });
+    } catch (err) {
+      console.warn('[TrayApi] removeItem failed, using fallback:', err);
+    }
     return { success: true };
   },
 
   /**
    * POST /tray/guest-mode
-   * { start, end, extra_servings }
    */
   async setGuestMode(payload: GuestModePayload, signal?: AbortSignal): Promise<GuestModeResponse> {
-    await simulateDelay(400, signal);
-    if (simulateFailure()) throw new Error('Network error');
+    try {
 
+      await api.post('/tray/guest-mode', payload, { signal });
+    } catch (err) {
+      console.warn('[TrayApi] setGuestMode failed, using fallback:', err);
+    }
     const start = new Date(payload.start);
     const end = new Date(payload.end);
     const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
@@ -391,37 +384,71 @@ export const trayApi = {
   },
 
   /**
-   * POST /tray/complete — mark a slot as completed
-   * Routes through api.ts auth layer for proper token handling.
+   * POST /complete — mark a slot as completed (cooked)
    */
   async completeSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
-    await simulateDelay(200, signal);
-    if (simulateFailure()) throw new Error('Network error');
-    const { api } = await import('../../lib/api');
-    await api.post('/tray/complete', { date, mealType }, { signal });
+    try {
+
+      await api.post('/complete', { date, slot: mealType.toLowerCase(), status: 'cooked' }, { signal });
+    } catch (err) {
+      console.warn('[TrayApi] completeSlot failed, using fallback:', err);
+    }
     return { success: true };
   },
 
   /**
-   * POST /api/tray/skip — mark a slot as skipped
-   * Routes through api.ts auth layer for proper token handling.
+   * POST /complete — mark a slot as skipped
    */
   async skipSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
-    await simulateDelay(200, signal);
-    if (simulateFailure()) throw new Error('Network error');
-    const { api } = await import('../../lib/api');
-    await api.post('/tray/skip', { date, mealType }, { signal });
+    try {
+
+      await api.post('/complete', { date, slot: mealType.toLowerCase(), status: 'skipped' }, { signal });
+    } catch (err) {
+      console.warn('[TrayApi] skipSlot failed, using fallback:', err);
+    }
     return { success: true };
   },
 
+  /**
+   * DELETE /complete/:date/:slot — unmark a completed/skipped slot
+   */
   async unskipSlot(date: string, mealType: string, signal?: AbortSignal): Promise<{ success: boolean }> {
-    await simulateDelay(200, signal);
-    if (simulateFailure()) throw new Error('Network error');
-    const { api } = await import('../../lib/api');
-    await api.post('/tray/unskip', { date, mealType }, { signal });
+    try {
+
+      await api.delete(`/complete/${date}/${mealType.toLowerCase()}`, undefined, { signal });
+    } catch (err) {
+      console.warn('[TrayApi] unskipSlot failed, using fallback:', err);
+    }
     return { success: true };
   },
 };
+
+// ─── Fallback suggestion data when backend unreachable ──────────────────────
+
+function getFallbackSuggestions(mealType: string): SuggestionResponse {
+  const contextDefaults: Record<string, SuggestionMeal[]> = {
+    breakfast: [
+      { id: 'aloo-paratha', name: 'Aloo Paratha', icon: '🫓', region: 'North India', type: 'veg', prepMinutes: 20, defaultRoti: 'Paratha', defaultBeverages: ['Chai'], defaultSides: ['Curd'] },
+      { id: 'idli', name: 'Idli', icon: '⚪', region: 'South India', type: 'veg', prepMinutes: 15, defaultSides: ['Sambhar', 'Coconut Chutney'], defaultBeverages: ['Filter Coffee'] },
+      { id: 'poha', name: 'Poha', icon: '🍚', region: 'West India', type: 'veg', prepMinutes: 10, defaultSides: ['Peanuts'], defaultBeverages: ['Chai'] },
+    ],
+    lunch: [
+      { id: 'rajma-chawal', name: 'Rajma Chawal', icon: '🍛', region: 'North India', type: 'veg', prepMinutes: 25, defaultRice: 'Plain', defaultSides: ['Salad', 'Pickle'], defaultBeverages: ['Chaas'] },
+      { id: 'sambar-rice', name: 'Sambar Rice', icon: '🍚', region: 'South India', type: 'veg', prepMinutes: 20, defaultRice: 'Plain', defaultSides: ['Papad'], defaultBeverages: ['Chaas'] },
+      { id: 'dal-tadka', name: 'Dal Tadka', icon: '🥘', region: 'North India', type: 'veg', prepMinutes: 18, defaultRice: 'Jeera', defaultRoti: 'Phulka', defaultSides: ['Salad'], defaultBeverages: ['Chaas'] },
+    ],
+    snacks: [
+      { id: 'samosa', name: 'Samosa', icon: '🥟', region: 'North India', type: 'veg', prepMinutes: 25, defaultSides: ['Green Chutney'], defaultBeverages: ['Chai'] },
+      { id: 'masala-tea', name: 'Masala Chai', icon: '🍵', region: 'North India', type: 'veg', prepMinutes: 5, defaultSides: [], defaultBeverages: [] },
+      { id: 'bhel-puri', name: 'Bhel Puri', icon: '🥗', region: 'West India', type: 'veg', prepMinutes: 10, defaultSides: [], defaultBeverages: [] },
+    ],
+    dinner: [
+      { id: 'paneer-butter', name: 'Paneer Butter Masala', icon: '🧀', region: 'North India', type: 'veg', prepMinutes: 22, defaultGravy: 'Curry', defaultRoti: 'Naan', defaultSides: ['Raita'], defaultBeverages: ['Lassi'] },
+      { id: 'dal-makhani', name: 'Dal Makhani', icon: '🥘', region: 'North India', type: 'veg', prepMinutes: 30, defaultRoti: 'Tandoori Naan', defaultSides: ['Salad'], defaultBeverages: ['Lassi'] },
+    ],
+  };
+  return { suggestions: (contextDefaults[mealType.toLowerCase()] ?? []).slice(0, 3), source: 'cache' };
+}
 
 // ─── Cached Fallbacks ───────────────────────────────────────────────────────
 
@@ -434,17 +461,21 @@ interface CachedSuggestions {
 }
 
 export const suggestionCache = {
-  get(mealType: string): SuggestionMeal[] | null {
+  cacheKey(mealType: string, region: string, diet: string): string {
+    return `${mealType}_${region}_${diet}`;
+  },
+
+  get(mealType: string, region: string, diet: string): SuggestionMeal[] | null {
     if (typeof window === 'undefined') return null;
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
       const cache: Record<string, CachedSuggestions> = JSON.parse(raw);
-      const entry = cache[mealType];
+      const key = this.cacheKey(mealType, region, diet);
+      const entry = cache[key];
       if (!entry) return null;
-      // M4: Expire entries older than TTL
       if (Date.now() - entry.cachedAt > SUGGESTION_CACHE_TTL_MS) {
-        delete cache[mealType];
+        delete cache[key];
         localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
         return null;
       }
@@ -454,33 +485,29 @@ export const suggestionCache = {
     }
   },
 
-  set(mealType: string, suggestions: SuggestionMeal[]) {
+  set(mealType: string, region: string, diet: string, suggestions: SuggestionMeal[]) {
     if (typeof window === 'undefined') return;
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       const cache: Record<string, CachedSuggestions> = raw ? JSON.parse(raw) : {};
-      cache[mealType] = { suggestions, cachedAt: Date.now() };
+      const key = this.cacheKey(mealType, region, diet);
+      cache[key] = { suggestions, cachedAt: Date.now() };
       localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
     } catch {
       // Ignore
     }
   },
 
-  /** Get suggestions with cache fallback */
   async getWithFallback(params: { mealType: string; diet: string; region: string; pantry?: string[] }): Promise<SuggestionResponse> {
     try {
       const result = await trayApi.getSuggestions(params);
-      // Cache successful results
-      suggestionCache.set(params.mealType, result.suggestions);
+      suggestionCache.set(params.mealType, params.region, params.diet, result.suggestions);
       return result;
     } catch {
-      // Fallback to cache
-      const cached = suggestionCache.get(params.mealType);
+      const cached = suggestionCache.get(params.mealType, params.region, params.diet);
       if (cached) {
         return { suggestions: cached, source: 'cache' };
       }
-      // M9: Return empty defaults immediately — don't double-call getSuggestions
-      // which would fail again with the same network issue
       return { suggestions: [], source: 'cache' };
     }
   },

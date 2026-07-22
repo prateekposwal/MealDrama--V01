@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import DishImage from './DishImage';
+import { getRegionKey, DIET_FILTER } from '../../utils/dishSearch';
 
 interface BlankSlotProps {
   slot: string;
@@ -13,13 +14,6 @@ interface BlankSlotProps {
   onAddMeal: (date: string, slot: string, dish: Dish) => void;
   onOpenSearch: () => void;
 }
-
-const DIET_FILTER: Record<string, string[]> = {
-  veg: ['veg', 'vegan'],
-  'non-veg': ['veg', 'non-veg', 'eggitarian'],
-  eggitarian: ['veg', 'eggitarian', 'non-veg'],
-  vegan: ['veg', 'vegan'],
-};
 
 // Hinglish microcopy for suggestions
 const SUGGESTION_HEADERS: Record<string, string> = {
@@ -39,7 +33,7 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
   onAddMeal,
   onOpenSearch,
 }) => {
-    const regionKey = (userRegion ?? '').toLowerCase().replace(' india', '');
+    const regionKey = getRegionKey(userRegion);
 
   // Smart suggestions: max 3, based on mealType + region + diet + pantry staples
   const suggestions = useMemo(() => {

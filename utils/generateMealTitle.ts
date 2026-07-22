@@ -13,7 +13,7 @@ export function generateMealTitle(
   const normalizedSides = deduplicateSides(sides);
 
   // Normalize beverage (pick first, cap at 1)
-  const normalizedBev = beverages.length > 0 ? normalizeCategory(beverages[0]) : null;
+  const normalizedBev = beverages.length > 0 ? normalizeCategory(beverages[0]!) : null;
 
   // Detect carb already embedded in dish name
   const dishCarb = detectEmbeddedCarb(mainDish);
@@ -24,8 +24,12 @@ export function generateMealTitle(
   // Skip assigned carb if dish already has the same carb embedded
   const effectiveCarb = (normalizedAssignedCarb && normalizedAssignedCarb !== dishCarb) ? normalizedAssignedCarb : null;
 
-  // Build sides list (exclude any carb that matches effective carb or dish carb)
-  const sideParts = normalizedSides.filter(s => s !== effectiveCarb && s !== dishCarb);
+  // Build sides list — exclude carbs that match effective carb, dish carb, or are general carb-like when carb is assigned
+  const sideParts = normalizedSides.filter(s => {
+    if (s === effectiveCarb || s === dishCarb) return false;
+    if (effectiveCarb && isCarb(s)) return false;
+    return true;
+  });
 
   // Format: Main (Side1, Side2) + Carb + Beverage
   const parts: string[] = [mainDish];

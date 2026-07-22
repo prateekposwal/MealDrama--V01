@@ -1,4 +1,6 @@
-export function lowerBound<T>(arr: T[], value: T, key: (item: T) => string): number {
+export function lowerBound<T>(arr: T[], value: string, key: (item: T) => string): number;
+export function lowerBound<T>(arr: T[], value: T, key: (item: T) => string): number;
+export function lowerBound<T>(arr: T[], value: T | string, key: (item: T) => string): number {
   let lo = 0;
   let hi = arr.length;
   const v = typeof value === 'string' ? value : String(value);
@@ -10,7 +12,9 @@ export function lowerBound<T>(arr: T[], value: T, key: (item: T) => string): num
   return lo;
 }
 
-export function upperBound<T>(arr: T[], value: T, key: (item: T) => string): number {
+export function upperBound<T>(arr: T[], value: string, key: (item: T) => string): number;
+export function upperBound<T>(arr: T[], value: T, key: (item: T) => string): number;
+export function upperBound<T>(arr: T[], value: T | string, key: (item: T) => string): number {
   let lo = 0;
   let hi = arr.length;
   const v = typeof value === 'string' ? value : String(value);

@@ -7,15 +7,20 @@ import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspens
 import { useTrayStore, MealType, TrayItem, GuestMode } from '../plan/store/useTrayStore';
 import { useLoopStore } from '../plan/store/useLoopStore';
 import type { Meal } from '../types/tray';
+import type { MealLoopConfig } from '../types/tray';
+import type { SourcePool } from '../plan/utils/mealLoopEngine';
 import { useStore } from '../app/store/useStore';
 import type { SuggestionMeal } from '../app/lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
 const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
+const MealLoopConfigModal = lazy(() => import('../components/meal/MealLoopConfigModal'));
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { useMealMap } from '../plan/hooks/useMealMap';
-import { ChevronLeft, ChevronRight, Calendar, Users, Plus, Minus, Navigation, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, Calendar, Users, Plus, Minus, Navigation, Settings } from 'lucide-react';
+import DishImage from '../components/new/DishImage';
 import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll';
+import NotificationCenter from '../components/notification/NotificationCenter';
 import { useBackButtonClose } from '../hooks/useBackButtonClose';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { VirtualList } from '../components/new/VirtualList';
@@ -28,8 +33,9 @@ import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOTS } from '../plan/utils/continuity';
 import { slotKey } from '../plan/utils/planIndex';
+import { getRegionKey } from '../utils/dishSearch';
 import { getSkipUndoWindowExpiry, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
-import { getISODate, getISTDayOfWeek, parseISODate } from '../utils/dateUTC';
+import { getISODate, getISTDayOfWeek, parseISODate, daysBetweenISO, addDaysISO } from '../utils/dateUTC';
 import { computeStyleWarnings } from '../meal/constants/dishStyles';
 
 /**
@@ -122,7 +128,6 @@ interface HistoryDayRowProps {
   noopHandlers: {
     open: () => void;
     close: () => void;
-    select: (...args: any[]) => any;
     updateInline: (...args: any[]) => any;
     remove: (...args: any[]) => any;
     suggestionAdd: (...args: any[]) => any;
@@ -141,32 +146,39 @@ const HistoryDayRow = React.memo<HistoryDayRowProps>(({
   const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
   const dayNum = dateObj.getDate();
   const guestCount = guestMode.active ? guestMode.extraServings : 0;
+  const historySlotColors: Record<string, string> = {
+    breakfast: 'bg-rose-50/20',
+    lunch: 'bg-blue-50/20',
+    snacks: 'bg-amber-50/20',
+    dinner: 'bg-violet-50/20',
+  };
 
   return (
     <div>
       <div className="flex items-center gap-3 mb-3 px-2">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-400">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-500">
           <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
         </div>
-        <span className="text-lg font-bold text-gray-400">{dayNum}</span>
+        <span className="text-lg font-bold text-gray-500">{dayNum}</span>
         {guestCount > 0 && (
-          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-100/50 text-violet-400">+{guestCount} guests</span>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100/50 text-violet-400">+{guestCount} guests</span>
         )}
       </div>
 
       <div className="space-y-3">
-        {SLOTS.map(({ key, mealType, label }) => {
-          const slotMeals = getMeals(date, mealType);
-          if (slotMeals.length === 0) return null;
-          const slotMeta = SLOT_META[key];
-          return (
-            <div key={`${date}-${key}`}>
-              {slotMeta && (
-                <div className="flex items-center gap-1.5 mb-1 px-2">
-                  <span className="text-[9px] font-medium text-gray-400">{slotMeta.time}</span>
-                </div>
-              )}
-              <SlotBody
+          {SLOTS.map(({ key, mealType, label }) => {
+            const slotMeals = getMeals(date, mealType);
+            if (slotMeals.length === 0) return null;
+            const slotMeta = SLOT_META[key];
+            return (
+              <div key={`${date}-${key}`}>
+                {slotMeta && (
+                  <div className="flex items-center gap-1.5 mb-1 px-2">
+                    <span className="text-[10px] font-medium text-gray-500">{slotMeta.time}</span>
+                  </div>
+                )}
+                <div className={`rounded-xl px-3 py-2 ${historySlotColors[mealType] || 'bg-gray-50/30'}`}>
+                <SlotBody
                 date={date}
                 mealType={mealType}
                 slotLabel={label}
@@ -177,10 +189,6 @@ const HistoryDayRow = React.memo<HistoryDayRowProps>(({
                 userDiet={userDiet}
                 pantryStaples={pantryStaples}
                 guestMode={guestMode}
-                swapOpenKey={null}
-                onSwapOpen={noopHandlers.open}
-                onSwapClose={noopHandlers.close}
-                onSwapSelect={noopHandlers.select}
                 onUpdateInline={noopHandlers.updateInline}
                 onRemove={noopHandlers.remove}
                 onSuggestionAdd={noopHandlers.suggestionAdd}
@@ -190,6 +198,7 @@ const HistoryDayRow = React.memo<HistoryDayRowProps>(({
                 onSwapCustomizeClose={noopHandlers.customizeClose}
                 onSwapCustomizeApply={noopHandlers.customizeApply}
               />
+              </div>
             </div>
           );
         })}
@@ -236,7 +245,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         };
     }, []);
 
-    const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const { openKey: swapCustomizeOpenKey, setOpenKey: setSwapCustomizeOpenKey } = useSwapCustomize();
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Lunch');
@@ -254,6 +262,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const [navSlot, setNavSlot] = useState<MealType | null>(null);
     useLockBodyScroll(showNavPicker);
     useBackButtonClose(showNavPicker, () => setShowNavPicker(false));
+    const [showLoopModal, setShowLoopModal] = useState(false);
+    const [expandedDay, setExpandedDay] = useState<string | null>(null);
 
     const ADD_DISH_DUMMY: TrayItem = {
         id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
@@ -277,11 +287,18 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const skipSlot = useTrayStore(s => s.skipSlot);
     const undoSkipSlot = useTrayStore(s => s.undoSkipSlot);
     const mealLoop = useLoopStore(s => s.mealLoop);
+    const applyLoopConfig = useLoopStore(s => s.applyLoopConfig);
     const planPeriod = useTrayStore(s => s.plan.period);
     const planDays = useTrayStore(s => s.plan.days);
 
     const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
     const ACTIVE_SLOTS = useMemo(() => SLOTS.filter(s => plannedSlots.includes(s.key)), [plannedSlots]);
+    const SLOT_COLORS: Record<string, string> = {
+      breakfast: 'bg-rose-50/40',
+      lunch: 'bg-blue-50/40',
+      snacks: 'bg-amber-50/40',
+      dinner: 'bg-violet-50/40',
+    };
 
     // FIX: Deduplicate plan.days on mount to clean historical duplicates
     const _planCleanupDone = useRef(false);
@@ -295,7 +312,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         for (const [date, dayMeals] of Object.entries(planDays)) {
             const cleaned: any = { breakfast: [], lunch: [], snacks: [], dinner: [] };
             for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
-                const items = (dayMeals as any)[slot] || [];
+                const items = dayMeals[slot] || [];
                 if (items.length === 0) continue;
                 // Deduplicate by meal_id (keep first occurrence)
                 const seen = new Set<string>();
@@ -324,6 +341,40 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             console.log('[PlanScreen] Cleaned duplicate dishes from plan.days');
         }
     }, [planDays]);
+
+    const traySourcePool = useMemo((): SourcePool => {
+        const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+        const seen = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
+        const trayLibrary = useStore.getState().trayLibrary;
+        for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+            for (const option of trayLibrary[mt]) {
+                const dish = dishes.find(d => d.id === option.dishId);
+                if (dish && !seen[mt].has(dish.id)) { seen[mt].add(dish.id); pool[mt].push(dish); }
+            }
+        }
+        for (const date of Object.keys(planDays)) {
+            for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
+                for (const item of planDays[date]?.[mt] || []) {
+                    const dish = dishes.find(d => d.id === item.meal_id);
+                    if (dish && !seen[mt].has(dish.id)) { seen[mt].add(dish.id); pool[mt].push(dish); }
+                }
+            }
+        }
+        return pool;
+    }, [planDays, dishes]);
+
+    const handleLoopApply = useCallback((config: any) => {
+        applyLoopConfig(config, traySourcePool, dishes);
+        window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
+        setShowLoopModal(false);
+    }, [traySourcePool, applyLoopConfig, dishes]);
+
+    const isPlanEnding = useMemo(() => {
+        if (!mealLoop.config) return false;
+        const endDate = addDaysISO(mealLoop.config.startDate, mealLoop.config.cycleLength * 7);
+        const daysLeft = daysBetweenISO(getISODate(), endDate);
+        return daysLeft <= 3 && daysLeft >= -7; // ending soon or recently ended
+    }, [mealLoop.config]);
 
     // ─── Auto-scroll to slot when dish is added ──
     useEffect(() => {
@@ -414,15 +465,10 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         }
     }, [isWeekComplete]);
 
-    const stableSwapOpen = useCallback((id: string) => {
-        setSwapOpenKey(prev => prev === id ? null : id);
-    }, []);
-
     const stableSwapCustomizeOpen = useCallback((id: string) => {
         setSwapCustomizeOpenKey(id);
     }, []);
 
-    const stableSwapClose = useCallback(() => setSwapOpenKey(null), []);
     const stableCustomizeClose = useCallback(() => setSwapCustomizeOpenKey(null), []);
 
     const quickAddTrigger = useRef({ date: '', label: '' });
@@ -450,7 +496,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         setWeekStart(getISODate(d));
     };
 
-    const regionKey = user?.region ?? 'India';
+    const regionKey = getRegionKey(user?.region);
     const userDiet = user?.diet ?? 'veg';
     const pantryStaples = user?.pantryStaples ?? [];
 
@@ -475,18 +521,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         window.dispatchEvent(new CustomEvent('slotAdded', { detail: { date, mealType } }));
       };
     }, [updateItemInline]);
-
-    const handleSwapSelect = useCallback((date: string, mealType: MealType, itemId: string) => {
-        return (newMealId: string, chipOverrides?: Record<string, unknown>) => {
-            const dish = dishes.find(d => d.id === newMealId);
-            if (!dish) return;
-            swapMealInSlot(date, mealType, itemId, dishToMeal(dish));
-            if (chipOverrides) {
-                updateItemInline(date, mealType, itemId, chipOverrides);
-            }
-            setSwapOpenKey(null);
-        };
-    }, [swapMealInSlot, dishes, updateItemInline]);
 
     const handleUpdateInline = useCallback((date: string, mealType: MealType, itemId: string) => {
         return (updates: Partial<TrayItem>) => {
@@ -558,6 +592,19 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         setShowQuickAdd(false);
     }, [addMealToSlot, getMeals, setToast, addToTray]);
 
+    const handleBannerAdd = useCallback((date: string, mealType: MealType, dish: Dish) => {
+        const meal = dishToMeal(dish);
+        const currentItems = getMeals(date, mealType);
+        if (currentItems.some(m => m.meal_id === dish.id || m.name.toLowerCase() === dish.name.toLowerCase())) {
+            setToast({ message: `${dish.name} already added to ${mealType}`, type: 'info' });
+            return;
+        }
+        addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
+        addMealToSlot(date, mealType, meal);
+        setToast({ message: `${dish.name} added to ${mealType}`, type: 'success' });
+        window.dispatchEvent(new Event('slotAdded'));
+    }, [addMealToSlot, getMeals, setToast, addToTray]);
+
     const today = getISODate(new Date());
     const [planTab, setPlanTab] = useState<'upcoming' | 'history'>('upcoming');
     const pastDates = useMemo(() => weekDates.filter(d => d < today), [weekDates, today]);
@@ -626,8 +673,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     }, [weekStart, mealLoop.config, upcomingDates]);
 
     return (
-        <PullToRefresh onRefresh={() => useTrayStore.getState().syncOfflineQueue()}>
-        <div className="pb-40 animate-in fade-in duration-300 bg-white">
+        <PullToRefresh onRefresh={() => { useTrayStore.getState().syncOfflineQueue(); return; }}>
+        <div className="pb-40 animate-in fade-in duration-300 bg-white ">
             <style>{`
         .card-section-enter {
           animation: fadeInUp 0.45s ease-out both;
@@ -690,7 +737,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         }
       `}</style>
             {/* ─── Header ─── */}
-            <header className="px-6 pt-4 pb-4">
+            <header className="px-4 pt-4 pb-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-black tracking-tight">Meal Plan</h1>
@@ -699,16 +746,19 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                             <span className="text-xs font-bold text-gray-500">{weekLabel}</span>
                         </div>
                     </div>
-                    {!mealLoop.config && (
-                        <div className="flex items-center gap-2">
-                            <button onClick={goToPrevWeek} className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-90 bg-gray-100" aria-label="Previous week">
-                                <ChevronLeft size={16} className="text-gray-700" />
-                            </button>
-                            <button onClick={goToNextWeek} className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-90 bg-gray-100" aria-label="Next week">
-                                <ChevronRight size={16} className="text-gray-700" />
-                            </button>
-                        </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                        <NotificationCenter />
+                        {!mealLoop.config && (
+                            <>
+                                <button onClick={goToPrevWeek} className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-90 bg-gray-100" aria-label="Previous week">
+                                    <ChevronLeft size={16} className="text-gray-700" />
+                                </button>
+                                <button onClick={goToNextWeek} className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-90 bg-gray-100" aria-label="Next week">
+                                    <ChevronRight size={16} className="text-gray-700" />
+                                </button>
+                            </>
+                        )}
+                    </div>
                 </div>
 
                 {/* Guest Mode */}
@@ -742,10 +792,10 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 endDate: weekDates[weekDates.length - 1] || weekStart,
                                             });
                                         }}
-                                        className="w-6 h-6 rounded-lg bg-white border border-violet-200 flex items-center justify-center text-violet-600 active:scale-90"
+                                        className="w-8 h-8 rounded-lg bg-white border border-violet-200 flex items-center justify-center text-violet-600 active:scale-90"
                                         aria-label="Remove guest"
                                     >
-                                        <Minus size={10} />
+                                        <Minus size={12} />
                                     </button>
                                     <span className="text-sm font-bold text-violet-700 w-6 text-center">
                                         {guestMode.guestCount || guestMode.extraServings}
@@ -760,17 +810,17 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 endDate: weekDates[weekDates.length - 1] || weekStart,
                                             });
                                         }}
-                                        className="w-6 h-6 rounded-lg bg-white border border-violet-200 flex items-center justify-center text-violet-600 active:scale-90"
+                                        className="w-8 h-8 rounded-lg bg-white border border-violet-200 flex items-center justify-center text-violet-600 active:scale-90"
                                         aria-label="Add guest"
                                     >
-                                        <Plus size={10} />
+                                        <Plus size={12} />
                                     </button>
                                 </div>
                                 <span className="text-[10px] text-violet-400 ml-auto">
                                     {weekStart} → {weekDates[weekDates.length - 1] || weekStart}
                                 </span>
                             </div>
-                            <p className="text-[9px] text-violet-500/70 mt-1.5">
+                            <p className="text-[10px] text-violet-500/70 mt-1.5">
                                 Each meal gets +{guestMode.extraServings} extra serve{guestMode.extraServings !== 1 ? 's' : ''} across the week
                             </p>
                         </div>
@@ -796,7 +846,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             </header>
 
             {/* ─── Tab Nav ─── */}
-            <div className="px-6 mb-4">
+            <div className="px-4 mb-4">
                 <div className="flex gap-2">
                     <button
                         onClick={() => setPlanTab('upcoming')}
@@ -818,11 +868,56 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     >
                         History
                         {pastDatesWithMeals.length > 0 && (
-                            <span className="ml-1.5 text-[8px] opacity-60">{pastDatesWithMeals.length}</span>
+                            <span className="ml-1.5 text-[10px] opacity-60">{pastDatesWithMeals.length}</span>
                         )}
                     </button>
                 </div>
             </div>
+
+            {/* ─── Mini-map: week at a glance ─── */}
+            {planTab === 'upcoming' && upcomingDates.length > 0 && (
+                <div className="px-4 mb-4 overflow-x-auto scrollbar-hide">
+                    <div className="flex gap-1.5">
+                        {upcomingDates.map(date => {
+                            const dateObj = new Date(date);
+                            const dayAbbr = dateObj.toLocaleDateString('en-IN', { weekday: 'short' }).slice(0, 1);
+                            const dayNum = dateObj.getDate();
+                            const effectiveExpanded = expandedDay ?? upcomingDates[0] ?? '';
+                            const isActive = effectiveExpanded === date;
+                            const slotStatus = ACTIVE_SLOTS.map(s => getMeals(date, s.mealType).length > 0);
+                            return (
+                                <button
+                                    key={date}
+                                    onClick={() => {
+                                        setExpandedDay(date);
+                                        setTimeout(() => {
+                                            document.getElementById(`plan-day-${date}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                        }, 100);
+                                    }}
+                                    className={`flex-shrink-0 px-3 py-2 rounded-xl text-center transition-all min-w-[52px] ${
+                                        isActive ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
+                                    }`}
+                                >
+                                    <span className="text-[10px] font-black uppercase block leading-tight">{dayAbbr}</span>
+                                    <span className="text-sm font-bold block leading-tight">{dayNum}</span>
+                                    <div className="flex gap-0.5 mt-1 justify-center">
+                                        {slotStatus.map((filled, i) => (
+                                            <span
+                                                key={i}
+                                                className={`w-1.5 h-1.5 rounded-full ${
+                                                    filled
+                                                        ? isActive ? 'bg-white' : 'bg-gray-900'
+                                                        : isActive ? 'bg-white/40' : 'bg-gray-300'
+                                                }`}
+                                            />
+                                        ))}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* ─── Upcoming (today + future) ─── */}
             {planTab === 'upcoming' && upcomingDates.length > 0 && (
@@ -832,96 +927,147 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                         const dayName = dateObj.toLocaleDateString('en-IN', { weekday: 'short' });
                         const dayNum = dateObj.getDate();
                         const guestCount = guestMode.active ? guestMode.extraServings : 0;
+                        const effectiveExpanded = expandedDay ?? upcomingDates[0] ?? '';
+                        const isExpanded = effectiveExpanded === date;
+
+                        const toggleDay = () => {
+                            setExpandedDay(prev => {
+                                const current = prev ?? upcomingDates[0] ?? '';
+                                return current === date ? null : date;
+                            });
+                        };
 
                         return (
                             <div key={date} id={`plan-day-${date}`}>
-                                <div className="flex items-center gap-3 mb-3 px-2">
-                                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-500">
-                                        <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
+                                {/* Day header — sticky */}
+                                <div
+                                    className="sticky top-0 z-10 bg-white -mx-4 px-4 py-2 mb-3 flex items-center gap-2 cursor-pointer"
+                                    onClick={toggleDay}
+                                >
+                                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                                        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-gray-100 text-gray-500">
+                                            <span className="text-xs font-black">{dayName.slice(0, 2)}</span>
+                                        </div>
+                                        <span className="text-lg font-bold text-gray-800">{dayNum}</span>
+                                        {guestCount > 0 && (
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-600">+{guestCount} guests</span>
+                                        )}
                                     </div>
-                                    <span className="text-lg font-bold text-gray-800">{dayNum}</span>
-                                    {guestCount > 0 && (
-                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-600">+{guestCount} guests</span>
-                                    )}
+                                    <button
+                                        onClick={e => { e.stopPropagation(); toggleDay(); }}
+                                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 active:scale-90 transition-all flex-shrink-0"
+                                        aria-label={isExpanded ? 'Collapse day' : 'Expand day'}
+                                    >
+                                        <ChevronDown
+                                            size={16}
+                                            className={`text-gray-500 transition-transform duration-200 ${isExpanded ? '' : '-rotate-90'}`}
+                                        />
+                                    </button>
                                 </div>
 
-                                <div className="space-y-3">
-                                    {ACTIVE_SLOTS.map(({ key, mealType, label }, i) => {
-                                        const mode = 'upcoming';
-                                        const tomorrowDate = getISODate(new Date(new Date(date).getTime() + 86400000));
-                                        const tomorrowMeals = getMeals(tomorrowDate, mealType);
-                                        const slotMealsForDate = getMeals(date, mealType);
-                                        const styleWarnings = computeStyleWarnings(slotMealsForDate.map(m => ({ mealId: m.meal_id, name: m.name })));
-                                        return <React.Fragment key={`${date}-${key}`}>
-                                            <LoopAutoFillSlot date={date} mealType={mealType} />
-                                            <PlanUpcomingSlot
-                                                date={date}
-                                                mealType={mealType}
-                                                slotLabel={label}
-                                                meals={slotMealsForDate}
-                                                mergeExtraItems
-                                                mode={mode}
-                                                dishes={dishes}
-                                                userRegion={regionKey}
-                                                userDiet={userDiet}
-                                                pantryStaples={pantryStaples}
-                                                guestMode={stableGuestMode}
-                                                swapOpenKey={swapOpenKey}
-                                                onSwapOpen={stableSwapOpen}
-                                                onSwapClose={stableSwapClose}
-                                                onSwapSelect={handleSwapSelect}
-                                                onUpdateInline={handleUpdateInline}
-                                                onRemove={handleRemove}
-                                                onSuggestionAdd={handleSuggestionAdd}
-                                                swapCustomizeOpenKey={swapCustomizeOpenKey}
-                                                onSwapCustomizeOpen={stableSwapCustomizeOpen}
-                                                onSwapCustomizeClose={stableCustomizeClose}
-                                                onSwapCustomizeApply={handleSwapCustomizeApply}
-                                                onAddAnother={handleAddAnother}
-                                                tomorrowDate={tomorrowDate}
-                                                tomorrowMeals={tomorrowMeals}
-                                                styleWarnings={styleWarnings}
-                                                preferences={stablePreferences}
-                                            onOpenSearchAction={openSearchAction}
-                                            onCompleteAction={handleCompleteSlot}
-                                            onUndoCompleteAction={handleUndoComplete}
-                                            onSkipSlotAction={handleSkipSlot}
-                                            onUndoSkipAction={handleUndoSkip}
-                                            />
-                                        </React.Fragment>
-                                    })}
-                                </div>
+                                {isExpanded ? (
+                                    <div className="space-y-3">
+                                        {ACTIVE_SLOTS.map(({ key, mealType, label }, i) => {
+                                            const mode = 'upcoming';
+                                            const tomorrowDate = getISODate(new Date(new Date(date).getTime() + 86400000));
+                                            const tomorrowMeals = getMeals(tomorrowDate, mealType);
+                                            const slotMealsForDate = getMeals(date, mealType);
+                                            const styleWarnings = computeStyleWarnings(slotMealsForDate.map(m => ({ mealId: m.meal_id, name: m.name })));
+                                            if (slotMealsForDate.length === 0) {
+                                                return (
+                                                    <React.Fragment key={`${date}-${key}`}>
+                                                        <LoopAutoFillSlot date={date} mealType={mealType} />
+                                                        <button
+                                                            onClick={() => openSearchAction(date, label)}
+                                                            className="w-full h-10 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all hover:border-gray-300"
+                                                        >
+                                                            <Plus size={14} className="text-gray-500" />
+                                                            <span className="text-[10px] font-medium text-gray-500">{label}</span>
+                                                        </button>
+                                                    </React.Fragment>
+                                                );
+                                            }
+                                            return <React.Fragment key={`${date}-${key}`}>
+                                                <LoopAutoFillSlot date={date} mealType={mealType} />
+                                                <div className={`rounded-xl px-3 py-2 ${SLOT_COLORS[mealType] || 'bg-gray-50/30'}`}>
+                                                <PlanUpcomingSlot
+                                                    date={date}
+                                                    mealType={mealType}
+                                                    slotLabel={label}
+                                                    meals={slotMealsForDate}
+                                                    mergeExtraItems
+                                                    mode={mode}
+                                                    dishes={dishes}
+                                                    userRegion={regionKey}
+                                                    userDiet={userDiet}
+                                                    pantryStaples={pantryStaples}
+                                                    guestMode={stableGuestMode}
+                                                    onUpdateInline={handleUpdateInline}
+                                                    onRemove={handleRemove}
+                                                    onSuggestionAdd={handleSuggestionAdd}
+                                                    swapCustomizeOpenKey={swapCustomizeOpenKey}
+                                                    onSwapCustomizeOpen={stableSwapCustomizeOpen}
+                                                    onSwapCustomizeClose={stableCustomizeClose}
+                                                    onSwapCustomizeApply={handleSwapCustomizeApply}
+                                                    onAddAnother={handleAddAnother}
+                                                    regionKey={regionKey}
+                                                    onAddSuggestion={handleBannerAdd}
+                                                    tomorrowDate={tomorrowDate}
+                                                    tomorrowMeals={tomorrowMeals}
+                                                    styleWarnings={styleWarnings}
+                                                    preferences={stablePreferences}
+                                                onOpenSearchAction={openSearchAction}
+                                                onCompleteAction={handleCompleteSlot}
+                                                onUndoCompleteAction={handleUndoComplete}
+                                                onSkipSlotAction={handleSkipSlot}
+                                                onUndoSkipAction={handleUndoSkip}
+                                                />
+                                                </div>
+                                            </React.Fragment>
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-3 px-2 py-1.5 overflow-x-auto">
+                                        {ACTIVE_SLOTS.map(({ key, mealType, label }) => {
+                                            const filled = getMeals(date, mealType).length > 0;
+                                            const meals = getMeals(date, mealType);
+                                            return (
+                                                <div key={key} className="flex items-center gap-1.5">
+                                                    {filled ? meals.slice(0, 3).map((m, i) => (
+                                                        <DishImage key={m.meal_id || i} name={m.name} size="xs" />
+                                                    )) : (
+                                                        <div className="w-8 h-8 rounded-xl bg-gray-100 border border-dashed border-gray-200 flex items-center justify-center">
+                                                            <span className="text-[10px] text-gray-300 font-bold">{key === 'Breakfast' ? 'B' : key === 'Lunch' ? 'L' : key === 'Snacks' ? 'S' : 'D'}</span>
+                                                        </div>
+                                                    )}
+                                                    {filled && <span className="text-[10px] font-medium text-gray-500 truncate max-w-[60px]">{meals[0]?.name}</span>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         );
                     })}
                 </div>
             )}
 
-            {/* ─── Completion summary (all upcoming slots filled) ─── */}
-            {planTab === 'upcoming' && upcomingDates.length > 0 && (() => {
+            {/* ─── Floating completion summary ─── */}
+            {planTab === 'upcoming' && upcomingDates.length <= 3 && upcomingDates.length > 0 && !undoSlot && (() => {
                 const filledSlots = upcomingMealMap.totals.filledSlots;
                 const totalSlots = upcomingMealMap.totals.totalSlots;
-                const allFilled = filledSlots === totalSlots;
                 return (
-                <div className="px-4 pt-4 pb-8">
-                    <div className={`rounded-2xl border-2 p-6 text-center space-y-4 ${allFilled ? 'border-emerald-200 bg-emerald-50/80' : 'border-dashed border-gray-200 bg-gray-50'}`}>
-                        {allFilled ? (
-                            <div className="text-3xl">🎯</div>
-                        ) : (
-                            <div className="text-3xl">📋</div>
-                        )}
-                        <p className="text-sm font-black text-gray-900">
-                            {allFilled ? `All meals planned for this ${periodLabel}` : `${filledSlots}/${totalSlots} slots filled`}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                            {totalPlannedMeals} meal{totalPlannedMeals !== 1 ? 's' : ''} across {upcomingDates.length} day{upcomingDates.length !== 1 ? 's' : ''}
-                        </p>
+                <div className="fixed bottom-24 left-4 z-40 max-w-[260px]">
+                    <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-2xl px-4 py-3 shadow-lg flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-900">{filledSlots}/{totalSlots} slots filled</span>
+                            <span className="text-[10px] text-gray-500">{totalPlannedMeals} meals</span>
+                        </div>
                         <button
                             onClick={() => window.dispatchEvent(new CustomEvent('navigate:profile'))}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold active:scale-95 transition-all"
+                            className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-gray-900 text-white active:scale-95 transition-all inline-flex items-center gap-1"
                         >
-                            <Settings size={14} />
-                            Set up next {periodLabel}
+                            Set up
                         </button>
                     </div>
                 </div>
@@ -952,21 +1098,30 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
             {/* ─── Empty state ─── */}
             {planTab === 'upcoming' && upcomingDates.length === 0 && (
-                <div className="px-6 text-center py-16">
+                <div className="px-4 text-center py-16">
                     <p className="text-sm font-bold text-gray-500">No upcoming days in this week</p>
-                    <p className="text-xs mt-1 text-gray-400">Try a different week</p>
+                    {isPlanEnding ? (
+                        <button
+                            onClick={() => setShowLoopModal(true)}
+                            className="mt-4 inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#FF385C] text-white font-bold text-sm active:scale-95 transition-all"
+                        >
+                            <Calendar size={16} /> Extend Plan
+                        </button>
+                    ) : (
+                        <p className="text-xs mt-1 text-gray-500">Try a different week</p>
+                    )}
                 </div>
             )}
             {planTab === 'history' && pastDatesWithMeals.length === 0 && (
-                <div className="px-6 text-center py-16">
+                <div className="px-4 text-center py-16">
                     <p className="text-sm font-bold text-gray-500">No past meals yet</p>
-                    <p className="text-xs mt-1 text-gray-400">Meals from past days will show here</p>
+                    <p className="text-xs mt-1 text-gray-500">Meals from past days will show here</p>
                 </div>
             )}
 
             {/* Undo toast */}
             {undoSlot && (
-                <div className="fixed bottom-40 left-4 right-4 z-50 mx-auto max-w-lg">
+                <div className="fixed bottom-40 left-4 right-4 z-50 ">
                     <div className="bg-gray-900 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center justify-between">
                         <span className="text-sm font-medium">
                             {undoSlot.type === 'skip'
@@ -1043,7 +1198,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                             selected ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
                                         }`}
                                     >
-                                        <span className="text-[8px] font-black uppercase tracking-widest block">{dayName}</span>
+                                        <span className="text-[10px] font-black uppercase tracking-widest block">{dayName}</span>
                                         <span className="text-sm font-bold block mt-0.5">{dayNum}</span>
                                     </button>
                                 );
@@ -1067,7 +1222,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         </span>
                                         <div className="text-left">
                                             <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                            <span className="text-[10px] text-gray-400">
+                                            <span className="text-[10px] text-gray-500">
                                                 {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                             </span>
                                         </div>
@@ -1088,7 +1243,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         </span>
                                         <div className="text-left">
                                             <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                            <span className="text-[10px] text-gray-400">
+                                            <span className="text-[10px] text-gray-500">
                                                 {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                             </span>
                                         </div>
@@ -1136,7 +1291,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 selected ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
                                             }`}
                                         >
-                                            <span className="text-[8px] font-black uppercase tracking-widest block">{dayName}</span>
+                                            <span className="text-[10px] font-black uppercase tracking-widest block">{dayName}</span>
                                             <span className="text-sm font-bold block mt-0.5">{dayNum}</span>
                                         </button>
                                     );
@@ -1166,7 +1321,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                     </span>
                                     <div className="text-left">
                                         <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                        <span className="text-[10px] text-gray-400">
+                                        <span className="text-[10px] text-gray-500">
                                             {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                         </span>
                                     </div>
@@ -1221,6 +1376,17 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     onAddAnother={handleAddAnother}
                     onChange={() => {}}
                     initialAddMode={true}
+                /></Suspense>
+            )}
+
+            {/* Meal Loop Config — Extend Plan */}
+            {showLoopModal && (
+                <Suspense fallback={null}><MealLoopConfigModal
+                    isOpen={showLoopModal}
+                    onClose={() => setShowLoopModal(false)}
+                    sourcePool={traySourcePool}
+                    plannedSlots={plannedSlots}
+                    onApply={handleLoopApply}
                 /></Suspense>
             )}
         </div>

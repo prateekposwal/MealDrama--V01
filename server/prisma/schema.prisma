@@ -13,6 +13,7 @@ model User {
   email              String?  @unique // Google Auth
   phone              String?  @unique // OTP Auth
   name               String?
+  googleId           String?  @unique
   systemId           String?  @unique // e.g., USER-8821
   createdAt          DateTime @default(now())
   onboardingComplete Boolean  @default(false)
@@ -29,18 +30,18 @@ model User {
 
 // 2. HOUSEHOLD
 model Household {
-  id                 String   @id @default(uuid())
-  name               String
-  code               String   @unique @default(uuid())
-  locationRegion     String?
-  householdSize      Int      @default(1)
-  onboardingProgress Int      @default(0)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id             String   @id @default(uuid())
+  name           String
+  code           String   @unique @default(uuid())
+  locationRegion String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   members    HouseholdMember[]
-  slotConfig MealSlotConfig?
-  cook       Cook?
+  expenses   Expense[]
+  activities ActivityFeed[]
+
+  @@index([code])
 }
 
 model HouseholdMember {
@@ -48,53 +49,61 @@ model HouseholdMember {
   householdId String
   userId      String?
   name        String
-  role        String   @default("member") // owner, member
-  persona     String? // working_professional, homemaker, student, etc.
+  role        String   @default("member") // admin, member
   createdAt   DateTime @default(now())
-  ageGroup    String? // adult, teen, child, senior
-  dietType    String? // veg, non_veg, eggitarian, vegan
 
   household     Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
   user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  healthProfile HealthProfile?
+  expenseSplits ExpenseSplit[]
 
   @@index([householdId])
   @@index([userId])
 }
 
-model MealSlotConfig {
-  id          String @id @default(uuid())
-  householdId String @unique
-  config      Json // stores breakfast/lunch/snacks/dinner configuration
-
-  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
-}
-
-model Cook {
+/// Tracks household shared expenses (cook salary, groceries) for roommates
+model Expense {
   id          String   @id @default(uuid())
-  householdId String   @unique
-  name        String
-  phone       String?
-  addedAt     DateTime @default(now())
+  householdId String
+  addedBy     String // userId of who added this
+  title       String // "Cook Ramesh - July Salary", "Grocery run"
+  amount      Float
+  category    String // cook_salary, groceries, utilities, supplies, other
+  splitType   String   @default("equal") // equal, custom
+  date        DateTime @default(now())
+  settled     Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
-  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  household Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  splits    ExpenseSplit[]
+
+  @@index([householdId])
 }
 
-model HealthProfile {
-  id                String   @id @default(uuid())
-  memberId          String   @unique
-  healthGoal        String? // high_protein, weight_loss, etc.
-  allergies         String[] // ["peanut", "seafood"]
-  intolerances      String[] // ["lactose"]
-  medicalConditions String[] // ["diabetes"]
-  spiceLevel        Int      @default(3)
-  oilPreference     String? // low, medium, high
-  sweetTolerance    String? // low, medium, high
-  foodBehavior      String? // comfort, adventurous, picky
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+model ExpenseSplit {
+  id        String  @id @default(uuid())
+  expenseId String
+  memberId  String // HouseholdMember.id
+  amount    Float // this member's share
+  paid      Boolean @default(false)
 
-  member HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  expense Expense         @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  member  HouseholdMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+}
+
+/// Activity log for household meal changes
+model ActivityFeed {
+  id          String   @id @default(uuid())
+  householdId String
+  memberName  String // display name of who did it
+  action      String // "added", "swapped", "removed", "completed"
+  detail      String // "Paneer Butter Masala → lunch"
+  date        DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
 }
 
 // 5. USER PREFERENCES
@@ -222,7 +231,7 @@ model TraySlot {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items TrayItem[]
 
   @@unique([userId, date, slot])

@@ -6,7 +6,8 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../app/store/useStore';
-import { useTrayStore, MealType, TrayItem } from '../plan/store/useTrayStore';
+import { useTrayStore, MealType, TrayItem, DayMeals } from '../plan/store/useTrayStore';
+import type { TrayStore } from '../plan/store/useTrayStore';
 import { useLoopStore } from '../plan/store/useLoopStore';
 import type { Meal } from '../types/tray';
 import { MealCard, SLOT_META } from '../components/meal/MealCard';
@@ -63,7 +64,6 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         return idx >= 0 ? idx : 0;
     }, [defaultSlot, ACTIVE_SLOTS]);
     const [currentSlotIdx, setCurrentSlotIdx] = useState(initialSlotIdx);
-    const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const [swapCustomizeOpenKey, setSwapCustomizeOpenKey] = useState<string | null>(null);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<'Breakfast' | 'Lunch' | 'Snacks' | 'Dinner'>('Breakfast');
@@ -270,18 +270,6 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
         const unique = new Set([...trayItems.map(i => i.dishId), ...planItems.map(i => i.meal_id)]);
         return unique.size >= s.minRequired;
     });
-
-    const handleSwapSelect = useCallback((date: string, mealType: MealType, itemId: string) => {
-        return (newMealId: string, chipOverrides?: Record<string, unknown>) => {
-            const dish = dishes.find(d => d.id === newMealId);
-            if (!dish) return;
-            swapMealInSlot(date, mealType, itemId, dishToMeal(dish));
-            if (chipOverrides) {
-                updateItemInline(date, mealType, itemId, chipOverrides);
-            }
-            setSwapOpenKey(null);
-        };
-    }, [swapMealInSlot, dishes, updateItemInline]);
 
     const handleUpdateInline = useCallback((date: string, mealType: MealType, itemId: string) => {
         return (updates: Partial<TrayItem>) => {
@@ -579,10 +567,6 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                                 variant="compact"
                                 hideTime
                                 hideChips
-                                swapOpen={swapOpenKey === item.id}
-                                onSwapOpen={() => setSwapOpenKey(swapOpenKey === item.id ? null : item.id)}
-                                onSwapClose={() => setSwapOpenKey(null)}
-                                onSwapSelect={handleSwapSelect(today, currentSlot.mealType, item.id)}
                                 onUpdateInline={handleUpdateInline(today, currentSlot.mealType, item.id)}
                                 onRemove={handleRemove(currentSlot.mealType, item)}
                                 swapCustomizeOpen={swapCustomizeOpenKey === item.id}

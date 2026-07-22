@@ -3,26 +3,10 @@ import { useLoopStore } from '../plan/store/useLoopStore';
 import { useTrayStore } from '../plan/store/useTrayStore';
 import { useStore } from '../app/store/useStore';
 import type { Dish } from '../meal/constants/dishLibrary';
+import type { User } from '../app/store/useStore';
 import type { MealLoopConfig, MealLoopAssignment } from '../types/tray';
 import { getISODate } from '../utils/dateUTC';
-
-// Mock window and localStorage for test environment
-const mockLocalStorage = {
-  getItem: vi.fn(() => null),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
-  clear: vi.fn(),
-};
-
-vi.stubGlobal('window', {
-  dispatchEvent: vi.fn(),
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  navigator: { onLine: true },
-  localStorage: mockLocalStorage,
-});
-
-vi.stubGlobal('localStorage', mockLocalStorage);
+import { buildPlanIndex } from '../plan/utils/planIndex';
 
 const makeDish = (id: string, name: string): Dish => ({
   id,
@@ -48,20 +32,26 @@ const BASE_CONFIG: MealLoopConfig = {
   cycleLength: 3,
   startDate: '2026-06-01',
   skipDays: [],
-  repeatPattern: 'sequential',
+  repeatPattern: 'random',
 };
 
 describe('Store-level loop actions', () => {
   beforeEach(() => {
     useStore.setState({
-      user: { id: 'test-user', name: 'Test', region: 'North India', diet: 'veg', spiceLevel: 2, pantryStaples: [], slotTimePreferences: {} },
+      user: { id: 'test-user', name: 'Test', region: 'North India', diet: 'veg', spiceLevel: 'medium', pantryStaples: [], slotTimePreferences: {} } as User,
       dishes: [],
       trayLibrary: { breakfast: [], lunch: [], snacks: [], dinner: [] },
       toast: null,
       setToast: vi.fn(),
-    } as any);
+    });
 
     useTrayStore.setState({
+      plan: { period: 'week', days: {}, _planIndex: buildPlanIndex({}) },
+      completions: {},
+      skipped: {},
+    });
+
+    useLoopStore.setState({
       mealLoop: {
         config: null,
         sourceDishIds: [],
@@ -70,15 +60,13 @@ describe('Store-level loop actions', () => {
         rotationPointer: 0,
         next_index: 0,
         assignments: [],
-        overrides: {},
+        overrides: new Map(),
         analytics: { cyclesCompleted: 0, mealsAutoFilled: 0, dishesSkipped: 0 },
         refreshing: false,
         lastRefreshStart: undefined,
         undoStack: [],
       },
-      plan: { period: 'week', days: {} },
-      setToast: vi.fn(),
-    } as any);
+    });
   });
 
   describe('applyLoopConfig', () => {
@@ -243,7 +231,7 @@ describe('Store-level loop actions', () => {
             { date: todayStr, mealType: 'lunch' as const, dishId: 'd2', dishName: 'Today', order: 0 },
             { date: tomorrowStr, mealType: 'lunch' as const, dishId: 'd3', dishName: 'Future', order: 0 },
           ],
-          overrides: {},
+        overrides: new Map(),
           analytics: { cyclesCompleted: 0, mealsAutoFilled: 0, dishesSkipped: 0 },
           refreshing: false,
           lastRefreshStart: undefined,
@@ -255,7 +243,7 @@ describe('Store-level loop actions', () => {
       const migrated = JSON.parse(JSON.stringify(oldState));
       const loop = migrated.mealLoop as { assignments?: Array<{ date: string }> };
       if (loop?.assignments) {
-        const todayISO = todayStr;
+        const todayISO = todayStr!;
         loop.assignments = loop.assignments.filter((a) => a.date >= todayISO);
       }
 
@@ -281,7 +269,7 @@ describe('Store-level loop actions', () => {
               breakfast: [
                 { id: '1', meal_id: 'd1', name: 'Onboarding Dish', icon: '🍽️', quantity: 1, servings: 1, smartVersion: 1, gravy: null, roti: null, rice: null, sides: [], beverages: [], dessert: [], itemQtys: {}, source: 'onboarding', start_time: '06:00', end_time: '10:00' },
                 { id: '2', meal_id: 'd2', name: 'User Dish', icon: '🍽️', quantity: 1, servings: 1, smartVersion: 1, gravy: null, roti: null, rice: null, sides: [], beverages: [], dessert: [], itemQtys: {}, source: 'user', start_time: '06:00', end_time: '10:00' },
-                { id: '3', meal_id: 'd3', name: 'Legacy Dish', icon: '🍽️', quantity: 1, servings: 1, smartVersion: 1, gravy: null, roti: null, rice: null, sides: [], beverages: [], dessert: [], itemQtys: {}, source: undefined, start_time: '06:00', end_time: '10:00' } as any,
+                { id: '3', meal_id: 'd3', name: 'Legacy Dish', icon: '🍽️', quantity: 1, servings: 1, smartVersion: 1, gravy: null, roti: null, rice: null, sides: [], beverages: [], dessert: [], itemQtys: {}, start_time: '06:00', end_time: '10:00' },
               ],
               lunch: [],
               snacks: [],
@@ -294,9 +282,9 @@ describe('Store-level loop actions', () => {
       const pool = { breakfast: [], lunch: DISHES, snacks: [], dinner: [] };
       const config: MealLoopConfig = {
         cycleLength: 3,
-        startDate: tomorrowStr,
+        startDate: today,
         skipDays: [],
-        repeatPattern: 'sequential',
+        repeatPattern: 'random',
       };
 
       useLoopStore.getState().applyLoopConfig(config, pool, DISHES);
@@ -316,8 +304,11 @@ describe('Store-level loop actions', () => {
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = getISODate(tomorrow);
+      const twoDays = new Date();
+      twoDays.setDate(twoDays.getDate() + 2);
+      const twoDaysStr = getISODate(twoDays);
 
-      // Put an onboarding dish on tomorrow (should survive — filter only targets today)
+      // Put an onboarding dish on tomorrow (before loop starts)
       useTrayStore.setState(s => ({
         plan: {
           ...s.plan,
@@ -337,15 +328,15 @@ describe('Store-level loop actions', () => {
       const pool = { breakfast: [], lunch: DISHES, snacks: [], dinner: [] };
       const config: MealLoopConfig = {
         cycleLength: 3,
-        startDate: tomorrowStr,
+        startDate: twoDaysStr,
         skipDays: [],
-        repeatPattern: 'sequential',
+        repeatPattern: 'random',
       };
 
       useLoopStore.getState().applyLoopConfig(config, pool, DISHES);
 
       const state = useTrayStore.getState();
-      // Tomorrow should have loop assignments merged with the existing onboarding dish
+      // Tomorrow is before the loop start — dish should survive
       const tomorrowMeals = state.plan.days[tomorrowStr]?.breakfast ?? [];
       expect(tomorrowMeals.length).toBeGreaterThanOrEqual(1);
     });

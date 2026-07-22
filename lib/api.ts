@@ -16,6 +16,7 @@ export function isAuthReady(): boolean {
 
 // ─── 401 Abort Controller ─────────────────────────────────────────────────
 let _authAbortController: AbortController | null = null;
+let tokenCleared = false;
 
 function getAuthAbortController(): AbortController {
   if (!_authAbortController || _authAbortController.signal.aborted) {
@@ -65,7 +66,34 @@ function isAuthFailure(err: Error): boolean {
   return err.message === 'Auth not ready' || err.message.includes('401') || err.message.includes('Unauthorized');
 }
 
-// ─── Idempotency key for safe retries ───────────────────────────────────
+// ─── Retry policy ─────────────────────────────────────────────────────────
+const MAX_RETRIES = 3;
+const RETRY_BASE_MS = 1000;
+const RETRY_MAX_MS = 4000;
+
+class FetchError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'FetchError';
+    this.status = status;
+  }
+}
+
+function isServerError(err: unknown): err is FetchError {
+  return err instanceof FetchError && err.status >= 500 && err.status < 600;
+}
+
+function isNetworkError(err: unknown): boolean {
+  return err instanceof Error && !(err instanceof FetchError) && (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('network'));
+}
+
+function exponentialBackoff(attempt: number): number {
+  const delay = Math.min(RETRY_BASE_MS * Math.pow(2, attempt), RETRY_MAX_MS);
+  const jitter = Math.random() * delay * 0.3;
+  return Math.floor(delay + jitter);
+}
+// ───────────────────────────────────────────────────────────────────────────
 const IDEMPOTENT_METHODS = new Set(['POST', 'PUT', 'PATCH']);
 
 function generateIdempotencyKey(): string {
@@ -115,7 +143,7 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     ? generateIdempotencyKey()
     : undefined;
 
-  let tokenCleared = false;
+  let retryCount = 0;
 
   const doFetch = async (): Promise<T> => {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
@@ -139,10 +167,15 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error((body as { error?: string }).error ?? `Request failed: ${res.status}`);
+      throw new FetchError((body as { error?: string }).error ?? `Request failed: ${res.status}`, res.status);
     }
 
-    return res.json() as Promise<T>;
+    const body = await res.json() as Record<string, unknown>;
+    // Auto-unwrap { success, data } envelope from the server
+    if (body && typeof body === 'object' && 'success' in body && 'data' in body) {
+      return body.data as T;
+    }
+    return body as T;
   };
 
   try {
@@ -154,11 +187,14 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     if (!(err instanceof Error) || isAuthFailure(err)) {
       throw err;
     }
-    const method = (fetchOptions.method ?? 'GET').toUpperCase();
-    if (IDEMPOTENT_METHODS.has(method)) {
+    // Retry on 5xx (all methods) or network errors (idempotent methods only)
+    const shouldRetry = isServerError(err) || (isNetworkError(err) && !IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase()));
+    if (!shouldRetry || retryCount >= MAX_RETRIES) {
       throw err;
     }
-    await new Promise(r => setTimeout(r, 500));
+    retryCount++;
+    const delay = exponentialBackoff(retryCount);
+    await new Promise(r => setTimeout(r, delay));
     return doFetch();
   } finally {
     clearTimeout(timeoutId);

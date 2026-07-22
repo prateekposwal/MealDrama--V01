@@ -56,14 +56,17 @@ const OTHER_GRAIN_ALIASES = new Set([
   'singhara roti', 'singhara', 'water chestnut',
 ]);
 
-// Family 6: Bread/Pav (bread, pav, bhakri, thepla, etc.)
+// Family 6: Bread/Pav (bread, pav, bhakri, thepla, puri, etc.)
 const BREAD_ALIASES = new Set([
   'bread', 'pav', 'pao', 'bun', 'roll', 'plain bread',
   'thepla', 'methi thepla',
   'bhakri', 'thalipeeth',
   'rotla', 'dhebra',
-  'kulcha', 'batura', 'bhatura',
+  'kulcha', 'batura', 'bhatura', 'bhature',
   'roomali', 'rumal',
+  'puri', 'poori',
+  'luchi',
+  'baati', 'bafla', 'bati',
 ]);
 
 // Non-carb categories
@@ -164,8 +167,11 @@ function toCanonicalName(lower: string, family: string): string {
       if (lower.includes('thepla')) return 'Thepla';
       if (lower.includes('bhakri') || lower.includes('thalipeeth')) return 'Bhakri';
       if (lower.includes('kulcha')) return 'Kulcha';
-      if (lower.includes('bhatura') || lower.includes('batura')) return 'Bhatura';
+      if (lower.includes('bhatura') || lower.includes('batura') || lower.includes('bhature')) return 'Bhatura';
       if (lower.includes('pav') || lower.includes('pao')) return 'Pav';
+      if (lower.includes('puri') || lower.includes('poori')) return 'Puri';
+      if (lower.includes('luchi')) return 'Luchi';
+      if (lower.includes('baati') || lower.includes('bafla') || lower.includes('bati')) return 'Baati';
       return 'Bread';
     default:
       return lower.charAt(0).toUpperCase() + lower.slice(1);
@@ -235,17 +241,17 @@ export function pickBestCarb(carbs: string[], region?: string): string | null {
   const riceOptions = carbs.filter(c => detectGrainFamily(c.toLowerCase()) === 'Rice');
   const breadOptions = carbs.filter(c => detectGrainFamily(c.toLowerCase()) === 'Bread');
 
-  if (isNorth && rotiOptions.length > 0) return normalizeCategory(rotiOptions[0]);
-  if (isSouthEastWest && riceOptions.length > 0) return normalizeCategory(riceOptions[0]);
+  if (isNorth && rotiOptions.length > 0) return normalizeCategory(rotiOptions[0]!);
+  if (isSouthEastWest && riceOptions.length > 0) return normalizeCategory(riceOptions[0]!);
 
   // Fallback: return first carb
-  return normalizeCategory(carbs[0]);
+  return normalizeCategory(carbs[0]!);
 }
 
 // Pick best beverage
 export function pickBestBeverage(beverages: string[]): string | null {
   if (beverages.length === 0) return null;
-  return normalizeCategory(beverages[0]);
+  return beverages.length > 0 ? normalizeCategory(beverages[0]!) : null;
 }
 
 // Check if a normalized carb is roti-like (non-rice, non-bread)
@@ -260,7 +266,7 @@ export function isRotiLike(normalized: string): boolean {
 
 // Check if a normalized carb is bread-like
 export function isBreadLike(normalized: string): boolean {
-  return ['Bread', 'Thepla', 'Bhakri', 'Kulcha', 'Bhatura', 'Pav'].includes(normalized);
+  return ['Bread', 'Thepla', 'Bhakri', 'Kulcha', 'Bhatura', 'Pav', 'Puri', 'Luchi', 'Baati'].includes(normalized);
 }
 
 // Check if dish name implies it already has carbs
@@ -275,6 +281,22 @@ export function dishImpliesCarb(dishName: string): boolean {
     'roti', 'phulka', 'chapati', 'naan', 'butter naan', 'garlic naan',
     'tandoori roti', 'rumali roti', 'missi roti', 'lacha paratha',
     'plain roti', 'tandoori', 'thepla', 'bhakri',
+    // Bread variants
+    'puri', 'poori', 'luchi', 'baati', 'bafla', 'bati',
+    'pav', 'pao', 'bun', 'kulcha', 'bhature',
+    // Lentil/rice batter — self-carbed
+    'vada', 'bonda', 'pakora', 'chilla',
+    'bath', 'bhath', 'uttapam', 'dhokla', 'appe', 'pesarattu', 'khandvi',
+    'muthiya', 'gathiya', 'chorafali', 'khakhra', 'shankhali',
+    // Breakfast/grain-based
+    'pancake', 'french toast', 'oats', 'oatmeal', 'granola', 'muesli',
+    'banana bread', 'muffin', 'toast',
+    // Protein + bun/patty
+    'burger', 'dabeli', 'lilva kachori',
+    // Potato-based (carbs)
+    'hash', 'potato', 'aloo', 'gratin',
+    // Noodle/rice bowls
+    'sushi bowl', 'rice bowl', 'noodle bowl',
     // Millet variants
     'bajra', 'jowar', 'ragi', 'kodo', 'nachni', 'finger millet',
     'kodo ko roti', 'makki di roti', 'makki',
@@ -283,6 +305,7 @@ export function dishImpliesCarb(dishName: string): boolean {
     'with tandoori roti', 'with butter naan', 'with garlic naan',
     'with bajra roti', 'with jowar roti', 'with ragi roti',
     'with kodo roti', 'with kodo ko roti', 'with makki di roti',
+    'with puri', 'with luchi', 'with baati', 'with bafla',
   ];
   return carbKeywords.some(kw => lower.includes(kw));
 }
@@ -295,7 +318,11 @@ export function isStandaloneDish(dishName: string, tags?: string[]): boolean {
     'thukpa', 'soup', 'noodle', 'stir-fry', 'salad', 'smoothie',
     'juice', 'shake', 'lassi', 'chaas', 'coffee', 'tea', 'chai',
     'dessert', 'sweet', 'cake', 'halwa', 'kheer', 'payasam',
+    'shrikhand', 'basundi', 'mishti doi', 'sandesh', 'sheer khurma',
+    'custard', 'barfi', 'kulfi', 'falooda', 'rabdi', 'rabri',
+    'pudding', 'mousse', 'ice cream', 'gelato', 'sorbet',
     'dosa', 'idli', 'appam', 'puttu', 'upma', 'poha',
+    'vada', 'bonda', 'pakora',
   ];
 
   if (standaloneKeywords.some(kw => lower.includes(kw))) return true;
@@ -327,8 +354,16 @@ export function detectEmbeddedCarb(dishName: string): string | null {
     [['thepla', 'methi thepla'], 'Thepla'],
     [['bhakri', 'thalipeeth'], 'Bhakri'],
     [['kulcha'], 'Kulcha'],
-    [['bhatura', 'batura'], 'Bhatura'],
+    [['bhatura', 'batura', 'bhature'], 'Bhatura'],
     [['pav', 'pao'], 'Pav'],
+    [['puri', 'poori'], 'Puri'],
+    [['luchi'], 'Luchi'],
+    [['baati', 'bafla', 'bati'], 'Baati'],
+    // Lentil/rice batter — self-carbed
+    [['vada', 'bonda', 'pakora'], 'Vada'],
+    [['chilla', 'besan chilla', 'oats chilla', 'methi chilla'], 'Chilla'],
+    [['bath', 'bhath'], 'Bath'],
+    [['uttapam'], 'Uttapam'],
     // Wheat variants (specific first)
     [['phulka', 'phulka roti'], 'Phulka'],
     [['missi roti'], 'Missi Roti'],
@@ -366,11 +401,15 @@ export function detectAllEmbeddedCarbs(dishName: string): string[] {
   const riceKeywords = ['chawal', 'rice', 'pulao', 'biryani', 'khichdi', 'fried rice', 'steamed rice', 'jeera rice', 'basmati'];
   const milletKeywords = ['bajra', 'jowar', 'ragi', 'kodo', 'nachni', 'finger millet'];
   const cornKeywords = ['makki', 'makai', 'corn', 'maize'];
+  const breadKeywords = ['puri', 'poori', 'luchi', 'baati', 'bafla', 'bati', 'kulcha', 'bhatura', 'batura', 'bhature', 'thepla', 'bhakri', 'pav', 'pao'];
+  const selfCarbKeywords = ['vada', 'bonda', 'pakora', 'chilla', 'bath', 'bhath', 'uttapam'];
 
   if (rotiKeywords.some(kw => lower.includes(kw))) found.add('Roti');
   if (riceKeywords.some(kw => lower.includes(kw))) found.add('Rice');
   if (milletKeywords.some(kw => lower.includes(kw))) found.add('Millet Roti');
   if (cornKeywords.some(kw => lower.includes(kw))) found.add('Corn Roti');
+  if (breadKeywords.some(kw => lower.includes(kw))) found.add('Bread');
+  if (selfCarbKeywords.some(kw => lower.includes(kw))) found.add('Batter');
 
   return Array.from(found);
 }

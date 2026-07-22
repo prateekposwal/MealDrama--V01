@@ -49,7 +49,7 @@ const BASE_CONFIG: MealLoopConfig = {
   cycleLength: 7,
   startDate: '2026-05-18',
   skipDays: [],
-  repeatPattern: 'sequential',
+  repeatPattern: 'random',
 };
 
 const makeSourcePool = (overrides?: Partial<Record<string, Dish[]>>) => ({
@@ -244,7 +244,7 @@ describe('mergeIntoQueue', () => {
   ];
 
   it('returns same queue when no new items', () => {
-    const result = mergeIntoQueue(existing, [], 'smart-shuffle');
+    const result = mergeIntoQueue(existing, []);
     expect(result).toEqual(existing);
   });
 
@@ -254,14 +254,14 @@ describe('mergeIntoQueue', () => {
       dishName: `Dish ${i}`,
       mealType: 'lunch' as const,
     }));
-    const result = mergeIntoQueue(bigExisting, newItems, 'smart-shuffle');
+    const result = mergeIntoQueue(bigExisting, newItems);
     expect(result).toHaveLength(11);
     const idx = result.findIndex(i => i.dishId === 's1');
     expect(idx).toBeGreaterThanOrEqual(0);
   });
 
   it('queues for next cycle', () => {
-    const result = mergeIntoQueue(existing, newItems, 'next-cycle');
+    const result = mergeIntoQueue(existing, newItems);
     expect(result).toHaveLength(3);
     expect(result[2]!.dishId).toBe('s1');
   });
@@ -518,7 +518,7 @@ describe('buildLoopSummary', () => {
     expect(summary.totalAssignments).toBe(0);
     expect(summary.uniqueDishCount).toBe(0);
     expect(summary.skipDays).toEqual([]);
-    expect(summary.repeatPattern).toBe('sequential');
+    expect(summary.repeatPattern).toBe('random');
   });
 });
 
@@ -545,7 +545,7 @@ describe('DST / timezone edge cases', () => {
       ...BASE_CONFIG,
       startDate: '2026-03-08',
       cycleLength: 7,
-      repeatPattern: 'sequential',
+      repeatPattern: 'random',
     };
     const pool = makeSourcePool();
     const result = buildLoopAssignments(pool, config);
@@ -559,7 +559,7 @@ describe('DST / timezone edge cases', () => {
       startDate: '2026-01-30',
       cycleLength: 3,
       skipDays: [6, 0],
-      repeatPattern: 'sequential',
+      repeatPattern: 'random',
     };
     const pool = makeSourcePool();
     const result = buildLoopAssignments(pool, config);
@@ -594,7 +594,7 @@ describe('autoFillLoop (new feature)', () => {
       cycleLength: 2,
       startDate: '2026-05-20',
       skipDays: [],
-      repeatPattern: 'sequential',
+      repeatPattern: 'random',
     };
     const { queue: rotationQueue, pointer: rotationPointer } = buildRotationState({
       breakfast: [makeDish('b1', 'Poha')],
@@ -621,7 +621,7 @@ describe('autoFillLoop (new feature)', () => {
       cycleLength: 1,
       startDate: '2026-05-20',
       skipDays: [],
-      repeatPattern: 'sequential',
+      repeatPattern: 'random',
     };
     const { queue: rotationQueue, pointer: rotationPointer } = buildRotationState({
       breakfast: [],
@@ -639,7 +639,7 @@ describe('autoFillLoop (new feature)', () => {
       cycleLength: 2,
       startDate: '2026-05-20', // Wednesday
       skipDays: [3], // Skip Wednesday
-      repeatPattern: 'sequential',
+      repeatPattern: 'random',
     };
     const { queue: rotationQueue, pointer: rotationPointer } = buildRotationState({
       breakfast: [makeDish('b1', 'Poha')],

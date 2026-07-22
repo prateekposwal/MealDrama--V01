@@ -17,6 +17,15 @@ export function getDebounceTimerCount(): number {
   return debounceTimers.size;
 }
 
+/** Cancel a pending debounce by key */
+export function cancelDebounce(key: string): void {
+  const timer = debounceTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    debounceTimers.delete(key);
+  }
+}
+
 /**
  * Debounce save wrapper (1000ms default).
  * Prevents API spam during rapid inline edits.

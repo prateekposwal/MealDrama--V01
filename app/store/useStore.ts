@@ -6,13 +6,46 @@ import api, { setAuthReady } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
 import { householdApi } from '../utils/householdApi';
+import { registerUser, logoutUser } from '../utils/authApi';
+import { createCustomDish, updateCustomDish as updateCustomDishApi, deleteCustomDish as deleteCustomDishApi } from '../utils/customDishApi';
 import type { Household } from '../../types/household';
+import type { Dish } from '../../meal/constants/dishLibrary';
 
+interface SwapNotification {
+  id: string;
+  date: string;
+  slot: string;
+  oldMeal: string;
+  newMeal: string;
+  timestamp: number;
+}
+
+type MutationKind = 'plan' | 'complete';
+
+interface PendingMutation {
+  id: string;
+  kind: MutationKind;
+  payload: Record<string, unknown>;
+  addedAt: number;
+  retryCount: number;
+}
+
+interface TrayEditSession {
+  date: string;
+  slot: string;
+  returnTab?: string;
+}
+
+interface SmartQueue {
+  week2: MealOption[];
+  favorites: MealOption[];
+}
 
 const MAX_RETRIES = 3;
 
-// C2: Single online listener lives in connectivity.ts — stores subscribe via onConnectivityChange()
-// H1: Use window singleton for module-level state — survives HMR module recreation
+// H1B: Drain state lives on window to survive HMR module recreation
+const DRAIN_KEY = '__mdDrainState';
+
 interface DrainState {
   timer: ReturnType<typeof setTimeout> | null;
   isRetrying: boolean;
@@ -23,15 +56,11 @@ function _getDrainState(): DrainState {
   if (typeof window === 'undefined') {
     return { timer: null, isRetrying: false, tracker: new RequestTracker() };
   }
-  const w = window as unknown as Record<string, unknown>;
-  if (!w.__mdDrainState) {
-    w.__mdDrainState = {
-      timer: null,
-      isRetrying: false,
-      tracker: new RequestTracker(),
-    };
-  }
-  return w.__mdDrainState as DrainState;
+  const existing = (window as unknown as Record<string, unknown>)[DRAIN_KEY] as DrainState | undefined;
+  if (existing) return existing;
+  const fresh: DrainState = { timer: null, isRetrying: false, tracker: new RequestTracker() };
+  (window as unknown as Record<string, unknown>)[DRAIN_KEY] = fresh;
+  return fresh;
 }
 
 function _scheduleDrain() {
@@ -89,11 +118,6 @@ export interface User {
   primaryId?: string;
   healthGoals?: string[];
   allergyMode?: boolean;
-  calorieTarget?: number;
-  proteinTarget?: number;
-  fiberTarget?: number;
-  sodiumLimit?: number;
-  sugarLimit?: number;
   /** Per-slot time overrides (start/end in HH:MM) — overrides SLOT_TIME_DEFAULTS */
   slotTimePreferences?: Record<string, { start: string; end: string }>;
   /** User-uploaded profile picture (base64 data URL) */
@@ -279,7 +303,7 @@ const initialAuth = loadAuth();
 function clearCorruptedStorage(key: string): void {
   try {
     const raw = localStorage.getItem(key);
-    console.log(`[Store] Checking ${key}: ${raw ? raw.substring(0, 50) + '...' : 'null'}`);
+    if (import.meta.env.DEV) console.log(`[Store] Checking ${key}: ${raw ? raw.substring(0, 50) + '...' : 'null'}`);
     if (!raw) return;
     if (typeof raw !== 'string' || !raw.startsWith('{')) {
       console.warn(`[Store] Clearing corrupted ${key} (invalid format: "${raw.substring(0, 30)}")`);
@@ -294,10 +318,10 @@ function clearCorruptedStorage(key: string): void {
   }
 }
 
-console.log('[Store] Running pre-hydration storage cleanup...');
+if (import.meta.env.DEV) console.log('[Store] Running pre-hydration storage cleanup...');
 clearCorruptedStorage('mealdrama-store');
 clearCorruptedStorage('mealdrama-tray-store');
-console.log('[Store] Pre-hydration storage cleanup complete');
+if (import.meta.env.DEV) console.log('[Store] Pre-hydration storage cleanup complete');
 
 // Load trayLibrary synchronously from persisted storage
 function loadInitialTrayLibrary(): TrayLibrary {
@@ -411,9 +435,8 @@ export const useStore = create<StoreState>()(
 
       // FIX: Atomic login function that sets both isLoggedIn and user in one operation
       // This prevents race conditions where updateProfile reads stale isLoggedIn=false
-      login: (username: string) => {
-        console.log('[Store] login called, username:', username);
-        // Generate a stable internal ID for this user session
+      login: async (username: string) => {
+        if (import.meta.env.DEV) console.log('[Store] login called, username:', username);
         const userId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const newUser = {
           id: userId,
@@ -422,36 +445,34 @@ export const useStore = create<StoreState>()(
           systemId: userId.slice(0, 8),
         } as User;
         
+        // Set local state immediately (offline-first)
         set((state) => ({
           ...state,
           isLoggedIn: true,
           authReady: true,
           user: newUser,
         }));
-        
-        // FIX: Immediately persist auth state to dedicated storage
-        saveAuth({ isLoggedIn: true, trayBuilt: false, user: newUser });
-        console.log('[Store] login complete, userId:', userId);
+        if (import.meta.env.DEV) console.log('[Store] login complete, userId:', userId);
+
+        // Fire-and-forget backend registration — never block UX
+        const result = await registerUser(userId, username);
+        if (result?.token) {
+          get().setToken(result.token);
+        }
       },
 
       updateProfile: (updates: Partial<User>) => {
-        console.log('[Store] updateProfile called, updates:', Object.keys(updates));
+        if (import.meta.env.DEV) console.log('[Store] updateProfile called, updates:', Object.keys(updates));
         set((state) => {
           const newUser = {
             ...(state.user ?? {}),
             ...updates,
           } as User;
-          // FIX: Spread entire state to preserve ALL fields (isLoggedIn, trayLibrary, etc.)
           return {
             ...state,
             user: newUser,
           };
         });
-        // FIX: Sync user profile to dedicated auth storage to prevent onboarding loop
-        const currentUser = get().user;
-        if (currentUser) {
-          saveAuth({ isLoggedIn: true, trayBuilt: get().trayBuilt, user: currentUser });
-        }
       },
 
       setUser: (user: User) => set({ user, isLoggedIn: true }),
@@ -472,11 +493,16 @@ export const useStore = create<StoreState>()(
           }
         }
         if (!changed) return state;
-        const updatedUser = { ...(state.user ?? {}), pantryStaples: [...existing] };
-        return { user: updatedUser };
+        const updatedUser = { ...(state.user ?? {} as User), pantryStaples: [...existing] };
+        return { user: updatedUser as User };
       }),
 
       logout: () => {
+        // Fire-and-forget backend logout
+        logoutUser().catch((err: unknown) => {
+          console.warn('[Store] Logout API call failed (non-blocking):', err);
+        });
+
         // Clear cross-store mutable state to prevent stale data leaking to next user
         const ds = _getDrainState();
         if (ds.timer) clearTimeout(ds.timer);
@@ -642,7 +668,7 @@ export const useStore = create<StoreState>()(
         try {
           await requestDedupCache.get(dedupKey, 3000, () => api.post('/plan', payload));
           return { ok: true };
-        } catch (err: any) {
+        } catch (err: unknown) {
           if (err?.message?.includes('409') || err?.message?.includes('Conflict')) {
             get().setToast({ message: 'Plan changed elsewhere. Refreshing.', type: 'info' });
             return { ok: false, reason: 'conflict' };
@@ -669,7 +695,7 @@ export const useStore = create<StoreState>()(
         try {
           await requestDedupCache.get(dedupKey, 3000, () => api.post('/complete', payload));
           return { ok: true };
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[Store] Complete sync failed:', err);
           get().addPendingMutation('complete', payload);
           const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
@@ -690,7 +716,7 @@ export const useStore = create<StoreState>()(
           : `${payload.date ?? ''}::${payload.slot ?? ''}::${payload.status ?? ''}`;
         set((state) => {
           const existingIdx = state.pendingMutations.findIndex(m =>
-            m.kind === kind && `${(m.payload as any).date ?? ''}::${(m.payload as any).slot ?? ''}::${kind === 'plan' ? (m.payload as any).mealId ?? '' : (m.payload as any).status ?? ''}` === dedupKey
+            m.kind === kind && `${(m.payload as Record<string, string>).date ?? ''}::${(m.payload as Record<string, string>).slot ?? ''}::${kind === 'plan' ? (m.payload as Record<string, string>).mealId ?? '' : (m.payload as Record<string, string>).status ?? ''}` === dedupKey
           );
 
           let next: PendingMutation[];
@@ -723,7 +749,7 @@ export const useStore = create<StoreState>()(
           deadLetterMutations: [...state.deadLetterMutations, mutation],
         }));
         const { setToast } = get();
-        setToast({ message: `Failed after ${MAX_RETRIES} retries. "${(mutation.payload as any)?.mealId ?? mutation.kind}" not saved.`, type: 'error' });
+        setToast({ message: `Failed after ${MAX_RETRIES} retries. "${(mutation.payload as Record<string, string>)?.mealId ?? mutation.kind}" not saved.`, type: 'error' });
       },
 
       clearDeadLetters: () => set({ deadLetterMutations: [] }),
@@ -769,7 +795,7 @@ export const useStore = create<StoreState>()(
             const endpoint = current.kind === 'plan' ? '/plan' : '/complete';
             await api.post(endpoint, current.payload);
             removePendingMutation(id);
-          } catch (err: any) {
+          } catch (err: unknown) {
             const msg = err?.message ?? '';
             if (msg.includes('401') || msg.includes('Unauthorized')) {
               // C2: Logout clears ALL pendingMutations — break immediately, don't mutate mid-iteration
@@ -842,18 +868,32 @@ export const useStore = create<StoreState>()(
 
       setTrayBuilt: (value: boolean) => {
         set({ trayBuilt: value });
-        saveAuth({ isLoggedIn: get().isLoggedIn, trayBuilt: value, user: get().user });
       },
 
-      addCustomDish: (dish) => set((s) => ({
-        customDishes: [...s.customDishes.filter(d => d.id !== dish.id), dish],
-      })),
-      updateCustomDish: (id, updates) => set((s) => ({
-        customDishes: s.customDishes.map(d => d.id === id ? { ...d, ...updates } : d),
-      })),
-      removeCustomDish: (id) => set((s) => ({
-        customDishes: s.customDishes.filter(d => d.id !== id),
-      })),
+      addCustomDish: (dish) => {
+        set((s) => ({
+          customDishes: [...s.customDishes.filter(d => d.id !== dish.id), dish],
+        }));
+        createCustomDish(dish).catch((err: unknown) => {
+          console.warn('[Store] createCustomDish failed:', err);
+        });
+      },
+      updateCustomDish: (id, updates) => {
+        set((s) => ({
+          customDishes: s.customDishes.map(d => d.id === id ? { ...d, ...updates } : d),
+        }));
+        updateCustomDishApi(id, updates).catch((err: unknown) => {
+          console.warn('[Store] updateCustomDish failed:', err);
+        });
+      },
+      removeCustomDish: (id) => {
+        set((s) => ({
+          customDishes: s.customDishes.filter(d => d.id !== id),
+        }));
+        deleteCustomDishApi(id).catch((err: unknown) => {
+          console.warn('[Store] deleteCustomDish failed:', err);
+        });
+      },
 
       // ─── Household ─────────────────────────────────────────────────
       createHousehold: async (name) => {
@@ -999,8 +1039,9 @@ export const useStore = create<StoreState>()(
         if (fromVersion < 9) {
           // v8 → v9: dishes no longer persisted — load fresh from DISH_LIBRARY
           const { DISH_LIBRARY } = require('../constants/dishLibrary');
-          state.dishes = Array.isArray(DISH_LIBRARY) ? DISH_LIBRARY : [];
-          console.log('[Store] v9 migration: loaded dishes from DISH_LIBRARY, count=', state.dishes.length);
+          state.dishes = (Array.isArray(DISH_LIBRARY) ? DISH_LIBRARY : []) as unknown;
+          const dishArr = state.dishes as unknown[];
+          console.log('[Store] v9 migration: loaded dishes from DISH_LIBRARY, count=', dishArr.length);
         }
         if (fromVersion < 10) {
           // v9 → v10: migrate JWT token from localStorage to Zustand store
@@ -1038,7 +1079,8 @@ export const useStore = create<StoreState>()(
         if (savedAuth.deviceId !== undefined) state.deviceId = savedAuth.deviceId;
         if (savedAuth.token !== undefined) state.token = savedAuth.token;
 
-        console.log('[Store] Migration complete, isLoggedIn:', state.isLoggedIn, 'trayLibrary items:', Object.values((state.trayLibrary as any) || {}).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0));
+        const tl = state.trayLibrary ?? { breakfast: [], lunch: [], dinner: [], snacks: [] };
+        if (import.meta.env.DEV) console.log('[Store] Migration complete, isLoggedIn:', state.isLoggedIn, 'trayLibrary items:', Object.values(tl).reduce((sum, arr) => sum + (arr?.length || 0), 0));
         return persistedState as Parameters<typeof persist>[0] extends (s: infer S) => unknown ? S : never;
       },
       onRehydrateStorage: () => (state, error) => {
@@ -1060,8 +1102,8 @@ export const useStore = create<StoreState>()(
           }
           
           const trayLib = state.trayLibrary || {};
-          const trayTotal = Object.values(trayLib).reduce((sum: number, arr: any[]) => sum + (arr?.length || 0), 0);
-          console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'authReady=', state.authReady, 'user.id=', state.user?.id, 'trayLibrary=', trayTotal, 'dishes=', state.dishes?.length);
+          const trayTotal = Object.values(trayLib).reduce((sum: number, arr: unknown[]) => sum + (arr?.length || 0), 0);
+          if (import.meta.env.DEV) console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'authReady=', state.authReady, 'user.id=', state.user?.id, 'trayLibrary=', trayTotal, 'dishes=', state.dishes?.length);
           setAuthReady(true);
         }
       },

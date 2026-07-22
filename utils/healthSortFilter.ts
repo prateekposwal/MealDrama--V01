@@ -77,6 +77,30 @@ export function filterDishesByHealth(dishes: Dish[], filter: HealthFilter): Dish
 
 export type HealthFilterPreset = 'healthy' | 'high-protein' | 'high-fiber' | 'low-fat' | 'low-calorie';
 
+/** Map a user's health goal string to a matching filter preset, or null. */
+const GOAL_TO_PRESET: Record<string, HealthFilterPreset> = {
+  'balanced': 'healthy',
+  'high-protein': 'high-protein',
+  'high-fiber': 'high-fiber',
+  'low-fat': 'low-fat',
+  'low-sodium': 'healthy',
+  'low-sugar': 'healthy',
+  'weight-loss': 'low-calorie',
+  'heart-healthy': 'low-fat',
+  'diabetes-friendly': 'low-calorie',
+};
+
+import type { NormalizedGoal } from '../types/identity';
+
+export function normalizeGoal(goal?: string): NormalizedGoal {
+  return ((goal ?? '').toLowerCase().replace(/[ _]/g, '-').trim()) as NormalizedGoal;
+}
+
+export function goalToPreset(goal?: string): HealthFilterPreset | null {
+  if (!goal) return null;
+  return GOAL_TO_PRESET[normalizeGoal(goal)] ?? null;
+}
+
 export function getFilterPreset(preset: HealthFilterPreset): HealthFilter {
   switch (preset) {
     case 'healthy':

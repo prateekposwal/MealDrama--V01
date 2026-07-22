@@ -40,7 +40,7 @@ describe('token persistence (smoke tests)', () => {
 
   it('logout clears token', () => {
     useStore.getState().setToken('logout-test-token');
-    useStore.getState().login('test-user', 'test-primary');
+    useStore.getState().login('test-user');
     expect(useStore.getState().isLoggedIn).toBe(true);
     expect(useStore.getState().token).toBe('logout-test-token');
 

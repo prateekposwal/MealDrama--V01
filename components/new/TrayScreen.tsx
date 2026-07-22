@@ -49,8 +49,6 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
         const ms = d.getTime() - dayOfWeek * 86400000;
         return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     });
-
-    const [swapOpenKey, setSwapOpenKey] = useState<string | null>(null);
     const [swapCustomizeContext, setSwapCustomizeContext] = useState<{ itemId: string; date: string; mealType: MealType; slotLabel: string } | null>(null);
     const [quickAddOpen, setQuickAddOpen] = useState(false);
     const [quickAddSlot, setQuickAddSlot] = useState<Slot>('Lunch');
@@ -100,18 +98,6 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
         const mealType = slot.toLowerCase() as MealType;
         addMealToSlot(date, mealType, dishToMeal(dish));
     }, [addMealToSlot]);
-
-    const handleSwapSelect = useCallback((date: string, mealType: MealType, itemId: string) => {
-        return (newMealId: string, chipOverrides?: Record<string, unknown>) => {
-            const dish = dishes.find(d => d.id === newMealId);
-            if (!dish) return;
-            swapMealInSlot(date, mealType, itemId, dishToMeal(dish));
-            if (chipOverrides) {
-                updateItemInline(date, mealType, itemId, chipOverrides);
-            }
-            setSwapOpenKey(null);
-        };
-    }, [swapMealInSlot, dishes, updateItemInline]);
 
     const handleUpdateInline = useCallback((date: string, mealType: MealType, itemId: string) => {
         return (updates: any) => {

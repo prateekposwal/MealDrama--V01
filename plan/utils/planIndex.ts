@@ -57,8 +57,8 @@ export function getOccupiedInRange(
   startDate: string,
   endDate: string,
 ): string[] {
-  const lo = lowerBound(index.dates, startDate as any, (d) => d);
-  const hi = upperBound(index.dates, endDate as any, (d) => d);
+  const lo = lowerBound(index.dates, startDate, (d) => d);
+  const hi = upperBound(index.dates, endDate, (d) => d);
   const result: string[] = [];
   const slots: MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
   for (let i = lo; i < hi; i++) {
@@ -143,7 +143,7 @@ export function updatePlanIndexOnAdd(
   if (!srcKeys.includes(key)) srcKeys.push(key);
   bySource[src] = srcKeys;
 
-  const idx = lowerBound(index.dates, date as any, (d) => d);
+  const idx = lowerBound(index.dates, date, (d) => d);
   const dates = (index.dates[idx] === date) ? index.dates
     : [...index.dates.slice(0, idx), date, ...index.dates.slice(idx)];
 

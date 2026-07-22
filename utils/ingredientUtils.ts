@@ -1,4 +1,5 @@
 import type { Dish, Ingredient, IngredientCategory, DishVariant } from '../meal/constants/dishLibrary';
+import { api } from '../lib/api';
 import { getMealResolution, type MealResolution, type CategorySelection } from '../app/store/useStore';
 import { cachedIngredients } from './cache';
 import { resolveDisplayName } from './resolveDisplayName';
@@ -219,6 +220,30 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   '🌿 mint': [ing('Mint Leaves', 1, 'bunch', 'produce')],
   '🌿-mint': [ing('Mint Leaves', 1, 'bunch', 'produce')],
   'mint': [ing('Mint Leaves', 1, 'bunch', 'produce')],
+  // ── Missing common sides ──
+  'ketchup': [ing('Ketchup', 2, 'tbsp', 'pantry')],
+  'tomato-sauce': [ing('Tomato Sauce', 2, 'tbsp', 'pantry')],
+  'dipping-sauce': [ing('Dipping Sauce', 2, 'tbsp', 'pantry')],
+  'chips': [ing('Chips', 1, 'packet', 'snacks')],
+  'biscuits': [ing('Biscuits', 2, 'pc', 'snacks')],
+  'cookies': [ing('Cookies', 2, 'pc', 'snacks')],
+  'light-cookies': [ing('Cookies', 2, 'pc', 'snacks')],
+  'biscotti': [ing('Biscotti', 2, 'pc', 'snacks')],
+  'granola': [ing('Granola', 0.5, 'cup', 'grains')],
+  'coconut-chips': [ing('Coconut Chips', 0.5, 'cup', 'snacks')],
+  'coconut-flakes': [ing('Coconut Flakes', 2, 'tbsp', 'pantry')],
+  'chopped-onion': [ing('Onions', 1, 'pc', 'produce')],
+  'chopped-onions': [ing('Onions', 1, 'pc', 'produce')],
+  'lettuce': [ing('Lettuce', 0.5, 'cup', 'produce')],
+  'croutons': [ing('Bread', 1, 'pc', 'breads')],
+  'hummus': [ing('Chickpeas', 0.25, 'cup', 'proteins'), ing('Tahini', 1, 'tbsp', 'pantry'), ing('Olive Oil', 1, 'tbsp', 'pantry')],
+  'berry-compote': [ing('Mixed Berries', 0.5, 'cup', 'produce'), ing('Sugar', 1, 'tbsp', 'pantry')],
+  'jaggery-syrup': [ing('Jaggery', 2, 'tbsp', 'pantry')],
+  'curry': [ing('Curry Leaves', 1, 'sprig', 'produce')],
+  'side-salad': [ing('Mixed Greens', 1, 'cup', 'produce'), ing('Lemon Juice', 1, 'tbsp', 'pantry')],
+  'extra-butter': [ing('Butter', 1, 'tbsp', 'dairy')],
+  'ghost-chili-chutney': [ing('Ghost Chili', 2, 'pc', 'produce'), ing('Lemon Juice', 1, 'tbsp', 'pantry')],
+  'black-sesame-chutney': [ing('Black Sesame Seeds', 2, 'tbsp', 'spices'), ing('Salt', 0.5, 'tsp', 'pantry')],
 };
 
 export function getIngredientsForCategoryOption(catId: string): Ingredient[] {
@@ -999,6 +1024,62 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
             result.push({ name: 'Noodles', quantity: 200, unit: 'g', category: 'grains', inStock: false });
         }
     }
+    // INF-67: Bhaji/Vegetable dishes — add Mixed Vegetables
+    if (idLower.includes('bhaji') || idLower.includes('bhajiya') || idLower.includes('bhajji') || idLower.includes('mixed-veg')) {
+        if (!result.find(i => i.name.toLowerCase().includes('vegetable'))) {
+            result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+        }
+    }
+    // INF-68: Korma/Kurma — add Yogurt + Cashews + Coconut
+    if (idLower.includes('korma') || idLower.includes('kurma')) {
+        if (!result.find(i => i.name === 'Yogurt')) result.push({ name: 'Yogurt', quantity: 0.5, unit: 'cup', category: 'dairy', inStock: false });
+        if (!result.find(i => i.name === 'Cashews')) result.push({ name: 'Cashews', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+        if (!result.find(i => i.name === 'Coconut')) result.push({ name: 'Coconut', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+    }
+    // INF-69: Mushroom dishes — add Mushrooms
+    if (idLower.includes('mushroom')) {
+        if (!result.find(i => i.name.toLowerCase() === 'mushrooms')) {
+            result.push({ name: 'Mushrooms', quantity: 100, unit: 'g', category: 'produce', inStock: false });
+        }
+    }
+    // INF-70: Sandwich/Toast — add Bread
+    if (idLower.includes('sandwich') || idLower.includes('toast')) {
+        if (!result.find(i => i.name === 'Bread')) {
+            result.push({ name: 'Bread', quantity: 2, unit: 'pc', category: 'breads', inStock: false });
+        }
+    }
+    // INF-71: Fried Rice — add Rice + Vegetables
+    if (idLower.includes('fried-rice') || idLower.includes('pulao') || idLower.includes('pulav')) {
+        if (!result.find(i => i.name === 'Rice')) result.push({ name: 'Rice', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
+        if (!result.find(i => i.name === 'Mixed Vegetables')) result.push({ name: 'Mixed Vegetables', quantity: 0.5, unit: 'cup', category: 'produce', inStock: false });
+    }
+    // INF-72: Kadhai dishes — add Capsicum + Onions + Tomatoes
+    if (idLower.includes('kadhai') || idLower.includes('kadai')) {
+        if (!result.find(i => i.name === 'Capsicum')) result.push({ name: 'Capsicum', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        if (!result.find(i => i.name === 'Onions')) result.push({ name: 'Onions', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+        if (!result.find(i => i.name === 'Tomatoes')) result.push({ name: 'Tomatoes', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
+    }
+    // INF-73: Pasta dishes — add Pasta
+    if (idLower.includes('pasta') || idLower.includes('spaghetti') || idLower.includes('macaroni')) {
+        if (!result.find(i => i.name.toLowerCase() === 'pasta')) {
+            result.push({ name: 'Pasta', quantity: 200, unit: 'g', category: 'grains', inStock: false });
+        }
+    }
+    // INF-74: Soup baseline — add stock/vegetables for soups missing real ingredients
+    if (idLower.includes('soup')) {
+        const hasMain = result.some(i => !['Salt', 'Pepper', 'Coriander Leaves', 'Coriander'].includes(i.name));
+        if (!hasMain) {
+            if (!result.find(i => i.name === 'Mixed Vegetables')) result.push({ name: 'Mixed Vegetables', quantity: 0.5, unit: 'cup', category: 'produce', inStock: false });
+        }
+    }
+    // INF-75: Salad baseline — add greens + dressing for salads missing real ingredients
+    if (idLower.includes('salad')) {
+        const hasMain = result.some(i => !['Salt', 'Lemon Juice', 'Pepper'].includes(i.name));
+        if (!hasMain) {
+            if (!result.find(i => i.name === 'Mixed Greens')) result.push({ name: 'Mixed Greens', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
+            if (!result.find(i => i.name === 'Lemon Juice')) result.push({ name: 'Lemon Juice', quantity: 1, unit: 'tbsp', category: 'pantry', inStock: false });
+        }
+    }
 
     // CATEGORY_INGREDIENTS fallback: match dish ID tokens against known ingredient sets
     // Catches Northeast/regional dishes that don't have specific INF patterns
@@ -1019,9 +1100,12 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
             return sharedCount >= 2;
         });
         if (catKey) {
-            for (const ing of CATEGORY_INGREDIENTS[catKey]) {
-                if (!result.find(i => i.name.toLowerCase() === ing.name.toLowerCase())) {
-                    result.push(ing);
+            const ings = CATEGORY_INGREDIENTS[catKey];
+            if (ings) {
+                for (const ing of ings) {
+                    if (!result.find(i => i.name.toLowerCase() === ing.name.toLowerCase())) {
+                        result.push(ing);
+                    }
                 }
             }
         }
@@ -1116,7 +1200,8 @@ export function getIngredientsForMealOption(
             if (variant.ingredients?.some(i => i.category === 'breads')) {
                 const explicitBreadNames = new Set(variant.ingredients.filter(i => i.category === 'breads').map(i => i.name.toLowerCase()));
                 for (let i = r.length - 1; i >= 0; i--) {
-                    if (r[i].category === 'breads' && !explicitBreadNames.has(r[i].name.toLowerCase())) {
+                    const ri = r[i]!;
+                    if (ri.category === 'breads' && !explicitBreadNames.has(ri.name.toLowerCase())) {
                         r.splice(i, 1);
                     }
                 }
@@ -1428,12 +1513,10 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
 
 export async function resolveMealIngredientsAsync(dishId: string, variantId?: string): Promise<Ingredient[]> {
     try {
-        const res = await fetch(`/api/v1/ingredients/resolve/${dishId}${variantId ? '?variantId=' + variantId : ''}`);
-        if (!res.ok) throw new Error('Failed');
-        const data = await res.json();
+        const data = await api.get<{ byCategory?: Record<string, Ingredient[]> }>(`/ingredients/resolve/${dishId}${variantId ? '?variantId=' + variantId : ''}`);
         // Convert byCategory to flat array
-        const byCat = data.byCategory || {};
-        const all = Object.values(byCat).flat() as any[];
+        const byCat = data?.byCategory || {};
+        const all: Ingredient[] = Object.values(byCat).flat();
         return all.map(i => ({...i, inStock: false}));
     } catch (e) {
         console.error('[ING] Resolve failed:', dishId, e);

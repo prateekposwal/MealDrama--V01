@@ -2,71 +2,36 @@ import React, { useState, useEffect, Suspense, useMemo, useRef, useCallback } fr
 import { useStore } from './app/store/useStore';
 import { useTrayStore, seedTodayFromTray } from './plan/store/useTrayStore';
 import { useLoopStore } from './plan/store/useLoopStore';
-import { saveAuth } from './utils/authStorage';
 import api, { setAuthReady } from './lib/api';
-import LoginScreen from './components/new/LoginScreen';
-import MealTrayBuilder from './screens/MealTrayBuilder';
-import MealLoopConfigModal from './components/meal/MealLoopConfigModal';
-import { Home, Calendar, ShoppingBasket, User as UserIcon, ChevronLeft, X } from 'lucide-react';
+import { getMe } from './app/utils/authApi';
+import { X } from 'lucide-react';
 import { useBackendDishes } from './hooks/useBackendDishes';
-import FlashOnboarding from './components/new/FlashOnboarding';
 import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
 import { ErrorBoundary } from './components/new/ErrorBoundary';
 import { OfflineBanner } from './components/new/OfflineBanner';
-import { hasOpenModals, closeTopModal } from './utils/modalStack';
 import { enqueue } from './app/utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
-import type { Dish, DishLibrary } from './meal/constants/dishLibrary';
-import { DISH_LIBRARY } from './meal/constants/dishLibrary';
+import type { Dish } from './meal/constants/dishLibrary';
 import type { SourcePool } from './plan/utils/mealLoopEngine';
-import type { MealLoopConfig } from './types/tray';
-import { getISODate, addDaysISO } from './utils/dateUTC';
+import type { Meal, MealLoopConfig } from './types/tray';
+import { getISODate } from './utils/dateUTC';
+import { NotificationCenter, checkMealReminder, checkPlanEnding, startNewUserGuide, useNotificationStore } from './app/notifications';
+import { Toast } from './components/new/Toast';
+import { TabBar, type Tab } from './components/new/TabBar';
+import { useBackNavigation } from './hooks/useBackNavigation';
+import { getRegionKey } from './utils/dishSearch';
+
+const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
 
 const DashScreen = React.lazy(() => import('./screens/Dashboard'));
 const PlanScreen = React.lazy(() => import('./screens/PlanScreen'));
 const Profile = React.lazy(() => import('./components/new/Profile'));
 const PantryPulse = React.lazy(() => import('./components/new/PantryPulse'));
-
-const TABS = [
-  { key: 'dashboard', label: 'Home', Icon: Home },
-  { key: 'plan', label: 'Plan', Icon: Calendar },
-  { key: 'pulse', label: 'Pantry', Icon: ShoppingBasket },
-  { key: 'profile', label: 'Profile', Icon: UserIcon },
-] as const;
-
-type Tab = typeof TABS[number]['key'];
-
-const Toast: React.FC<{ message: string; type: 'error' | 'success' | 'info'; action?: { label: string; onClick: () => void }; onClose: () => void }> = ({ message, type, action, onClose }) => {
-  const colors = {
-    error: 'bg-red-500',
-    success: 'bg-green-500',
-    info: 'bg-gray-800',
-  };
-  const onCloseRef = React.useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const timer = setTimeout(() => onCloseRef.current(), 4000);
-    return () => clearTimeout(timer);
-  }, []);
-  return (
-    <div className={`fixed top-4 left-4 right-4 max-w-lg mx-auto ${colors[type]} text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-2 z-[100] animate-in slide-in-from-top-2`}>
-      <span className="font-medium text-sm flex-1">{message}</span>
-      {action && (
-        <button
-          onClick={() => { action.onClick(); onClose(); }}
-          className="px-3 py-1 rounded-lg bg-white/20 text-white text-xs font-bold active:scale-95 transition-all whitespace-nowrap hover:bg-white/30"
-        >
-          {action.label}
-        </button>
-      )}
-      <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg flex-shrink-0">
-        <X size={16} />
-      </button>
-    </div>
-  );
-};
+const LoginScreen = React.lazy(() => import('./components/new/LoginScreen'));
+const FlashOnboarding = React.lazy(() => import('./components/new/FlashOnboarding'));
+const MealTrayBuilder = React.lazy(() => import('./screens/MealTrayBuilder'));
+const MealLoopConfigModal = React.lazy(() => import('./components/meal/MealLoopConfigModal'));
 
 const App: React.FC = () => {
   const {
@@ -109,25 +74,7 @@ const App: React.FC = () => {
   const mainRef = useRef<HTMLElement>(null);
 
   // ─── Back navigation ───
-  const [navStack, setNavStack] = useState<string[]>([]);
-  const navStackRef = useRef(navStack);
-  navStackRef.current = navStack;
-  const backExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pushNav = useCallback((tab: string) => {
-    setNavStack(prev => [...prev, tab]);
-  }, []);
-  const goBack = useCallback(() => {
-    setNavStack(prev => {
-      if (prev.length === 0) return prev;
-      const restoredTab = prev[prev.length - 1];
-      // Restore sub-view state
-      setManageTray(false);
-      setManageTraySlot(undefined);
-      setShowLoopConfig(false);
-      setActiveTab(restoredTab ?? 'dashboard');
-      return prev.slice(0, -1);
-    });
-  }, []);
+  const { navStack, pushNav, goBack } = useBackNavigation(activeTab, setActiveTab, setToast);
 
   // Listen for navigation events from screens without direct onNavigate prop
   useEffect(() => {
@@ -204,6 +151,31 @@ const App: React.FC = () => {
     }
   }, [isHydrated, isLoggedIn]);
 
+  // OAuth callback: handle Google Sign-In token from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      // Store the token and fetch user data
+      useStore.setState({ token });
+      // Clean the URL
+      window.history.replaceState({}, '', '/');
+      // Fetch user from token
+      import('./app/utils/authApi').then(({ getMe }) => {
+        getMe().then((res: any) => {
+          if (res?.data?.user) {
+            useStore.setState({
+              user: res.data.user,
+              isLoggedIn: true,
+            });
+          }
+        }).catch((err) => {
+          console.warn('[App] getMe after OAuth failed:', err);
+        });
+      });
+    }
+  }, []);
+
   // TITLE MIGRATION: Strip ` + ` from all persisted meal titles (one-time)
   useEffect(() => {
     if (!isHydrated) return;
@@ -215,8 +187,8 @@ const App: React.FC = () => {
       const days = store.state?.plan?.days;
       if (days) {
         for (const date of Object.keys(days)) {
-          for (const mealType of Object.keys(days[date])) {
-            const meals = days[date][mealType] as any[];
+            for (const mealType of Object.keys(days[date])) {
+            const meals = days[date][mealType as keyof typeof days[string]];
             if (!meals) continue;
             for (const meal of meals) {
               if (meal.title && meal.title.includes(' + ')) {
@@ -234,84 +206,22 @@ const App: React.FC = () => {
     } catch {}
   }, [isHydrated]);
 
-  // SYNC: Keep authStorage in sync with trayBuilt to prevent routing loops
+  // RESTORE: Verify token on startup by calling GET /auth/me
+  const _authMeVerified = useRef(false);
   useEffect(() => {
-    if (isHydrated && isLoggedIn) {
-      saveAuth({ isLoggedIn: true, trayBuilt, user: user as any });
-    }
-  }, [isHydrated, isLoggedIn, trayBuilt, user]);
-
-  // Hardware back button (Capacitor Android)
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    (async () => {
-      try {
-        const { App } = await import('@capacitor/app');
-        const handler = await App.addListener('backButton', () => {
-          // Priority 0: Close open modal
-          if (hasOpenModals()) {
-            closeTopModal();
-            return;
-          }
-          // Priority 1: Pop sub-view nav stack
-          if (navStackRef.current.length > 0) {
-            goBack();
-            return;
-          }
-          // Priority 2: Navigate from non-dashboard tabs to dashboard
-          if (activeTab !== 'dashboard') {
-            setActiveTab('dashboard');
-            return;
-          }
-          // Priority 3: Double-tap exit on dashboard
-          if (backExitTimerRef.current) {
-            // Second tap within 2s → exit
-            clearTimeout(backExitTimerRef.current);
-            backExitTimerRef.current = null;
-            (async () => {
-              const { App } = await import('@capacitor/app');
-              App.exitApp();
-            })();
-          } else {
-            // First tap → start timer, show toast
-            setToast({ message: 'Press back again to exit', type: 'info' });
-            backExitTimerRef.current = setTimeout(() => {
-              backExitTimerRef.current = null;
-            }, 2000);
-          }
-        });
-        cleanup = handler.remove;
-      } catch {
-        // Not running in Capacitor (web preview), ignore
+    if (!isHydrated || !isLoggedIn) return;
+    const token = useStore.getState().token;
+    if (!token) return;
+    if (_authMeVerified.current) return;
+    _authMeVerified.current = true;
+    getMe().then(serverUser => {
+      if (!serverUser) {
+        useStore.getState().clearToken();
+      } else if (typeof serverUser.name === 'string' && serverUser.name) {
+        updateProfile({ username: serverUser.name as string });
       }
-    })();
-    return () => {
-      cleanup?.();
-      if (backExitTimerRef.current) {
-        clearTimeout(backExitTimerRef.current);
-        backExitTimerRef.current = null;
-      }
-    };
-  }, [goBack, activeTab, setToast]);
-
-  // FIX: Flush persistence stores before app goes to background to prevent data loss
-  useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    (async () => {
-      try {
-        const { App } = await import('@capacitor/app');
-        const handler = await App.addListener('appStateChange', ({ isActive }) => {
-          if (!isActive) {
-            // App going to background — Zustand 5 persists synchronously, no flush needed
-          }
-        });
-        cleanup = handler.remove;
-      } catch {
-        // Not running in Capacitor, ignore
-      }
-    })();
-    return () => { cleanup?.(); };
-  }, []);
+    });
+  }, [isHydrated, isLoggedIn, updateProfile]);
 
   // ─── Cycle-end nudge: toast when loop has ≤3 days of assignments left ───
   useEffect(() => {
@@ -350,6 +260,30 @@ const App: React.FC = () => {
     return unsub;
   }, [showLoopConfig]);
 
+  // ─── Notification triggers: periodic checks ───
+  useEffect(() => {
+    const check = () => {
+      const ml = useLoopStore.getState().mealLoop;
+      if (ml.config) {
+        checkPlanEnding(ml.config.startDate, ml.config.cycleLength);
+      }
+      const today = getISODate();
+      const trayStore = useTrayStore.getState();
+      checkMealReminder(today, trayStore.getMeals);
+    };
+    check();
+    const interval = setInterval(check, 60000); // every 60s
+    return () => clearInterval(interval);
+  }, []);
+
+  // ─── Request browser notification permission on first visit ───
+  useEffect(() => {
+    if (isLoggedIn && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      const timer = setTimeout(() => useNotificationStore.getState().requestBrowserPermission(), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoggedIn]);
+
   const handleDismissNudge = useCallback(() => {
     localStorage.setItem('cycle_end_nudge_dismiss_at', String(Date.now()));
     setCycleEndNudge(null);
@@ -385,26 +319,32 @@ const App: React.FC = () => {
   // Inline onboarding flow from Profile (Edit Mode)
   if (quickSetupOpen) {
     return (
-      <FlashOnboarding
-        isEditMode={true}
-        prefill={quickSetupPrefill as unknown as { region?: string; diet?: string; spiceLevel?: number; plannedSlots?: ("Breakfast" | "Lunch" | "Snacks" | "Dinner")[]; cookContact?: string; } | undefined}
-        onComplete={async (payload) => {
-          try {
-            updateProfile({
-              region: payload.region,
-              diet: payload.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
-              spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
-              cookContact: payload.cookContact,
-              plannedSlots: payload.plannedSlots,
-              onboardingComplete: true,
-            });
-          } catch (e) {
-            console.error('[App] Edit mode onboarding error:', e);
-          }
-          setAuthReady(true);
-          closeQuickSetup();
-        }}
-      />
+      <Suspense fallback={
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }>
+        <FlashOnboarding
+          isEditMode={true}
+          prefill={quickSetupPrefill as unknown as { region?: string; diet?: string; spiceLevel?: number; plannedSlots?: ("Breakfast" | "Lunch" | "Snacks" | "Dinner")[]; cookContact?: string; } | undefined}
+          onComplete={async (payload) => {
+            try {
+              updateProfile({
+                region: payload.region,
+                diet: payload.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
+                spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
+                cookContact: payload.cookContact,
+                plannedSlots: payload.plannedSlots,
+                onboardingComplete: true,
+              });
+            } catch (e) {
+              console.error('[App] Edit mode onboarding error:', e);
+            }
+            setAuthReady(true);
+            closeQuickSetup();
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -420,7 +360,12 @@ const App: React.FC = () => {
   }
 
   if (!isLoggedIn) {
-    return <LoginScreen onLogin={async (username) => {
+    return <Suspense fallback={
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <LoginScreen onLogin={async (username) => {
       console.log('[App] onLogin called, username:', username);
       // FIX: Use atomic login function and flush persistence immediately
       login(username);
@@ -433,33 +378,100 @@ const App: React.FC = () => {
       } else {
         console.log('[App] Login data verified in storage.');
       }
-    }} />;
+    }} />
+    </Suspense>;
   }
 
   const hasRegion = !!(user?.region);
   const onboardingComplete = user?.onboardingComplete ?? false;
   if (!hasRegion || onboardingComplete !== true) {
     return (
-      <FlashOnboarding
-        onComplete={async (preferences) => {
-          try {
-            console.log('[App] Onboarding complete, calling updateProfile');
-            updateProfile({
-              region: preferences.region,
-               diet: preferences.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
-              spiceLevel: spiceLevelFromNumber(preferences.spiceLevel),
-              cookContact: preferences.cookContact,
-              plannedSlots: preferences.plannedSlots,
-              onboardingComplete: true,
-              goal: user?.goal || 'Weekly',
-            });
-            console.log('[App] Onboarding data persisted');
-          } catch (e) {
-            console.error('[App] First-time onboarding error:', e);
-          }
-          setAuthReady(true);
-        }}
-      />
+      <Suspense fallback={
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }>
+        <FlashOnboarding
+          onComplete={async (preferences) => {
+            try {
+              console.log('[App] Onboarding complete, calling updateProfile');
+              updateProfile({
+                region: preferences.region,
+                 diet: preferences.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
+                spiceLevel: spiceLevelFromNumber(preferences.spiceLevel),
+                cookContact: preferences.cookContact,
+                plannedSlots: preferences.plannedSlots,
+                onboardingComplete: true,
+                goal: user?.goal || 'Weekly',
+                healthGoals: [preferences.healthGoal],
+              });
+              console.log('[App] Onboarding data persisted');
+
+              // Phase 3: Auto-seed tray with 1 dish per slot + default loop
+              const regionKey = getRegionKey(preferences.region) || 'north';
+              const dietTypes: Record<string, string[]> = {
+                'Veg': ['veg', 'vegan'], 'Eggitarian': ['veg', 'vegan', 'eggitarian'],
+                'Non-Veg': ['veg', 'non-veg', 'vegan', 'eggitarian'], 'Vegan': ['vegan'],
+              };
+              const allowedTypes = dietTypes[preferences.diet] || ['veg'];
+              const today = getISODate();
+              const trayState = useStore.getState();
+              const trayStore = useTrayStore.getState();
+
+              const seededDishes: Dish[] = [];
+              const library = await getDishLibrary();
+              for (const slot of preferences.plannedSlots) {
+                const slotKey = slot.toLowerCase() as 'breakfast' | 'lunch' | 'dinner' | 'snacks';
+                const candidates = library.filter(d =>
+                  (d.region === regionKey || d.region === 'all') &&
+                  d.category.includes(slotKey as any) &&
+                  allowedTypes.includes(d.type)
+                );
+                // Pick up to 3 dishes per slot so loop has variety
+                const selected = candidates.slice(0, 3);
+                for (const dish of selected) {
+                  seededDishes.push(dish);
+                  trayState.addToTray(slotKey, {
+                    id: dish.id, dishId: dish.id, name: dish.name,
+                    icon: dish.icon, sourceRegion: dish.region,
+                  });
+                }
+                // Add only the first dish to today's meal
+                const first = selected[0];
+                if (first) {
+                  const firstVariant = first.variants?.[0];
+                  trayStore.addMealToSlot(today, slotKey, {
+                    id: first.id, name: first.name, icon: first.icon, region: first.region as Meal['region'],
+                  }, firstVariant ? { variantId: firstVariant.id, variant: firstVariant.name } : undefined);
+                }
+              }
+              setTrayBuilt(true);
+
+              // Build source pool from seeded dishes + apply default loop config
+              const currentTray = useStore.getState().trayLibrary;
+              const newPool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+              for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+                const items = currentTray[slot] ?? [];
+                for (const item of items) {
+                  const dish = seededDishes.find(d => d.id === item.dishId);
+                  if (dish && !newPool[slot].find(d => d.id === dish.id)) newPool[slot].push(dish);
+                }
+              }
+              const defaultConfig: MealLoopConfig = {
+                cycleLength: 7, startDate: today, skipDays: [], repeatPattern: 'random',
+              };
+              applyLoopConfig(defaultConfig, newPool, library);
+              window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config: defaultConfig } }));
+              console.log('[App] Auto-seeded tray with', seededDishes.length, 'dishes + applied default loop');
+              startNewUserGuide();
+
+            } catch (e) {
+              console.error('[App] First-time onboarding error:', e);
+            }
+            setAuthReady(true);
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -467,8 +479,13 @@ const App: React.FC = () => {
   // Step 1: Loop config (after tray save in current session)
   if (showLoopConfig) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <MealLoopConfigModal
+      <Suspense fallback={
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+        </div>
+      }>
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <MealLoopConfigModal
           isOpen={true}
           sourcePool={sourcePool}
           plannedSlots={user?.plannedSlots}
@@ -511,6 +528,7 @@ const App: React.FC = () => {
           }}
         />
       </div>
+      </Suspense>
     );
   }
 
@@ -519,31 +537,37 @@ const App: React.FC = () => {
     console.log('[App] Showing MealTrayBuilder, trayBuilt:', trayBuilt, 'manageTray:', manageTray);
     return (
       <ErrorBoundary>
-        <MealTrayBuilder
-          user={user}
-          defaultSlot={manageTraySlot}
-          onBack={navStack.length > 0 ? goBack : undefined}
-          onComplete={async () => {
-            console.log('[App] MealTrayBuilder onComplete called');
-            setTrayBuilt(true);
-            console.log('[App] trayBuilt=true persisted');
-            setManageTray(false);
-            setManageTraySlot(undefined);
-            const returnTab = trayEditSession?.returnTab;
-            if (returnTab) {
-              setActiveTab(returnTab);
-              useStore.getState().endTrayEdit();
-            }
-            setShowLoopConfig(true);
-          }}
-        />
+        <Suspense fallback={
+          <div className="min-h-screen bg-white flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-[#FF385C] border-t-transparent rounded-full animate-spin" />
+          </div>
+        }>
+          <MealTrayBuilder
+            user={user}
+            defaultSlot={manageTraySlot}
+            onBack={navStack.length > 0 ? () => { setManageTray(false); setManageTraySlot(undefined); setShowLoopConfig(false); goBack(); } : undefined}
+            onComplete={async () => {
+              console.log('[App] MealTrayBuilder onComplete called');
+              setTrayBuilt(true);
+              console.log('[App] trayBuilt=true persisted');
+              setManageTray(false);
+              setManageTraySlot(undefined);
+              const returnTab = trayEditSession?.returnTab;
+              if (returnTab) {
+                setActiveTab(returnTab);
+                useStore.getState().endTrayEdit();
+              }
+              setShowLoopConfig(true);
+            }}
+          />
+        </Suspense>
       </ErrorBoundary>
     );
   }
 
   return (
     <SwapCustomizeProvider>
-    <div className="min-h-screen bg-white font-sans text-gray-900 max-w-lg mx-auto">
+    <div className="min-h-screen bg-white font-sans text-gray-900">
       {toast && <Toast message={toast.message} type={toast.type} action={toast.action} onClose={() => setToast(null)} />}
       {cycleEndNudge && (
         <div className="fixed top-20 left-4 right-4 max-w-lg mx-auto z-[100] animate-in slide-in-from-top-2 fade-in duration-200">
@@ -606,33 +630,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 z-50 pb-[env(safe-area-inset-bottom)]" role="navigation" aria-label="Main navigation">
-        <div className="grid grid-cols-4 px-1 py-1">
-          {TABS.map(({ key, label, Icon }) => {
-            const active = activeTab === key;
-            return (
-              <button
-                key={key}
-                onClick={() => setActiveTab(key)}
-                className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-2xl transition-all duration-200"
-                aria-label={label}
-                aria-current={active ? 'page' : undefined}
-              >
-                <div className={`p-2 rounded-xl transition-all duration-200 ${active ? 'bg-[#FF385C]/10 scale-110' : ''}`}>
-                  <Icon
-                    size={22}
-                    className={`transition-colors duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}
-                    aria-hidden="true"
-                  />
-                </div>
-                <span className={`text-[9px] font-black uppercase tracking-widest transition-all duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}>
-                  {label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
+      <TabBar activeTab={activeTab as Tab} onTabChange={setActiveTab} />
     </div>
     </SwapCustomizeProvider>
   );

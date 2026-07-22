@@ -8,12 +8,46 @@ import { Trie } from '../app/utils/Trie';
 import { LRUCache } from '../app/utils/LRUCache';
 import { BloomFilter } from '../app/utils/BloomFilter';
 import { getDishGraph } from '../app/utils/DishGraph';
+import { getPreferenceBoost } from './dishPreferences';
 
+
+
+
+// ── Fuzzy search — Levenshtein distance for typo tolerance ──
+function levenshtein(a: string, b: string): number {
+  const an = a.length;
+  const bn = b.length;
+  const matrix: number[] = [];
+  for (let i = 0; i <= bn; i++) matrix[i] = i;
+  for (let i = 1; i <= an; i++) {
+    let prev = i;
+    for (let j = 1; j <= bn; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const val = Math.min(
+        matrix[j] + 1,     // deletion
+        prev + 1,           // insertion
+        matrix[j - 1] + cost, // substitution
+      );
+      matrix[j - 1] = prev;
+      prev = val;
+    }
+    matrix[bn] = prev;
+  }
+  return matrix[bn];
+}
+
+function fuzzyMatch(query: string, target: string): boolean {
+  if (target.includes(query)) return true;
+  if (query.length < 3) return false;
+  // For 3-4 char queries, allow 1 edit; for 5+, allow 2
+  const maxDist = query.length <= 4 ? 1 : 2;
+  return levenshtein(query.toLowerCase(), target.toLowerCase()) <= maxDist;
+}
 const DIET_FILTER: Record<string, string[]> = {
   veg: ['veg', 'vegan'],
   'non-veg': ['veg', 'non-veg', 'eggitarian'],
   eggitarian: ['veg', 'eggitarian', 'non-veg'],
-  vegan: ['veg', 'vegan'],
+  vegan: ['vegan'],
 };
 
 const _categoryIndexMap = new WeakMap<Dish[], Map<string, Set<string>>>();
@@ -144,7 +178,7 @@ function optimizeTopNDiversity(scored: ScoredDish[], existingDishes: Dish[], top
         const nextVal = dp[i + 1]![j]!;
         if (currentVal > nextVal) {
           dp[i + 1]![j] = currentVal;
-          selected[idx(i + 1, j)] = selected[idx(i, j)];
+          selected[idx(i + 1, j)] = selected[idx(i, j)]!;
         }
 
         if (j < topN) {
@@ -206,17 +240,22 @@ export function rankDishes(params: {
   selectedDishIds?: string[];
   customDishes?: Dish[];
   allDishes?: Dish[]; // Full dish library for diversity calculation
+  excludeIds?: string[]; // IDs to exclude (already in current slot)
 }): ScoredDish[] {
   const {
     dishes, slot, diet, regionKey, query, showGlobal,
     healthPreset, healthSort, selectedDishIds, customDishes, allDishes,
+    excludeIds,
   } = params;
 
   const q = query.toLowerCase();
   const category = slot.toLowerCase();
   const isVegan = diet?.toLowerCase() === 'vegan';
   const allowedTypes = DIET_FILTER[diet?.toLowerCase() || 'veg'] || ['veg'];
-  const selectedSet = selectedDishIds ? new Set(selectedDishIds) : new Set<string>();
+  const excludeSet = excludeIds ? new Set(excludeIds) : new Set<string>();
+  const selectedSet = selectedDishIds
+    ? new Set([...selectedDishIds, ...excludeSet])
+    : excludeSet;
   const dishPool = customDishes?.length ? [...dishes, ...customDishes] : dishes;
 
   ensureIndexes(dishes);
@@ -231,6 +270,7 @@ export function rankDishes(params: {
     const isCustom = d.tags?.includes('user_created');
     if (!isCustom && !categoryIndex.get(category)?.has(d.id)) {
       if (!q) return false;
+      // Dish doesn't match slot category but has a query match — score penalty will push it down
     }
     if (isVegan && d.type !== 'veg' && d.type !== 'vegan') return false;
     if (!isVegan && !allowedTypes.includes(d.type)) return false;
@@ -240,7 +280,10 @@ export function rankDishes(params: {
       const matchVariant = d.variants.some(v => v.name.toLowerCase().includes(q));
       if (!matchTags && !matchVariant) {
         const dName = d.name.toLowerCase();
-        if (!dName.includes(q)) return false;
+        if (!dName.includes(q)) {
+          // Fuzzy fallback: typo-tolerant matching
+          if (!fuzzyMatch(q, dName)) return false;
+        }
       }
     }
     return true;
@@ -255,26 +298,64 @@ export function rankDishes(params: {
     if (new RegExp('\\b' + regionKey + '\\b').test(d.region.toLowerCase())) score += 10;
     if (d.tags.includes('popular') || d.tags.includes('hero')) score += 5;
     if (d.states.some(s => s.toLowerCase().includes(regionKey))) score += 3;
+    score += getPreferenceBoost(d.id, d.tags);
+    // Category mismatch penalty: if dish doesn't belong to this meal slot, penalize heavily
+    // so slot-appropriate dishes rank higher even when searching
+    if (q && !categoryIndex.get(category)?.has(d.id) && !d.tags?.includes('user_created')) {
+      score -= 50;
+    }
+    // Beverage/side penalty: dishes tagged as 'beverage' should not rank high for lunch/dinner
+    if (q && (category === 'lunch' || category === 'dinner') && d.tags?.includes('beverage')) {
+      score -= 30;
+    }
     return { dish: d, score, healthScore: scoreDish(d) };
   });
 
+  // ─── Region relevance filter ─────────────────────────────────────────
+  // Always filter by region — when searching, also show other regions
+  // but score them lower so region-matching dishes appear first
+  const regionRegex = new RegExp('\\b' + regionKey + '\\b');
+  const relevantScored = scored.filter(s =>
+    s.dish.region === 'all' || regionRegex.test(s.dish.region.toLowerCase()) || (q && s.score >= 3)
+  );
+
   // Apply diversity optimization if we have existing selections
   const existingDishes = allDishes?.filter(d => selectedSet.has(d.id)) ?? [];
-  let finalScored = scored;
+  let finalScored = relevantScored;
   if (existingDishes.length > 0 && !healthSort && !q) {
-    finalScored = optimizeTopNDiversity(scored, existingDishes, 10);
+    finalScored = optimizeTopNDiversity(relevantScored, existingDishes, 10);
   } else if (healthSort) {
-    const sortedByHealth = sortDishesByHealth(scored.map(s => s.dish), healthSort);
+    const sortedByHealth = sortDishesByHealth(relevantScored.map(s => s.dish), healthSort);
     const rankMap = new Map(sortedByHealth.map((d, i) => [d.id, i]));
-    scored.sort((a, b) => (rankMap.get(a.dish.id) ?? 0) - (rankMap.get(b.dish.id) ?? 0));
+    relevantScored.sort((a, b) => (rankMap.get(a.dish.id) ?? 0) - (rankMap.get(b.dish.id) ?? 0));
+    finalScored = relevantScored;
   } else {
-    scored.sort((a, b) => b.score - a.score);
+    relevantScored.sort((a, b) => b.score - a.score);
+    finalScored = relevantScored;
   }
 
-  const regionRegex = new RegExp('\\b' + regionKey + '\\b');
-  const regional = finalScored.filter(s => regionRegex.test(s.dish.region.toLowerCase()));
-  const global_ = finalScored.filter(s => !regionRegex.test(s.dish.region.toLowerCase()));
-  return showGlobal ? [...global_, ...regional] : [...regional, ...global_];
+  // ─── Stable ordering: region match → all-region → other (by score desc) ──
+  finalScored.sort((a, b) => {
+    const aIsRegion = regionRegex.test(a.dish.region.toLowerCase());
+    const bIsRegion = regionRegex.test(b.dish.region.toLowerCase());
+    const aIsAll = a.dish.region === 'all';
+    const bIsAll = b.dish.region === 'all';
+
+    // Same tier → sort by score descending
+    if (aIsRegion === bIsRegion && aIsAll === bIsAll) return b.score - a.score;
+
+    // Region-matched dishes first (highest relevance)
+    if (aIsRegion && !bIsRegion) return -1;
+    if (!aIsRegion && bIsRegion) return 1;
+
+    // `showGlobal = true` puts all-region dishes before other
+    if (aIsAll && !bIsAll) return showGlobal ? -1 : 1;
+    if (!aIsAll && bIsAll) return showGlobal ? 1 : -1;
+
+    return b.score - a.score;
+  });
+
+  return finalScored;
 }
 
 const SLOT_CONTEXT: Record<string, string> = {
@@ -285,8 +366,10 @@ const SLOT_CONTEXT: Record<string, string> = {
 };
 
 /** Extract region key from user region string */
-export function getRegionKey(region?: string): string {
-  return (region ?? '').toLowerCase().replace(' india', '');
+import type { NormalizedRegion } from '../types/identity';
+
+export function getRegionKey(region?: string): NormalizedRegion {
+  return ((region ?? '').toLowerCase().replace(' india', '') || 'all') as NormalizedRegion;
 }
 
 /** Get relevant variants for a dish filtered by meal slot */

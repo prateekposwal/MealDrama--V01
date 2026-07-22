@@ -221,8 +221,13 @@ export function assignFromQueue(
       const key = `${dateStr}:${slot}`;
       if (existingSet.has(key)) continue;
 
-      // Anti-repetition: gap scales with pool size — small pool = bigger gap
-      const gap = Math.max(3, Math.floor(config.cycleLength / heap.size));
+      // Anti-repetition: gap scales inversely with pool size
+      // With 1 dish, gap=1 so it fills daily. With larger pools, gap grows
+      // to prevent the same dish too often, but never starves the plan.
+      const gap = Math.max(1, Math.min(
+        Math.floor(config.cycleLength / Math.max(1, heap.size)),
+        heap.size,
+      ));
 
       // Pop the most-starved dish (longest since last served)
       const candidate = heap.pop();

@@ -1,7 +1,7 @@
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { TrayItem, SaveStatus, MealType } from '../../plan/store/useTrayStore';
 import {
-    X, MessageCircle,
+    X, RefreshCw,
 } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import type { Dish } from '../../meal/constants/dishLibrary';
@@ -12,6 +12,7 @@ import type { DishStyleGroup } from '../../meal/constants/dishStyles';
 import { getSlotDefaultTimes, isSlotActive } from '../../types/tray';
 import { TimeBadge, TimeEditor } from './TimeComponents';
 import { useStore } from '../../app/store/useStore';
+import { useFirstTimeGuide } from '../../hooks/useFirstTimeGuide';
 
 /** @deprecated `time` is hardcoded — use per-slot `start_time`/`end_time` from config instead */
 export const SLOT_META: Record<string, { icon: string; time: string; color: string; bg: string }> = {
@@ -40,12 +41,9 @@ interface MealCardProps {
     mealType?: MealType;
     userRegion?: string;
     userDiet?: string;
+    /** Extra servings from guest mode */
     guestExtra?: number;
     onUpdateInline?: (updates: Partial<TrayItem>) => void;
-    swapOpen?: boolean;
-    onSwapOpen?: () => void;
-    onSwapClose?: () => void;
-    onSwapSelect?: (newMealId: string, chipOverrides?: Record<string, unknown>) => void;
     hideTime?: boolean;
     hideChips?: boolean;
     onShareSlot?: () => void;
@@ -57,6 +55,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
     isLocked, isMissed, onRemove, editable = true,
     swapCustomizeOpen, onSwapCustomizeOpen, onSwapCustomizeClose,
     onUpdateInline, hideTime = false, onShareSlot, hideSlotLabel,
+    guestExtra,
 }) => {
     const [editingTime, setEditingTime] = useState(false);
     const [justSwapped, setJustSwapped] = useState(false);
@@ -66,6 +65,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
         [dishes, item.meal_id]
     );
     const household = useStore(s => s.household);
+    const { showGuide, dismissGuide } = useFirstTimeGuide();
     const requestedByLabel = useMemo(() => {
         if (!item.requestedBy) return null;
         if (!household) return '(left)';
@@ -107,7 +107,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
 
     return (
         <div
-            className={`p-5 rounded-[28px] border-2 ${meta?.color || 'border-gray-200'} ${meta?.bg || 'bg-gray-50'} transition-all relative overflow-hidden ${isMissed && !isLocked && editable !== false ? 'grayscale opacity-60' : ''} ${justSwapped ? 'swap-flash' : ''}`}
+            className={`p-5 rounded-[28px] border-2 ${meta?.color || 'border-gray-200'} ${meta?.bg || 'bg-gray-50'} transition-all relative ${isMissed && !isLocked && editable !== false ? 'grayscale opacity-60' : ''} ${justSwapped ? 'swap-flash' : ''}`}
             role="article"
             aria-label={`${slot} meal: ${item.name}`}
         >
@@ -126,7 +126,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
             <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2 mb-1.5">
                     {!hideSlotLabel && (
-                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-500">{slot}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{slot}</span>
                     )}
                     {!hideTime && (
                         <span className="ml-auto">
@@ -149,16 +149,22 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
 
                 </div>
                 <div className="flex items-center gap-2">
-                    {onShareSlot && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onShareSlot(); }}
-                            className="w-8 h-8 rounded-xl bg-[#25D366]/10 flex items-center justify-center text-[#25D366] active:scale-90 transition-all hover:ring-2 hover:ring-[#25D366]/30 hover:ring-offset-1"
-                            aria-label="Share meal via WhatsApp"
-                        >
-                            <MessageCircle size={14} />
-                        </button>
-                    )}
                     {!isLocked && !isMissed && editable && (
+                        <>
+                        {onSwapCustomizeOpen && (
+                            <div className="relative">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); dismissGuide(); onSwapCustomizeOpen(); }}
+                                className={`w-8 h-8 rounded-xl flex items-center justify-center active:scale-90 transition-all bg-emerald-50 text-emerald-600 border border-emerald-200 hover:ring-2 hover:ring-emerald-300 hover:ring-offset-1 ${showGuide ? 'guide-pulse' : ''}`}
+                                aria-label={`Swap ${item.name}`}
+                            >
+                                <RefreshCw size={14} />
+                            </button>
+                            {showGuide && (
+                                <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full animate-ping" />
+                            )}
+                            </div>
+                        )}
                         <button
                             onClick={onRemove}
                             className="w-8 h-8 rounded-xl border flex items-center justify-center active:scale-90 transition-all bg-gray-50 border-gray-200 text-gray-500 hover:ring-2 hover:ring-red-300 hover:ring-offset-1"
@@ -166,6 +172,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                         >
                             <X size={14} />
                         </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -186,44 +193,52 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                     </h4>
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {requestedByLabel && (
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
                                 requestedByLabel === '(left)'
-                                    ? 'bg-gray-100 border-gray-200 text-gray-400'
+                                    ? 'bg-gray-100 border-gray-200 text-gray-500'
                                     : 'bg-orange-100 border-orange-200 text-orange-700'
                             }`}>
                                 {requestedByLabel === '(left)' ? '👋 Left' : `🙋 ${requestedByLabel}`}
                             </span>
                         )}
-                        {item.quantity > 1 && (
-                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
-                                x{item.quantity}
+                        {item.style && STYLE_GROUP_ICONS[item.style as DishStyleGroup] && (
+                            <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100 flex-shrink-0 flex items-center gap-0.5">
+                                {STYLE_GROUP_ICONS[item.style as DishStyleGroup]} {item.style}
                             </span>
                         )}
-                        {editable && onUpdateInline && (
-                            <div className="flex items-center gap-1 ml-0.5">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: Math.max(1, item.quantity - 1) }); }}
-                                    disabled={item.quantity <= 1}
-                                    className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 disabled:opacity-30 text-[10px] font-bold leading-none"
-                                >−</button>
-                                <span className="text-xs font-bold text-gray-700 tabular-nums w-4 text-center">{item.quantity}</span>
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity + 1 }); }}
-                                    className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
-                                >+</button>
-                            </div>
-                        )}
+                        <HealthScoreBadge score={healthScore} size="sm" />
                         {item.addon && (
                             <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
                                 {item.addon}
                             </span>
                         )}
-                        {item.style && STYLE_GROUP_ICONS[item.style as DishStyleGroup] && (
-                            <span className="text-[9px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100 flex-shrink-0 flex items-center gap-0.5">
-                                {STYLE_GROUP_ICONS[item.style as DishStyleGroup]} {item.style}
+                        {guestExtra != null && guestExtra > 0 && (
+                            <span className="text-[10px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-1">
+                                +{guestExtra} guest
                             </span>
                         )}
-                        <HealthScoreBadge score={healthScore} size="sm" />
+                    </div>
+                    <div className="flex items-center gap-2 mt-1.5 mb-2">
+                        {item.quantity > 1 && (
+                            <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-bold flex-shrink-0">
+                                x{item.quantity}
+                            </span>
+                        )}
+                        {editable && onUpdateInline && (
+                            <div className="flex items-center gap-1.5">
+                                {item.quantity > 1 && (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity - 1 }); }}
+                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
+                                    >−</button>
+                                )}
+                                <span className="text-xs font-bold text-gray-700 tabular-nums min-w-[12px] text-center">{item.quantity}</span>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity + 1 }); }}
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
+                                >+</button>
+                            </div>
+                        )}
                     </div>
 
                 </div>
@@ -235,6 +250,10 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                     30% { opacity: 1; transform: scale(1); }
                     100% { opacity: 0; }
                 }
+                @keyframes guidePulse {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+                    50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+                }
                 .swap-flash {
                     animation: swapFlashIn 0.8s ease-out;
                 }
@@ -242,10 +261,17 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                     background: radial-gradient(ellipse at center, rgba(16, 185, 129, 0.15) 0%, transparent 70%);
                     animation: swapFlashIn 0.8s ease-out;
                 }
+                .guide-pulse {
+                    animation: guidePulse 2s ease-in-out infinite;
+                    position: relative;
+                    z-index: 10;
+                }
                 @media (prefers-reduced-motion: reduce) {
                     .transition-all { transition: none !important; }
                     .swap-flash { animation: none !important; }
                     .swap-flash-overlay { animation: none !important; }
+                    .guide-pulse { animation: none !important; }
+                    .animate-ping { animation: none !important; }
                 }
             `}</style>
         </div>

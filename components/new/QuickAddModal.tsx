@@ -11,7 +11,7 @@ import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import { HealthFilterBar } from '../health/HealthFilterBar';
 import { rankDishes, getRegionKey, getDishVariants, DIET_FILTER } from '../../utils/dishSearch';
 import { useDebounce } from '../../hooks/useDebounce';
-import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from '../../utils/healthSortFilter';
+import { filterDishesByHealth, sortDishesByHealth, getFilterPreset, goalToPreset } from '../../utils/healthSortFilter';
 import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
 import { VirtualList } from './VirtualList';
 
@@ -65,7 +65,10 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     const debouncedSearch = useDebounce(search, 200);
     const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
     const [showGlobal, setShowGlobal] = useState(false);
-    const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(null);
+    const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(() => {
+        const g = useStore.getState().user?.healthGoals?.[0];
+        return goalToPreset(g);
+    });
     const [healthSort, setHealthSort] = useState<HealthSortKey | null>(null);
     const [showCustomForm, setShowCustomForm] = useState(false);
     const [editingDishId, setEditingDishId] = useState<string | null>(null);

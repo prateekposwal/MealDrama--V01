@@ -16,8 +16,10 @@ import { SLOT_META } from './MealCard';
 import { SmartSuggestionChips } from './SmartSuggestionChips';
 import { TimeBadge, TimeEditor } from './TimeComponents';
 const SwapCustomizeModal = lazy(() => import('./SwapCustomizeModal'));
+const CategoryQuickEdit = lazy(() => import('./CategoryQuickEdit'));
 import DishImage from '../new/DishImage';
-import { CheckCheck, ChevronRight, Forward, Shuffle, Sparkles, X, Plus } from 'lucide-react';
+import PlateCompletionBanner from '../health/PlateCompletionBanner';
+import { CheckCheck, ChevronRight, Forward, Shuffle, Sparkles, X, Plus, RefreshCw } from 'lucide-react';
 import type { StyleWarning } from '../../meal/constants/dishStyles';
 import { useStore } from '../../app/store/useStore';
 import { useTrayStore } from '../../plan/store/useTrayStore';
@@ -37,12 +39,10 @@ export interface SlotBodyProps {
   dishes: Dish[];
   userRegion: string;
   userDiet: string;
+  regionKey?: string;
+  onAddSuggestion?: (date: string, mealType: MealType, dish: Dish) => void;
   pantryStaples: string[];
   guestMode?: GuestMode;
-  swapOpenKey: string | null;
-  onSwapOpen: (itemId: string) => void;
-  onSwapClose: () => void;
-  onSwapSelect: (date: string, mealType: MealType, itemId: string) => (newMealId: string, chipOverrides?: Record<string, unknown>) => void;
   onUpdateInline: (date: string, mealType: MealType, itemId: string) => (updates: Partial<TrayItem>) => void;
   /** Per-item remove */
   onRemove: (date: string, mealType: MealType, itemId: string) => () => void;
@@ -55,6 +55,7 @@ export interface SlotBodyProps {
   onSwapCustomizeClose?: () => void;
   onSwapCustomizeApply?: (date: string, mealType: MealType, itemId: string) => (updates: Partial<TrayItem>) => void;
   onAddAnother?: (date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => void;
+  onSwapAll?: (date: string, mealType: MealType) => void;
 
   /** Mark this slot as completed (user action) */
   onComplete?: () => void;
@@ -85,6 +86,7 @@ export interface SlotBodyProps {
   hideSlotLabel?: boolean;
 
   /** Show empty-state amber guide (Dashboard-only). Defaults to true. */
+  preferences?: Record<string, { start: string; end: string }>;
 }
 
 function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals: TrayItem[], mealType: MealType, preferences?: Record<string, { start: string; end: string }>) {
@@ -163,13 +165,12 @@ const _NOOP = () => {};
 
 export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   date, mealType, slotLabel, meals, mode,
-  dishes, userRegion, userDiet, pantryStaples,
+  dishes, userRegion, userDiet, regionKey, onAddSuggestion, pantryStaples,
   guestMode = { active: false, guestCount: 0, extraServings: 0, startDate: '', endDate: '' },
-  swapOpenKey, onSwapOpen, onSwapClose,
-  onSwapSelect, onUpdateInline, onRemove,
+  onUpdateInline, onRemove,
   onSuggestionAdd, onOpenSearch,
   swapCustomizeOpenKey,     onUndoSkip,
-    onSwapCustomizeOpen, onSwapCustomizeClose, onSwapCustomizeApply, onAddAnother,
+    onSwapCustomizeOpen, onSwapCustomizeClose, onSwapCustomizeApply, onAddAnother, onSwapAll,
   onComplete, onSkipSlot, onUndoComplete, isUserCompleted, tomorrowMeals, tomorrowDate,
   styleWarnings,
   mergeExtraItems,
@@ -311,6 +312,24 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
     if (removed) setToast({ message: `${name} removed`, type: 'info' });
   }, [meals, date, mealType, onUpdateInline, setToast]);
 
+  const [quickEditCategory, setQuickEditCategory] = useState<string | null>(null);
+
+  const handleAddPairing = useCallback((name: string) => {
+    const first = meals[0];
+    if (!first || !quickEditCategory) return;
+    const cat = quickEditCategory.toLowerCase();
+    const updates: Partial<TrayItem> = {};
+    if (cat === 'sides' || cat === 'beverages' || cat === 'dessert') {
+      const key = cat as 'sides' | 'beverages' | 'dessert';
+      const current = first[key] ?? [];
+      if (current.includes(name)) return;
+      updates[key] = [...current, name];
+    } else if (cat === 'gravy') updates.gravy = name;
+    else if (cat === 'bread') updates.roti = name;
+    else if (cat === 'rice') updates.rice = name;
+    onUpdateInline(date, mealType, first.id)(updates);
+  }, [meals, quickEditCategory, date, mealType, onUpdateInline]);
+
   // Stable callbacks for memo'd children
   const stableSwapCustomizeClose = useCallback(() => onSwapCustomizeClose?.(), [onSwapCustomizeClose]);
   const stableAddDishClose = useCallback(() => setAddDishOpen(false), []);
@@ -320,17 +339,16 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   );
 
   const categoryConfig = useMemo(() => [
-    { items: aggregated.gravy, label: 'Gravy', color: 'bg-amber-50 text-amber-700 border-amber-100' },
-    { items: aggregated.roti, label: 'Bread', color: 'bg-orange-50 text-orange-700 border-orange-100' },
-    { items: aggregated.rice, label: 'Rice', color: 'bg-blue-50 text-blue-700 border-blue-100' },
-    { items: aggregated.sides, label: 'Sides', color: 'bg-gray-50 text-gray-500 border-gray-100' },
-    { items: aggregated.beverages, label: 'Beverages', color: 'bg-gray-50 text-gray-500 border-gray-100' },
-    { items: aggregated.dessert, label: 'Dessert', color: 'bg-pink-50 text-pink-700 border-pink-100' },
+    { items: aggregated.gravy, label: 'Gravy', color: 'bg-amber-50 text-amber-700 border-amber-100', icon: '🥩' },
+    { items: aggregated.roti, label: 'Bread', color: 'bg-orange-50 text-orange-700 border-orange-100', icon: '🫓' },
+    { items: aggregated.rice, label: 'Rice', color: 'bg-blue-50 text-blue-700 border-blue-100', icon: '🍚' },
+    { items: aggregated.sides, label: 'Sides', color: 'bg-green-50 text-green-700 border-green-100', icon: '🥗' },
+    { items: aggregated.beverages, label: 'Beverages', color: 'bg-cyan-50 text-cyan-700 border-cyan-100', icon: '🍵' },
+    { items: aggregated.dessert, label: 'Dessert', color: 'bg-pink-50 text-pink-700 border-pink-100', icon: '🍨' },
   ], [aggregated]);
 
   // Show aggregated summary as the single source of truth for slot composition
   const showAggregated = !isUserCompleted && meals.length > 0;
-  const [aggregatedExpanded, setAggregatedExpanded] = useState(false);
 
   // ─── Badge counter, scroll-into-view, and pulse for new item additions ──
   const [newItemsCount, setNewItemsCount] = useState(0);
@@ -404,7 +422,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
             )}
           </div>
           <div className="p-4">
-            <p className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-2">Tomorrow's Plan</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Tomorrow's Plan</p>
             {tomorrowMeals && tomorrowMeals.length > 0 ? (
               <div className="space-y-2">
                 {tomorrowMeals.map(item => (
@@ -423,7 +441,6 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 >
                   Add dish <ChevronRight size={10} />
             </button>
-            <ChevronRight size={16} className={`text-gray-400 transition-transform duration-200 ${aggregatedExpanded ? 'rotate-90' : ''}`} />
           </div>
             )}
           </div>
@@ -457,10 +474,6 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   isMissed={isMissed}
                   editable={editable}
                   guestExtra={computeEffectiveServings(slotMeals[0]!.quantity || 1, date, guestMode).extra}
-                  swapOpen={swapOpenKey === slotMeals[0]!.id}
-                  onSwapOpen={() => onSwapOpen(slotMeals[0]!.id)}
-                  onSwapClose={onSwapClose}
-                  onSwapSelect={onSwapSelect(date, mealType, slotMeals[0]!.id)}
                   onUpdateInline={onUpdateInline(date, mealType, slotMeals[0]!.id)}
                   onRemove={onRemove(date, mealType, slotMeals[0]!.id)}
                   swapCustomizeOpen={swapCustomizeOpenKey === slotMeals[0]!.id}
@@ -470,18 +483,18 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   hideSlotLabel={hideSlotLabel}
                 />
               </div>
-              <div className="px-5 pb-4 -mt-2 space-y-1.5">
+              <div className="px-5 pb-4 space-y-1.5">
                 {(slotMeals.slice(1) as TrayItem[]).map(extra => (
                   <div key={extra.id} style={_ANIM_STYLE_1} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100 extra-card-enter">
                     <button onClick={() => onSwapCustomizeOpen?.(extra.id)} className="shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl active:scale-90 transition-all">
                       <DishImage name={extra.name} slot={slotLabel} size="sm" />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-4">
                         {extra.requestedBy && (
                           <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
                             memberName(extra.requestedBy) === '(left)'
-                              ? 'bg-gray-100 border-gray-200 text-gray-400'
+                              ? 'bg-gray-100 border-gray-200 text-gray-500'
                               : 'bg-orange-100 border-orange-200 text-orange-700'
                           }`}>
                             🙋 {memberName(extra.requestedBy)}
@@ -492,15 +505,16 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                         </span>
                         {editable ? (
                           <div className="flex items-center gap-1 ml-0.5">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: Math.max(1, extra.quantity - 1) }); }}
-                              disabled={extra.quantity <= 1}
-                              className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 disabled:opacity-30 text-[9px] font-bold leading-none"
-                            >−</button>
-                            <span className="text-xs font-bold text-gray-700 tabular-nums w-4 text-center">{extra.quantity}</span>
+                            {extra.quantity > 1 && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: extra.quantity - 1 }); }}
+                                className="w-7 h-7 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
+                              >−</button>
+                            )}
+                            <span className="text-xs font-bold text-gray-700 tabular-nums min-w-[8px] text-center">{extra.quantity}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: extra.quantity + 1 }); }}
-                              className="w-5 h-5 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[9px] font-bold leading-none"
+                              className="w-7 h-7 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
                             >+</button>
                           </div>
                         ) : extra.quantity > 1 && (
@@ -525,7 +539,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                           return true;
                         });
                         return cats.length > 0 ? (
-                          <span className="text-[9px] text-gray-400 font-medium leading-tight mt-0.5 block">
+                          <span className="text-[10px] text-gray-500 font-medium leading-tight mt-3 block">
                             ({cats.join(', ')})
                           </span>
                         ) : null;
@@ -535,7 +549,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => onSwapCustomizeOpen?.(extra.id)}
-                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-100 text-gray-400 active:scale-90 transition-all flex-shrink-0 hover:ring-2 hover:ring-emerald-300 hover:ring-offset-1"
+                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-100 text-gray-500 active:scale-90 transition-all flex-shrink-0 hover:ring-2 hover:ring-emerald-300 hover:ring-offset-1"
                           aria-label={`Customize ${extra.name}`}
                         >
                           <Sparkles size={10} />
@@ -570,10 +584,6 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   isMissed={isMissed}
                   editable={editable}
                   guestExtra={computeEffectiveServings(item.quantity || 1, date, guestMode).extra}
-                  swapOpen={swapOpenKey === item.id}
-                  onSwapOpen={() => onSwapOpen(item.id)}
-                  onSwapClose={onSwapClose}
-                  onSwapSelect={onSwapSelect(date, mealType, item.id)}
                   onUpdateInline={onUpdateInline(date, mealType, item.id)}
                   onRemove={onRemove(date, mealType, item.id)}
                   swapCustomizeOpen={swapCustomizeOpenKey === item.id}
@@ -590,17 +600,11 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         </div>
       )}
 
-      {/* ─── Aggregated slot items per category (collapsible) ─── */}
+      {/* ─── Aggregated slot items per category ─── */}
       {showAggregated && (
-        <div ref={aggregationRef} className="aggregated-categories scroll-mt-24">
-          <div className={`group flex items-center justify-between rounded-xl border-2 ${SLOT_META[slotLabel]?.color || 'border-emerald-200'} ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/80'} px-3 py-2.5 ${pulse ? 'animate-pulse-ring' : ''}`}>
-            <button
-              onClick={() => {
-                setAggregatedExpanded(prev => !prev);
-                if (!aggregatedExpanded) setNewItemsCount(0);
-              }}
-              className="flex-1 flex items-center gap-2 text-left hover:brightness-95 active:scale-[0.98] transition-all -m-2 p-2"
-            >
+        <div ref={aggregationRef} className="aggregated-categories scroll-mt-24 mt-4">
+          <div className={`group flex items-center justify-between rounded-xl ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/60'} px-3 py-2.5 ${pulse ? 'animate-pulse-ring' : ''}`}>
+            <div className="flex-1 flex items-center gap-2">
               <div className="flex items-center -space-x-2">
                 <div className="relative hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl transition-all">
                   <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
@@ -620,65 +624,96 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 )}
               </div>
               <div>
-                <span className={`text-xs font-black uppercase tracking-widest ${SLOT_META[slotLabel]?.color?.replace('border-', 'text-').replace('100', '700') || 'text-emerald-800'}`}>{slotLabel}</span>
-                <span className="block text-[10px] font-medium text-gray-600 group-hover:hidden">Flavor Flow Mapping</span>
-                <span className="hidden group-hover:block text-[10px] font-semibold text-gray-700">Build your ideal {slotLabel.toLowerCase()}</span>
+                <span className="text-xs font-black uppercase tracking-widest text-gray-600">{slotLabel}</span>
+                <span className="text-[10px] font-semibold text-gray-500">{slotLabel} Pairings</span>
+              </div>
+              <div className="flex items-center gap-1.5 ml-auto mr-2">
+                {categoryConfig.filter(cat => cat.items.length > 0).map(cat => {
+                  const total = cat.items.reduce((s, i) => s + i.totalQty, 0);
+                  const cls = total === 0 ? 'bg-red-50 text-red-600 border-red-200'
+                    : total <= 2 ? `bg-emerald-50 text-emerald-700 border-emerald-200`
+                    : 'bg-amber-50 text-amber-700 border-amber-200';
+                  return (
+                    <span key={cat.label} className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${cls} leading-none flex items-center gap-0.5`}>
+                      <span>{cat.icon}</span>
+                      <span>{total}</span>
+                    </span>
+                  );
+                })}
               </div>
               {newItemsCount > 0 && (
-                <span className="ml-auto mr-1 flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-full bg-[#FF385C] text-white text-[9px] font-bold leading-none animate-in fade-in zoom-in">
+                <span className="ml-auto mr-1 flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-full bg-[#FF385C] text-white text-[10px] font-bold leading-none animate-in fade-in zoom-in">
                   +{newItemsCount}
                 </span>
               )}
-            </button>
-          </div>
-          {aggregatedExpanded && (
-            <div className="flex flex-col gap-2 mt-2 px-2 pb-2">
-              {categoryConfig.filter(cat => cat.items.length > 0).map(cat => (
-                <div key={cat.label} className="flex flex-col gap-1">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">{cat.label}</span>
-                  <div className="flex flex-wrap items-center gap-1">
-                    {cat.items.map((agg: AggregatedCategory) => (
-                      <span key={agg.name} className="text-[10px] font-bold px-1.5 py-0.5 rounded-xl border inline-flex items-center gap-1 aggregated-chip select-none" style={_CHIP_STYLE}>
-                        <span className={`${cat.color} contents`}>
-                          {cat.label === 'Dessert' && '🍨 '}{agg.name}
-                        </span>
-                        <span className="inline-flex items-center gap-0.5">
-                          {editable && (
-                            <button
-                              onClick={() => handleAggregatedQty(agg.name, -1)}
-                              className="min-w-[28px] min-h-[28px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
-                              aria-label={`Decrease ${agg.name}`}
-                            >−</button>
-                          )}
-                          <span className="text-xs font-bold text-gray-700 min-w-[18px] text-center tabular-nums select-none">{agg.totalQty}</span>
-                          {editable && (
-                            <button
-                              onClick={() => handleAggregatedQty(agg.name, 1)}
-                              className="min-w-[28px] min-h-[28px] flex items-center justify-center rounded-lg bg-gray-100 text-gray-600 active:scale-95 active:opacity-80 transition-transform duration-100 text-xs font-bold leading-none"
-                              aria-label={`Increase ${agg.name}`}
-                            >+</button>
-                          )}
-                          <span className="text-[9px] text-gray-400 select-none">{agg.unit}</span>
-                        </span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
             </div>
-          )}
+          </div>
+          <div className="flex flex-col gap-2 mt-2 px-2 pb-2">
+            {categoryConfig.filter(cat => cat.items.length > 0).map(cat => (
+              <div key={cat.label} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 cursor-pointer active:opacity-70" onClick={() => editable && setQuickEditCategory(cat.label)}>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{cat.icon} {cat.label}</span>
+                  <span className="text-[10px] font-bold text-gray-500 ml-auto">
+                    {cat.items.reduce((s, i) => s + i.totalQty, 0)} item{(cat.items.reduce((s, i) => s + i.totalQty, 0) > 1 || cat.items.reduce((s, i) => s + i.totalQty, 0) === 0) ? 's' : ''}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {cat.items.map((agg: AggregatedCategory) => (
+                    <span
+                      key={agg.name}
+                      onClick={() => editable && setQuickEditCategory(cat.label)}
+                      className={`inline-flex items-center gap-1.5 rounded-lg ${cat.color.split(' ')[0]} px-3 py-1.5 cursor-pointer active:scale-95 transition-all select-none`}
+                      style={_CHIP_STYLE}
+                    >
+                      <span className="text-xs font-bold text-gray-800">{agg.name}</span>
+                      {agg.totalQty > 1 && (
+                        <span className="text-[10px] font-bold bg-white/60 px-1.5 py-0.5 rounded-full text-gray-500">×{agg.totalQty}</span>
+                      )}
+                    </span>
+                  ))}
+                  {editable && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setQuickEditCategory(cat.label); }}
+                      className="inline-flex items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-gray-500 hover:text-gray-600 hover:border-gray-400 active:scale-95 transition-all text-xs font-medium"
+                    >
+                      <Plus size={12} />
+                      {cat.label}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* ─── Add Dish button (slots with meals) — hidden while customize modal is open ─── */}
-      {editable && onAddAnother && !swapCustomizeOpenKey && meals.length > 0 && (
-        <button
-          onClick={() => setAddDishOpen(true)}
-          className="group w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-dashed border-emerald-300 text-emerald-500 hover:text-emerald-600 hover:border-emerald-400 hover:shadow-lg hover:shadow-emerald-200/50 active:scale-[0.98] transition-all text-[10px] font-bold"
-        >
-          <Plus size={12} className="transition-transform duration-200 group-hover:rotate-90" />
-          Add Dish
-        </button>
+      {/* ─── Plate Completion Banner + Swap All (replaces Add Dish) ─── */}
+      {editable && !swapCustomizeOpenKey && meals.length > 0 && (
+        <div className="flex gap-2">
+          {onAddSuggestion && regionKey && (
+            <div className="flex-1">
+              <PlateCompletionBanner
+                meals={meals}
+                mealType={mealType}
+                slotLabel={slotLabel}
+                dishes={dishes}
+                regionKey={regionKey}
+                diet={userDiet}
+                onAddSuggestion={onAddSuggestion}
+                today={date}
+              />
+            </div>
+          )}
+          {onSwapAll && meals.length > 0 && (
+            <button
+              onClick={() => onSwapAll(date, mealType)}
+              className="group flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 active:scale-[0.98] transition-all text-[10px] font-bold"
+            >
+              <RefreshCw size={12} />
+              Swap All
+            </button>
+          )}
+        </div>
       )}
 
       {!isUserCompleted && meals.length === 0 && showSuggestions && !isLocked && (
@@ -695,7 +730,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {!isUserCompleted && meals.length === 0 && showSuggestions && !isLocked && editable && onAddAnother && (
         <button
           onClick={() => setAddDishOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-emerald-600 hover:border-emerald-400 active:scale-[0.98] transition-all text-[10px] font-bold group"
+          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-emerald-600 hover:border-emerald-400 active:scale-[0.98] transition-all text-[10px] font-bold group"
         >
           <Plus size={12} className="transition-transform duration-200 group-hover:rotate-90" />
           Add Dish
@@ -703,8 +738,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       )}
       {!isUserCompleted && meals.length === 0 && (!showSuggestions || isLocked) && (
         <div className="p-3 rounded-[20px] bg-gray-50 border border-gray-100 flex items-center justify-between">
-          <span className="text-xs font-bold text-gray-400">{slotLabel}</span>
-          <span className="text-[10px] text-gray-400">Time slot passed</span>
+          <span className="text-xs font-bold text-gray-500">{slotLabel}</span>
+          <span className="text-[10px] text-gray-500">Time slot passed</span>
         </div>
       )}
 
@@ -723,7 +758,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           {onSkipSlot && (
             <button
               onClick={onSkipSlot}
-              className="group flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-400 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
+              className="group flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
             >
               <Forward size={10} className="transition-transform duration-200 group-hover:-translate-x-0.5" />
               Skip {slotLabel}
@@ -785,6 +820,19 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           initialAddMode={true}
           onChange={handleModalChange}
         /></Suspense>
+      )}
+
+      {quickEditCategory && (
+        <Suspense fallback={null}>
+          <CategoryQuickEdit
+            isOpen={quickEditCategory !== null}
+            category={quickEditCategory}
+            currentItems={(categoryConfig.find(c => c.label === quickEditCategory)?.items ?? []).map(i => ({ name: i.name, totalQty: i.totalQty }))}
+            onClose={() => setQuickEditCategory(null)}
+            onUpdateQty={handleAggregatedQty}
+            onAddItem={handleAddPairing}
+          />
+        </Suspense>
       )}
     </div>
   );

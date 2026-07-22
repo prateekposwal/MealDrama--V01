@@ -34,6 +34,7 @@ router.get('/voices', (_req: Request, res: Response) => {
     }).filter(Boolean);
     res.json({ success: true, voices });
   } catch {
+    console.warn('[TTS] Voice list fetch failed, returning empty');
     res.json({ success: false, voices: [] });
   }
 });
@@ -47,7 +48,23 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const safeText = text.replace(/["'`]/g, '').slice(0, 2000);
-    const voiceFlag = voice || (language === 'hi' ? 'Aditi' : undefined);
+
+    // Map Indian languages to female voices; fallback to Samantha (female US English)
+    const voiceMap: Record<string, string> = {
+      hi: 'Aditi', mr: 'Aditi', bn: 'Aditi', ta: 'Vani', te: 'Vani',
+    };
+    let voiceFlag = voiceMap[language] || voice || 'Samantha';
+
+    // Check if voice exists; fallback to Samantha
+    try {
+      const availableVoices = execSync('say -v "?"', { encoding: 'utf8', timeout: 5000 });
+      if (!availableVoices.includes(voiceFlag)) {
+        voiceFlag = 'Samantha'; // Female English voice, always available
+      }
+    } catch {
+      console.warn('[TTS] Voice lookup failed, falling back to Samantha');
+      voiceFlag = 'Samantha';
+    }
 
     const filename = `tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.wav`;
     const outPath = path.join(TMP_DIR, filename);
@@ -68,7 +85,7 @@ router.post('/', async (req: Request, res: Response) => {
     stream.pipe(res);
     stream.on('end', () => {
       setTimeout(() => {
-        try { fs.unlinkSync(outPath); } catch {}
+        try { fs.unlinkSync(outPath); } catch { /* temp file cleanup — non-critical */ }
       }, 5000);
     });
   } catch (err: any) {

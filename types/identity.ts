@@ -38,3 +38,23 @@ export function compactPrimaryId(primaryId: string): string {
   const [prefix, _md, _date, time] = parts;
   return `${(prefix ?? '').charAt(0) + (prefix ?? '').slice(1).toLowerCase()}-${time}`;
 }
+
+/** Branded type: a region string that has been normalized via getRegionKey() */
+export type NormalizedRegion = string & { __brand: 'NormalizedRegion' };
+
+/** Branded type: a health goal string that has been normalized via normalizeGoal() */
+export type NormalizedGoal = string & { __brand: 'NormalizedGoal' };
+
+/** Assert that a string is a normalized region (runtime check in dev) */
+export function assertNormalizedRegion(s: string): asserts s is NormalizedRegion {
+  if (import.meta.env.DEV && s.includes(' ')) {
+    console.warn(`[NormalizedRegion] "${s}" contains spaces — likely a raw label, not a normalized key`);
+  }
+}
+
+/** Assert that a string is a normalized goal (runtime check in dev) */
+export function assertNormalizedGoal(s: string): asserts s is NormalizedGoal {
+  if (import.meta.env.DEV && s.includes(' ')) {
+    console.warn(`[NormalizedGoal] "${s}" contains spaces — likely a raw label, not a normalized key`);
+  }
+}
