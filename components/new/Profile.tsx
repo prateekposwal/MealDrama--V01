@@ -9,7 +9,9 @@ import type { Category, Region } from '../../meal/constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import SwapCustomizeModal from '../meal/SwapCustomizeModal';
+import DishSearchModal from '../meal/DishSearchModal';
 import DishImage from './DishImage';
+import { ConfirmDialog } from './ConfirmDialog';
 import CreateHouseholdModal from './CreateHouseholdModal';
 import JoinHouseholdModal from './JoinHouseholdModal';
 import InviteMemberModal from './InviteMemberModal';
@@ -20,6 +22,7 @@ import NotificationCenter from '../../components/notification/NotificationCenter
 import { useNotificationStore } from '../../app/notifications';
 import ExpenseList from '../household/ExpenseList';
 import ActivityFeed from '../household/ActivityFeed';
+import ProfileAIInsights from './ProfileAIInsights';
 
 // ─── Collapsible Section ─────────────────────────────────────────────────────
 const CollapsibleSection: React.FC<{
@@ -46,14 +49,14 @@ const CollapsibleSection: React.FC<{
     <div className={`${styles.bg} rounded-2xl border border-gray-100/80 overflow-hidden`}>
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-start justify-between px-5 py-4 active:opacity-70 transition-opacity"
-      >
-        <div className="flex flex-col items-start gap-0.5">
-          <div className="flex items-center gap-2">
-            <span className={`text-xs font-black uppercase tracking-widest ${styles.text}`}>{title}</span>
-            {badge && <span className="text-[10px] font-bold text-[#FF385C] bg-[#FF385C]/10 px-2 py-0.5 rounded-full">{badge}</span>}
+          className="w-full flex items-start justify-between px-5 py-5 active:opacity-70 transition-opacity"
+        >
+          <div className="flex flex-col items-start gap-1">
+            <div className="flex items-center gap-2">
+              <span className={`text-sm font-black uppercase tracking-widest ${styles.text}`}>{title}</span>
+            {badge && <span className="text-xs font-bold text-[#FF385C] bg-[#FF385C]/10 px-2 py-0.5 rounded-full">{badge}</span>}
           </div>
-          {!open && summary && <span className="text-[10px] text-gray-500">{summary}</span>}
+          {!open && summary && <span className="text-xs text-gray-500">{summary}</span>}
         </div>
         {open ? <ChevronDown size={14} className={`${styles.chevron} mt-0.5`} /> : <ChevronRight size={14} className={`${styles.chevron} mt-0.5`} />}
       </button>
@@ -109,13 +112,16 @@ const [cookInput, setCookInput] = useState(user?.cookContact || '');
   const notifications = useNotificationStore(s => s.enabled);
   const setNotifications = useNotificationStore(s => s.setEnabled);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
-const [trayEditSlot, setTrayEditSlot] = useState<MealType | null>(null);
 const [showTrayOverview, setShowTrayOverview] = useState(false);
 const [overviewSlot, setOverviewSlot] = useState<MealType>('breakfast');
+const [addSlot, setAddSlot] = useState<MealType | null>(null);
+const [confirmDeleteDish, setConfirmDeleteDish] = useState<any>(null);
+const [confirmLeaveHousehold, setConfirmLeaveHousehold] = useState(false);
 const { addToTray, removeFromTray } = useStore();
 
 const { customDishes, addCustomDish, updateCustomDish, removeCustomDish, setToast } = useStore();
 const [showCustomForm, setShowCustomForm] = useState(false);
+const [customStep, setCustomStep] = useState(1);
 const [editingDishId, setEditingDishId] = useState<string | null>(null);
 const [customName, setCustomName] = useState('');
 const [customStyle, setCustomStyle] = useState('Gravy');
@@ -226,15 +232,28 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
     }, [trayLibrary, plan.days, dishes]);
 
     const handleLoopApply = useCallback((config: any) => {
+        const prevLength = mealLoop.config?.cycleLength;
         applyLoopConfig(config, traySourcePool, dishes);
         window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
         setMealLoopModalOpen(false);
-    }, [traySourcePool, applyLoopConfig, dishes]);
+        // Fire notification if cycle length increased — user needs more dishes
+        if (prevLength && config.cycleLength > prevLength) {
+            const newTarget = Math.round(5 * config.cycleLength / 7);
+            useNotificationStore.getState().addNotification({
+                type: 'tip',
+                title: '📋 Your Tray Needs More Dishes',
+                message: `With a ${config.cycleLength}-day cycle, aim for ${newTarget} dishes per slot for good variety. Add more to your tray!`,
+                action: { label: 'Open Tray', route: 'profile' },
+            });
+        }
+    }, [traySourcePool, applyLoopConfig, dishes, mealLoop.config?.cycleLength]);
 
-    const handleTrayAddDish = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
-      addToTray(mealType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
+    const handleTraySearchSelect = useCallback((dish: Dish) => {
+      if (!addSlot) return;
+      addToTray(addSlot, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
       setToast({ message: `${dish.name} added to tray`, type: 'success' });
-    }, [addToTray, setToast]);
+      setAddSlot(null);
+    }, [addSlot, addToTray, setToast]);
 
     const handleRemoveTrayDish = useCallback((slot: MealType, mealId: string) => {
       removeFromTray(slot, mealId);
@@ -243,21 +262,53 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
 
     const suggestionChips = useMemo(() => {
         const allTrayItems = Object.values(trayLibrary).flat();
-        return (dishes || [])
-            .filter((d: any) => !allTrayItems.some((t: any) => t.id === d.id))
-            .slice(0, 6)
-            .map((d: any) => ({ id: d.id, name: d.name }));
-    }, [trayLibrary, dishes]);
+        const userDietPref = (user?.diet || 'veg').toLowerCase();
+        const slotOrder = ['breakfast', 'lunch', 'dinner', 'snacks'];
+        const bySlot: Record<string, any[]> = { breakfast: [], lunch: [], dinner: [], snacks: [] };
+        
+        // Filter and slot dishes
+        (dishes || []).forEach((d: any) => {
+            if (allTrayItems.some((t: any) => t.id === d.id)) return;
+            const dt = (d.diet || d.type || '').toLowerCase();
+            if (dt) {
+                if (userDietPref === 'veg' && dt !== 'veg' && dt !== 'vegan') return;
+                if (userDietPref === 'eggitarian' && dt !== 'eggitarian' && dt !== 'veg' && dt !== 'vegan') return;
+                if (userDietPref !== 'veg' && userDietPref !== 'eggitarian' && dt === 'vegan') return;
+            }
+            // Assign to first matching slot
+            const cats = (d.category || []).map((c: string) => c.toLowerCase());
+            const slot = slotOrder.find(s => cats.includes(s)) || 'lunch';
+            if (bySlot[slot]) bySlot[slot].push({ id: d.id, name: d.name, category: d.category || [] });
+        });
+        
+        // Pick evenly from each slot, up to 2 per slot
+        const result: any[] = [];
+        for (let i = 0; i < 2; i++) {
+            for (const slot of slotOrder) {
+                const idx = i < bySlot[slot].length ? i : bySlot[slot].length - 1 - i;
+                const item = bySlot[slot][i];
+                if (item && !result.some(r => r.id === item.id)) result.push(item);
+            }
+        }
+        return result.slice(0, 8);
+    }, [trayLibrary, dishes, user?.diet]);
 
-    const handleAddSuggestion = useCallback((suggestion: { id: string; name: string }) => {
-        const slot = 'lunch' as MealType;
+    const handleAddSuggestion = useCallback((suggestion: { id: string; name: string; category?: string[] }) => {
+        const dish = dishes?.find((d: any) => d.id === suggestion.id);
+        const mealSlots: Record<string, MealType> = { breakfast: 'breakfast', lunch: 'lunch', snacks: 'snacks', dinner: 'dinner' };
+        let slot: MealType = 'lunch';
+        if (dish?.category) {
+            const match = dish.category.find((c: string) => mealSlots[c.toLowerCase()]);
+            if (match) slot = mealSlots[match.toLowerCase()];
+        }
         const items = trayLibrary[slot] || [];
         if (items.some((i: any) => i.name === suggestion.name)) return;
         addToTray(slot, { id: suggestion.id, name: suggestion.name, icon: '' });
-    }, [trayLibrary, addToTray]);
+    }, [trayLibrary, addToTray, dishes]);
 
     const resetCustomForm = () => {
         setShowCustomForm(false);
+        setCustomStep(1);
         setEditingDishId(null);
         setCustomName('');
         setCustomStyle('Gravy');
@@ -321,6 +372,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
     };
 
     const handleEditCustom = (dish: any) => {
+        setCustomStep(1);
         setCustomName(dish.name);
         setCustomStyle(dish.category[0]?.charAt(0).toUpperCase() + dish.category[0]?.slice(1) || 'Gravy');
         setCustomTags(dish.tags.filter((t: string) => t !== 'user_created'));
@@ -332,7 +384,10 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
     };
 
     const handleDeleteCustom = (dish: any) => {
-        if (!window.confirm(`Delete "${dish.name}"? This removes it from your tray and meal plan.`)) return;
+        setConfirmDeleteDish(dish);
+    };
+
+    const performDeleteCustom = (dish: any) => {
         removeCustomDish(dish.id);
         const store = useStore.getState();
         const trayStore = useTrayStore.getState();
@@ -422,7 +477,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                             {showSaved && (
                                 <span className="flex items-center gap-1.5 text-emerald-500 animate-in fade-in duration-200 shrink-0">
                                     <Check size={13} />
-                                    <span className="text-[10px] font-bold">Saved</span>
+                                    <span className="text-xs font-bold">Saved</span>
                                 </span>
                             )}
                         </div>
@@ -473,6 +528,57 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                 </div>
             </div>
 
+            {/* ─── Inline Diet Picker ─── */}
+            <div className="px-4 pb-4">
+                <div className="p-4 rounded-[22px] bg-white border border-gray-100 shadow-sm">
+                    <p className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Diet Preference</p>
+                    <div className="grid grid-cols-2 gap-2">
+                        {(['veg', 'eggitarian', 'non-veg', 'vegan'] as const).map(d => {
+                            const isActive = (user?.diet || 'veg').toLowerCase() === d;
+                            return (
+                                <button key={d} onClick={() => {
+                                    if (isActive) return;
+                                    updateProfile({ diet: d as any });
+                                    // Rebuild pool for new diet
+                                    import('../../plan/store/useLoopStore').then(m => {
+                                        const store = m.useLoopStore.getState();
+                                        const current = store.mealLoop;
+                                        if (current.config && current.sourceDishIds) {
+                                            import('../../plan/utils/mealLoopEngine').then(eng => {
+                                                import('../../meal/constants/dishLibrary').then(lib => {
+                                                    const library = lib.DISH_LIBRARY;
+                                                    const allowed: Record<string,string[]> = {
+                                                        veg: ['veg','vegan'],
+                                                        eggitarian: ['veg','vegan','eggitarian'],
+                                                        'non-veg': ['veg','non-veg','vegan','eggitarian'],
+                                                        vegan: ['vegan'],
+                                                    };
+                                                    const types = allowed[d] || ['veg'];
+                                                    const filtered = library.filter((x:any) => types.includes(x.type));
+                                                    const pool: any = {breakfast:[],lunch:[],snacks:[],dinner:[]};
+                                                    for (const slot of ['breakfast','lunch','dinner','snacks'] as const) {
+                                                        pool[slot] = filtered.filter((x:any) => x.category?.includes(slot)).slice(0,3);
+                                                    }
+                                                    store.applyLoopConfig({...current.config, startDate: new Date().toISOString().split('T')[0]}, pool, library);
+                                                    window.dispatchEvent(new CustomEvent('loop_updated', {detail:{config:current.config}}));
+                                                });
+                                            });
+                                        }
+                                    });
+                                    setToast({message:`Diet changed to ${d} — meal plan rebuilt`, type:'success'});
+                                }}
+                                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold tracking-wider transition-all active:scale-95 ${
+                                        isActive ? 'bg-[#FF385C] text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {d === 'veg' ? '🥬 Veg' : d === 'eggitarian' ? '🥚 Egg' : d === 'non-veg' ? '🍗 Non-Veg' : '🌱 Vegan'}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+
             {/* FIX 10: Loading state during loop rebuild */}
                         {mealLoop.refreshing && (
                             <div className="w-full p-5 rounded-[22px] bg-gray-50 border border-gray-200 animate-pulse">
@@ -482,7 +588,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                                     </div>
                                     <div>
                                         <p className="text-xs font-bold text-gray-600">Rebuilding loop assignments…</p>
-                                        <p className="text-[10px] text-gray-500">This may take a moment for large plans</p>
+                                        <p className="text-xs text-gray-500">This may take a moment for large plans</p>
                                     </div>
                                 </div>
                             </div>
@@ -491,366 +597,272 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
             <main className="px-4 space-y-5">
                 <CollapsibleSection title="Health Insights" summary="Last 7 days balance" color="emerald">
                     <WeeklyHealthSummary />
+                    <div className="mt-3"><ProfileAIInsights /></div>
                 </CollapsibleSection>
 
-                <CollapsibleSection title="Meal Management" defaultOpen={true} color="rose">
-                    <div className="space-y-4">
-                        {trayEditSlot ? (
+                <CollapsibleSection title="Your Tray" defaultOpen={true} color="rose">
+                    {(() => {
+                        const activeSlots = (['breakfast', 'lunch', 'snacks', 'dinner'] as const).filter(s => plannedSlots.includes(s.charAt(0).toUpperCase() + s.slice(1)));
+                        const trayTab = activeSlots.includes(overviewSlot as any) ? overviewSlot : activeSlots[0] || 'breakfast';
+                        const setTrayTab = setOverviewSlot;
+                        const items = trayLibrary[trayTab] || [];
+                        const total = trayCounts.breakfast + trayCounts.lunch + trayCounts.dinner + trayCounts.snacks;
+                        const cl = mealLoop.config?.cycleLength ?? 7;
+                        const target = Math.round(5 * cl / 7) * 4;
+                        const pct = Math.min(100, Math.round(total / target * 100));
+                        return (
                             <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">{trayEditSlot.charAt(0).toUpperCase() + trayEditSlot.slice(1)}</p>
-                                    <button
-                                        onClick={() => setTrayEditSlot(null)}
-                                        className="px-4 py-2 rounded-2xl bg-[#FF385C] text-white text-xs font-black uppercase tracking-widest"
-                                    >
-                                        Done
-                                    </button>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {(trayLibrary[trayEditSlot] || []).map(item => (
-                                        <span key={item.id} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-gray-50 border border-gray-200 text-gray-700">
-                                            {item.icon && <span className="text-[11px]">{item.icon}</span>}
-                                            <span className="max-w-[120px] truncate">{item.name}</span>
-                                            <button
-                                                onClick={() => handleRemoveTrayDish(trayEditSlot, item.id)}
-                                                className="w-6 h-6 rounded-full flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 ml-0.5"
-                                            >
-                                                <X size={11} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                </div>
-                                <button
-                                    onClick={() => setTrayEditSlot(trayEditSlot)}
-                                    className="flex items-center gap-1.5 text-xs font-bold text-[#FF385C] active:scale-[0.98]"
-                                >
-                                    <Plus size={13} />
-                                    Add dish
-                                </button>
-                            </div>
-                        ) : showTrayOverview ? (
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between">
-                                    <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">Manage Tray</p>
-                                    <button
-                                        onClick={() => setShowTrayOverview(false)}
-                                        className="px-4 py-2 rounded-2xl bg-[#FF385C] text-white text-xs font-black uppercase tracking-widest"
-                                    >
-                                        Done
-                                    </button>
-                                </div>
-                                <div className="flex gap-2">
-                                    {['breakfast', 'lunch', 'snacks', 'dinner'].filter(mt => plannedSlots.includes(mt.charAt(0).toUpperCase() + mt.slice(1))).map(mt => {
-                                        const active = overviewSlot === mt;
-                                        const count = (trayLibrary[mt as MealType] || []).length;
+                                {/* Tab bar */}
+                                <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                                    {activeSlots.map(slot => {
+                                        const count = (trayLibrary[slot] || []).length;
+                                        const isActive = trayTab === slot;
                                         return (
-                                            <button
-                                                key={mt}
-                                                onClick={() => setOverviewSlot(mt as MealType)}
-                                                className={`px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
-                                                    active ? 'bg-[#FF385C] text-white border-[#FF385C]' : 'bg-white text-gray-500 border-gray-200'
+                                            <button key={slot} onClick={() => setTrayTab(slot)}
+                                                className={`flex-1 py-2.5 rounded-[10px] text-xs font-bold tracking-wider transition-all ${
+                                                    isActive ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                                                 }`}
                                             >
-                                                {mt} {count > 0 && `(${count})`}
+                                                {slot.charAt(0).toUpperCase() + slot.slice(1)}
+                                                {count > 0 && <span className={`ml-1 ${isActive ? 'text-[#FF385C]' : 'text-gray-400'}`}>{count}</span>}
                                             </button>
                                         );
                                     })}
                                 </div>
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">{overviewSlot.charAt(0).toUpperCase() + overviewSlot.slice(1)}</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {(trayLibrary[overviewSlot] || []).map(item => (
-                                            <span key={item.id} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium bg-gray-50 border border-gray-200 text-gray-700">
-                                                {item.icon && <span className="text-[11px]">{item.icon}</span>}
-                                                <span className="max-w-[120px] truncate">{item.name}</span>
-                                                <button
-                                                onClick={() => handleRemoveTrayDish(overviewSlot, item.id)}
-                                                className="w-6 h-6 rounded-full flex items-center justify-center bg-red-50 text-red-400 hover:bg-red-100 ml-0.5"
-                                            >
-                                                <X size={11} />
-                                                </button>
-                                            </span>
-                                        ))}
-                                        <button
-                                            onClick={() => { setShowTrayOverview(false); setTrayEditSlot(overviewSlot); }}
-                                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium border border-dashed border-gray-300 text-gray-500 hover:text-gray-600"
+
+                                {/* Content for selected tab */}
+                                <div className="bg-white rounded-xl border border-gray-100 p-4 min-h-[100px]">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <span className="text-sm font-medium text-gray-500">
+                                            {items.length} dish{items.length !== 1 ? 'es' : ''}
+                                        </span>
+                                        <button onClick={() => setAddSlot(trayTab)}
+                                            className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#FF385C]/10 text-[#FF385C] text-xs font-bold active:scale-95 transition-all"
                                         >
-                                            <Plus size={11} />
-                                            Add
+                                            <Plus size={12} /> Add
                                         </button>
+                                    </div>
+                                    {items.length === 0 ? (
+                                        <div className="flex items-center justify-center py-10 text-center">
+                                            <div>
+                                                <p className="text-base text-gray-400 mb-1">No dishes yet</p>
+                                                <p className="text-xs text-gray-300">Tap Add to fill your {trayTab} tray</p>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide -mx-1 px-1">
+                                            {items.map(item => (
+                                                <div key={item.id} className="flex flex-col items-center gap-1.5 flex-shrink-0 w-[88px] group">
+                                                    <button onClick={() => handleRemoveTrayDish(trayTab, item.id)}
+                                                        className="relative w-[72px] h-[72px] rounded-2xl overflow-hidden border border-gray-200 shadow-sm active:scale-90 transition-all hover:border-[#FF385C]/30 hover:shadow-md"
+                                                    >
+                                                        <DishImage name={item.name} size="full" className="w-full h-full object-cover" />
+                                                        <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <X size={9} className="text-gray-400 group-hover:text-red-500" />
+                                                        </div>
+                                                    </button>
+                                                    <span className="text-sm font-medium text-gray-700 text-center leading-tight line-clamp-2 max-w-[80px]">{item.name}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Mini strength bar */}
+                                <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#FF385C]/5 to-orange-50 border border-[#FF385C]/10">
+                                    <span className="text-base">{total === 0 ? '🫤' : pct >= 70 ? '🎉' : pct >= 40 ? '😊' : '🫤'}</span>
+                                    <div className="flex-1">
+                                        <div className="flex items-center justify-between mb-0.5">
+                                            <span className="text-xs text-gray-500">{total} of {target} dishes</span>
+                                            <span className="text-xs font-bold text-[#FF385C]">{pct}%</span>
+                                        </div>
+                                        <div className="h-1 bg-gray-200/60 rounded-full overflow-hidden">
+                                            <div className="h-full bg-gradient-to-r from-[#FF385C] to-orange-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        ) : (
-                            <>
-                                <div className="flex items-start justify-between gap-4">
-                                    <div>
-                                        <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">Your Tray</p>
-                                        <p className="text-base font-bold text-gray-900 mt-1">Saved defaults — Plan pulls from here.</p>
-                                        <p className="text-[10px] text-gray-500 mt-0.5">Tray = Favorites &bull; Plan = Scheduled meals you build</p>
-                                    </div>
-                                    <button
-                                        onClick={() => setShowTrayOverview(true)}
-                                        className="shrink-0 px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-[#FF385C]"
-                                    >
-                                        Manage
-                                    </button>
-                                </div>
-
-                                {/* Tray Strength Meter */}
-                                {(() => {
-                                    const total = trayCounts.breakfast + trayCounts.lunch + trayCounts.dinner + trayCounts.snacks;
-                                    const target = 20;
-                                    const pct = Math.min(100, Math.round(total / target * 100));
-                                    const totalEmoji = total === 0 ? '😴' : total < 8 ? '🫤' : total < 14 ? '😊' : '🎉';
-                                    return (
-                                        <div className="px-4 py-3 rounded-2xl bg-gradient-to-r from-[#FF385C]/5 to-orange-50 border border-[#FF385C]/10">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-[10px] font-bold text-gray-600">
-                                                    {totalEmoji} Tray Strength
-                                                </span>
-                                                <span className="text-[10px] font-black text-[#FF385C]">{pct}%</span>
-                                            </div>
-                                            <div className="h-2 bg-gray-200/60 rounded-full overflow-hidden">
-                                                <div className="h-full bg-gradient-to-r from-[#FF385C] to-orange-400 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
-                                            </div>
-                                            <p className="text-[10px] text-gray-500 mt-1.5">
-                                                {total === 0 ? 'Start adding dishes to build your rotation!' :
-                                                 total < 8 ? 'Add more dishes for better meal variety.' :
-                                                 total < 14 ? 'Good variety! Your cook will love it.' :
-                                                 'Fully stocked! Your meals will never repeat.'}
-                                            </p>
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* Per-slot tray counts */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    {(['breakfast', 'lunch', 'snacks', 'dinner'] as const).map(mt => {
-                                        if (!plannedSlots.includes(mt.charAt(0).toUpperCase() + mt.slice(1))) return null;
-                                        const count = (trayLibrary[mt] || []).length;
-                                        const targetPerSlot = 5;
-                                        const pct = Math.min(100, Math.round(count / targetPerSlot * 100));
-                                        return (
-                                            <div key={mt} className="p-3 rounded-xl bg-gray-50/80 border border-gray-100">
-                                                <div className="flex items-center justify-between mb-1">
-                                                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{mt}</span>
-                                                    <span className="text-[10px] font-bold text-gray-500">{count}/{targetPerSlot}</span>
-                                                </div>
-                                                <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-gradient-to-r from-[#FF385C] to-orange-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Quick-add chips */}
-                                <div className="flex items-center gap-2">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 shrink-0">Add</p>
-                                    <div className="h-6 w-px bg-gray-200" />
-                                    <div className="flex gap-1.5 overflow-x-auto pb-1">
-                                        {suggestionChips.map(s => (
-                                            <button
-                                                key={s.id}
-                                                onClick={() => handleAddSuggestion(s)}
-                                                className="shrink-0 px-2.5 py-1 rounded-full bg-white border border-gray-200 text-[10px] font-medium text-gray-600 active:scale-95 transition-all hover:border-[#FF385C]/30"
-                                            >
-                                                + {s.name}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                    </div>
+                        );
+                    })()}
                 </CollapsibleSection>
 
-                <CollapsibleSection title="Custom Dishes" defaultOpen={true} badge={customDishes.length > 0 ? `${customDishes.length}` : undefined} color="amber">
+                <CollapsibleSection title="Custom Dishes" defaultOpen={false} badge={customDishes.length > 0 ? `${customDishes.length}` : undefined} color="amber">
                     <div className="space-y-3">
                         {showCustomForm ? (
-                            <div className="p-4 rounded-2xl bg-white border border-purple-200/50">
-                                <div className="flex items-center justify-between mb-4">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-lg">🍳</span>
-                                        <p className="text-xs font-black uppercase tracking-widest text-purple-600">{editingDishId ? 'Edit' : 'Create'} Custom Dish</p>
-                                    </div>
+                            <div className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-black uppercase tracking-widest text-gray-500">
+                                        {editingDishId ? 'Edit' : 'Add'} Recipe
+                                        <span className="ml-1.5 text-gray-300 font-normal">step {customStep}/4</span>
+                                    </span>
                                     <button onClick={resetCustomForm} className="w-7 h-7 rounded-full flex items-center justify-center bg-gray-100 text-gray-500 hover:bg-gray-200"><X size={13} /></button>
                                 </div>
 
-                                {/* Step 1: Basic info — always visible */}
-                                <div className="space-y-3">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-gray-500 block mb-1">Dish Name *</label>
-                                        <input type="text" value={customName} onChange={e => setCustomName(e.target.value)} className="w-full rounded-xl py-2.5 px-3 text-sm font-medium border border-gray-200 bg-gray-50 text-gray-900 focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all" placeholder="e.g., Mom's Special Dal" />
-                                    </div>
-                                    <div className="flex gap-3">
-                                        <div className="flex-1">
-                                            <label className="text-[10px] font-bold text-gray-500 block mb-1">Diet</label>
-                                            <div className="flex gap-1.5">
-                                                {(['veg', 'non-veg', 'vegan'] as const).map(d => (
-                                                    <button key={d} onClick={() => setCustomDiet(d)}
-                                                        className={`flex-1 py-2 rounded-xl text-[10px] font-bold border transition-all active:scale-95 ${
-                                                            customDiet === d
-                                                                ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
-                                                                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
-                                                        }`}
-                                                    >
-                                                        {d === 'veg' ? '🥬 Veg' : d === 'non-veg' ? '🍗 Non-Veg' : '🌱 Vegan'}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="flex-1">
-                                            <label className="text-[10px] font-bold text-gray-500 block mb-1">Style</label>
-                                            <div className="flex gap-1.5">
-                                                {CUSTOM_STYLES.slice(0, 3).map(s => (
-                                                    <button key={s} onClick={() => setCustomStyle(s)}
-                                                        className={`flex-1 py-2 rounded-xl text-[10px] font-bold border transition-all active:scale-95 ${
-                                                            customStyle === s
-                                                                ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
-                                                                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
-                                                        }`}
-                                                    >{s}</button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    </div>
+                                {/* Step indicators */}
+                                <div className="flex gap-1">
+                                    {[1,2,3,4].map(s => (
+                                        <div key={s} className={`flex-1 h-1 rounded-full transition-all ${s <= customStep ? 'bg-[#FF385C]' : 'bg-gray-200'}`} />
+                                    ))}
                                 </div>
 
-                                 {/* Step 2: Tags + Picture + Ingredients — collapsible */}
-                                <button
-                                    onClick={() => setShowCustomDetails(!showCustomDetails)}
-                                    className="w-full mt-3 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-[10px] font-bold text-gray-500 hover:text-purple-600 hover:border-purple-200 transition-all"
-                                >
-                                    {showCustomDetails ? '− Hide details' : '+ Add tags, picture & ingredients'}
-                                </button>
-                                {showCustomDetails && <div className="space-y-3 mt-3 pt-3 border-t border-gray-100">
-                                                <div>
-                                                    <label className="text-[10px] font-bold text-gray-500 block mb-1">Tags</label>
-                                                    <div className="flex flex-wrap gap-1.5">
-                                                        {CUSTOM_TAGS.map(t => (
-                                                            <button key={t} onClick={() => setCustomTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t])}
-                                                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all active:scale-95 ${
-                                                                    customTags.includes(t)
-                                                                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
-                                                                        : 'bg-white text-gray-500 border-gray-200 hover:border-emerald-300'
-                                                                }`}
-                                                            >{t}</button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] font-bold text-gray-500 block mb-1">Picture</label>
-                                                    <div className="flex items-center gap-3">
-                                                        {customImageDataUrl ? (
-                                                            <div className="relative">
-                                                                <img src={customImageDataUrl} alt="" className="w-16 h-16 rounded-xl object-cover border border-gray-200" />
-                                                                <button onClick={() => setCustomImageDataUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center shadow"><X size={10} /></button>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center text-2xl border border-gray-200">📸</div>
-                                                        )}
-                                                        <label className="px-4 py-2 rounded-xl border border-gray-200 bg-white text-xs font-bold text-gray-600 cursor-pointer active:scale-95 transition-all hover:border-gray-300">
-                                                            <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = () => setCustomImageDataUrl(r.result as string); r.readAsDataURL(f); } }} />
-                                                            Upload Photo
-                                                        </label>
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <label className="text-[10px] font-bold text-gray-500 block mb-1">Ingredients <span className="text-gray-300 font-normal">(optional — helps with pantry planning)</span></label>
-                                                    <div className="grid grid-cols-[1fr_3.5rem_3.5rem_auto] gap-1.5 mb-2">
-                                                        <input type="text" value={ingredientName} onChange={e => setIngredientName(e.target.value)} className="rounded-lg py-1.5 px-2.5 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-900 min-w-0" placeholder="Ingredient" />
-                                                        <input type="text" value={ingredientQty} onChange={e => setIngredientQty(e.target.value)} className="rounded-lg py-1.5 px-2 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-900 text-center" placeholder="Qty" />
-                                                        <select value={ingredientUnit} onChange={e => setIngredientUnit(e.target.value)} className="rounded-lg py-1.5 px-1 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-600">
-                                                            <option value="g">g</option>
-                                                            <option value="kg">kg</option>
-                                                            <option value="ml">ml</option>
-                                                            <option value="pc">pc</option>
-                                                            <option value="tbsp">tbsp</option>
-                                                            <option value="tsp">tsp</option>
-                                                            <option value="cup">cup</option>
-                                                        </select>
-                                                        <button onClick={() => { if (!ingredientName.trim() || !ingredientQty.trim()) return; setCustomIngredients(prev => [...prev, { name: ingredientName.trim(), quantity: parseFloat(ingredientQty) || 0, unit: ingredientUnit }]); setIngredientName(''); setIngredientQty(''); setIngredientUnit('g'); }}
-                                                            className="px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-bold active:scale-90"
-                                                        ><Plus size={14} /></button>
-                                                    </div>
-                                                    {customIngredients.length > 0 && (
-                                                        <div className="flex flex-wrap gap-1.5">
-                                                            {customIngredients.map((ing, idx) => (
-                                                                <div key={idx} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white text-[10px] font-medium text-gray-700 border border-gray-100 shadow-sm">
-                                                                    <span>{ing.name}</span>
-                                                                    <span className="text-gray-500">{ing.quantity}{ing.unit}</span>
-                                                                    <button onClick={() => setCustomIngredients(prev => prev.filter((_, i) => i !== idx))} className="text-gray-500 hover:text-red-500"><X size={10} /></button>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                        )}
-                                </div>
-                            </div>}
-
-                                <button onClick={handleCreateCustom} disabled={!customName.trim()}
-                                    className="w-full mt-4 py-3 rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-40 shadow-lg shadow-purple-600/20"
-                                >
-                                    {editingDishId ? <><Check size={14} /> Save Changes</> : <>✨ Create Dish</>}
-                                </button>
-                            </div>
-                        ) : (
-                            <div>
-                                {/* Fun empty state */}
-                                {customDishes.length === 0 ? (
-                                    <div className="text-center py-8 px-4">
-                                        <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-orange-100 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4 shadow-sm">🍳</div>
-                                        <p className="text-sm font-bold text-gray-900 mb-1">No custom dishes yet</p>
-                                        <p className="text-[11px] text-gray-500 mb-5 max-w-xs mx-auto">Have a family recipe? Add it here — it'll show up in your meal plan just like any other dish!</p>
-                                        <div className="flex flex-col items-center gap-2">
-                                            <button onClick={() => { resetCustomForm(); setShowCustomForm(true); }}
-                                                className="px-4 py-3 rounded-2xl bg-gradient-to-r from-purple-600 to-purple-700 text-white text-sm font-bold flex items-center gap-2 active:scale-95 transition-all shadow-lg shadow-purple-600/20"
-                                            >
-                                                <Plus size={16} /> Add Your Recipe
-                                            </button>
-                                            <p className="text-[10px] text-gray-300 mt-1">Your dish will be saved for future meal plans</p>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <p className="text-[10px] font-bold text-gray-500">
-                                                🏠 {customDishes.length} family recipe{customDishes.length > 1 ? 's' : ''}
-                                            </p>
-                                            <button onClick={() => { resetCustomForm(); setShowCustomForm(true); }}
-                                                className="px-3 py-1.5 rounded-xl bg-purple-600 text-white text-[10px] font-black uppercase tracking-widest flex items-center gap-1 active:scale-95 transition-all shadow-sm"
-                                            >
-                                                <Plus size={11} /> New
-                                            </button>
-                                        </div>
-                                        {customDishes.map(dish => (
-                                            <div key={dish.id} className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-100 shadow-sm active:scale-[0.99] transition-all">
-                                                {dish.icon?.startsWith('data:') ? (
-                                                    <img src={dish.icon} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                                                ) : (
-                                                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-100 to-orange-100 flex items-center justify-center text-lg">🍽️</div>
-                                                )}
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-bold text-gray-900 truncate">{dish.name}</p>
-                                                    <p className="text-[10px] text-gray-500">
-                                                        {dish.type === 'veg' ? '🥬' : '🍗'} {dish.type} · {dish.category[0]} · {dish.variants[0]?.ingredients?.length || 0} ingredients
-                                                    </p>
-                                                </div>
-                                                <div className="flex items-center gap-0.5">
-                                                    <button onClick={() => handleEditCustom(dish)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:text-purple-600 hover:bg-purple-50 active:scale-90 transition-all" title="Edit"><Edit3 size={14} /></button>
-                                                    <button onClick={() => handleDeleteCustom(dish)} className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-500 hover:text-red-600 hover:bg-red-50 active:scale-90 transition-all" title="Delete"><Trash2 size={14} /></button>
-                                                </div>
+                                {/* Step 1: Name + Diet + Image */}
+                                {customStep === 1 && (
+                                    <div className="space-y-3">
+                                        <div className="flex gap-3 items-start">
+                                            <div onClick={() => fileInputRef.current?.click()} className="relative w-16 h-16 rounded-xl overflow-hidden bg-gray-100 border-2 border-dashed border-gray-200 flex items-center justify-center text-2xl cursor-pointer hover:border-gray-400 transition-all shrink-0">
+                                                {customImageDataUrl ? <img src={customImageDataUrl} alt="" className="w-full h-full object-cover" /> : <span className="opacity-50">📷</span>}
                                             </div>
-                                        ))}
+                                            <div className="flex-1 min-w-0">
+                                                <input type="text" value={customName} onChange={e => setCustomName(e.target.value)}
+                                                    className="w-full rounded-xl py-2.5 px-3 text-sm font-medium border border-gray-200 bg-white text-gray-900 outline-none focus:border-gray-400 transition-all" placeholder="Dish name (e.g., Mom's Dal)" autoFocus />
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-1.5">
+                                            {(['veg', 'non-veg', 'vegan'] as const).map(d => (
+                                                <button key={d} onClick={() => setCustomDiet(d)}
+                                                    className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${customDiet === d ? 'bg-[#FF385C] text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                                                >{d === 'veg' ? '🥬 Veg' : d === 'non-veg' ? '🍗 Non-Veg' : '🌱 Vegan'}</button>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
+
+                                {/* Step 2: Style + Health Tags */}
+                                {customStep === 2 && (
+                                    <div className="space-y-3">
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-500 mb-2">Style</p>
+                                            <div className="flex gap-1.5 flex-wrap">
+                                                {['Gravy', 'Dry', 'Soup', 'Rice', 'Bread', 'Snack', 'Drink', 'Dessert'].map(style => (
+                                                    <button key={style} onClick={() => setCustomStyle(style)}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 ${
+                                                            customStyle === style ? 'bg-gray-900 text-white border-gray-900 shadow-sm' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                                                        }`}
+                                                    >{style}</button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-bold text-gray-500 mb-2">Health Tags <span className="text-gray-300 font-normal">(optional — helps with meal planning)</span></p>
+                                            <div className="flex gap-1.5 flex-wrap">
+                                                {['healthy', 'quick', 'festival', 'low-cal', 'protein', 'comfort'].map(tag => (
+                                                    <button key={tag} onClick={() => setCustomTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 ${
+                                                            customTags.includes(tag) ? 'bg-[#FF385C]/10 text-[#FF385C] border-[#FF385C]/30' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                                                        }`}
+                                                    >{tag}</button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Step 3: Ingredients (pantry integration) */}
+                                {customStep === 3 && (
+                                    <div className="space-y-2">
+                                        <p className="text-xs font-bold text-gray-500">Ingredients <span className="text-gray-300 font-normal">— added to your pantry automatically</span></p>
+                                        <div className="grid grid-cols-[1fr_3.5rem_3.5rem_auto] gap-1.5">
+                                            <input type="text" value={ingredientName} onChange={e => setIngredientName(e.target.value)}
+                                                className="rounded-lg py-1.5 px-2.5 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-900 outline-none focus:border-gray-400" placeholder="Ingredient" />
+                                            <input type="text" value={ingredientQty} onChange={e => setIngredientQty(e.target.value)}
+                                                className="rounded-lg py-1.5 px-2 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-900 outline-none focus:border-gray-400 text-center" placeholder="Qty" />
+                                            <select value={ingredientUnit} onChange={e => setIngredientUnit(e.target.value)}
+                                                className="rounded-lg py-1.5 px-1 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-600 outline-none">
+                                                <option value="g">g</option>
+                                                <option value="kg">kg</option>
+                                                <option value="ml">ml</option>
+                                                <option value="pc">pc</option>
+                                                <option value="tbsp">tbsp</option>
+                                                <option value="tsp">tsp</option>
+                                                <option value="cup">cup</option>
+                                            </select>
+                                            <button onClick={() => { if (!ingredientName.trim() || !ingredientQty.trim()) return; setCustomIngredients(prev => [...prev, { name: ingredientName.trim(), quantity: parseFloat(ingredientQty) || 0, unit: ingredientUnit }]); setIngredientName(''); setIngredientQty(''); setIngredientUnit('g'); }}
+                                                className="px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-bold active:scale-90"
+                                            ><Plus size={14} /></button>
+                                        </div>
+                                        {customIngredients.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {customIngredients.map((ing, idx) => (
+                                                    <div key={idx} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white text-xs font-medium text-gray-700 border border-gray-100 shadow-sm">
+                                                        <span>{ing.name}</span>
+                                                        <span className="text-gray-500">{ing.quantity}{ing.unit}</span>
+                                                        <button onClick={() => setCustomIngredients(prev => prev.filter((_, i) => i !== idx))} className="text-gray-500 hover:text-red-500"><X size={10} /></button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Step 4: Review & Save */}
+                                {customStep === 4 && (
+                                    <div className="space-y-3">
+                                        <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center text-xl overflow-hidden">
+                                                {customImageDataUrl ? <img src={customImageDataUrl} alt="" className="w-full h-full object-cover" /> : '🍽️'}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-gray-900">{customName || 'Unnamed Dish'}</p>
+                                                <p className="text-xs text-gray-500">{customDiet} · {customStyle} · {customTags.join(', ')}</p>
+                                                <p className="text-xs text-gray-400">{customIngredients.length} ingredient{customIngredients.length !== 1 ? 's' : ''}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Navigation buttons */}
+                                <div className="flex gap-2 pt-1">
+                                    {customStep > 1 ? (
+                                        <button onClick={() => setCustomStep(s => s - 1)}
+                                            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 text-xs font-bold active:scale-95 transition-all"
+                                        >Back</button>
+                                    ) : <div />}
+                                    <div className="flex-1" />
+                                    {customStep < 4 ? (
+                                        <button onClick={() => setCustomStep(s => s + 1)}
+                                            className="px-6 py-2 rounded-xl bg-[#FF385C] text-white text-xs font-bold active:scale-95 transition-all shadow-sm"
+                                        >Next</button>
+                                    ) : (
+                                        <button onClick={handleCreateCustom} disabled={!customName.trim()}
+                                            className="px-6 py-2 rounded-xl bg-[#FF385C] text-white text-xs font-bold active:scale-[0.98] transition-all disabled:opacity-40 shadow-sm"
+                                        >{editingDishId ? 'Save' : 'Create Dish'}</button>
+                                    )}
+                                </div>
+                            </div>
+                        ) : customDishes.length === 0 ? (
+                            <div className="flex flex-col items-center py-6 text-center">
+                                <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center text-2xl mb-3">🍳</div>
+                                <p className="text-sm font-bold text-gray-900 mb-1">No custom dishes</p>
+                                <p className="text-sm text-gray-500 mb-4">Add family recipes here</p>
+                                <button onClick={() => { resetCustomForm(); setShowCustomForm(true); }}
+                                    className="px-4 py-2 rounded-xl bg-[#FF385C] text-white text-xs font-bold shadow-sm active:scale-95 transition-all"
+                                >+ Add Recipe</button>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                <button onClick={() => { resetCustomForm(); setShowCustomForm(true); }}
+                                    className="w-full py-2.5 rounded-xl border border-dashed border-gray-200 text-gray-500 text-xs font-bold active:scale-[0.98] transition-all hover:border-gray-300 flex items-center justify-center gap-1"
+                                ><Plus size={13} /> New Recipe</button>
+                                {customDishes.map(dish => (
+                                    <div key={dish.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-white border border-gray-100 shadow-sm">
+                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center text-lg overflow-hidden">
+                                            {dish.icon?.startsWith('data:') ? <img src={dish.icon} alt="" className="w-full h-full object-cover" /> : '🍽️'}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-bold text-gray-900 truncate">{dish.name}</p>
+                                            <p className="text-xs text-gray-500">{dish.type}</p>
+                                        </div>
+                                        <div className="flex gap-0.5">
+                                            <button onClick={() => handleEditCustom(dish)} className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 active:scale-90 transition-all"><Edit3 size={12} /></button>
+                                            <button onClick={() => handleDeleteCustom(dish)} className="w-7 h-7 rounded-lg flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 active:scale-90 transition-all"><Trash2 size={12} /></button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
                 </CollapsibleSection>
 
-                {householdId && (
                 <CollapsibleSection title="Household" color="violet">
                     <div className="p-5 rounded-[22px] bg-orange-50/50 border border-orange-200/50">
                         {household ? (
@@ -861,12 +873,12 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                                     </div>
                                     <div>
                                         <p className="text-sm font-bold text-gray-900">{household.name}</p>
-                                        <p className="text-[10px] text-gray-500">{household.members.length} member{household.members.length !== 1 ? 's' : ''}</p>
+                                        <p className="text-xs text-gray-500">{household.members.length} member{household.members.length !== 1 ? 's' : ''}</p>
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
                                     {household.members.map(m => (
-                                        <span key={m.id} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border ${
+                                        <span key={m.id} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${
                                             m.id === user?.id
                                                 ? 'bg-orange-100 border-orange-200 text-orange-700'
                                                 : m.role === 'admin'
@@ -885,15 +897,11 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                                         currentMemberRole={household.members.find(m => m.id === user?.id)?.role || 'member'}
                                     />
                                     <ActivityFeed householdId={household.id} />
-                                    <div className="flex gap-2 pt-1">
-                                    <button onClick={() => setShowInviteMember(true)} className="flex-1 py-2 rounded-xl bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
-                                        <Copy size={12} /> Invite
+                                    <div className="flex gap-3 pt-2">
+                                    <button onClick={() => setShowInviteMember(true)} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">
+                                        <Copy size={14} /> Invite
                                     </button>
-                                    <button onClick={() => {
-                                        if (window.confirm('Leave household? Your requested items will remain.')) {
-                                            useStore.getState().leaveHousehold();
-                                        }
-                                    }} className="flex-1 py-2 rounded-xl border border-red-200 text-red-500 text-[10px] font-black uppercase tracking-widest">
+                                    <button onClick={() => setConfirmLeaveHousehold(true)} className="flex-1 py-3 rounded-xl border border-red-200 text-red-500 text-xs font-black uppercase tracking-widest">
                                         Leave
                                     </button>
                                 </div>
@@ -901,52 +909,49 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                         ) : (
                             <div className="space-y-3">
                                 <p className="text-xs text-gray-500">Share a meal plan with your household. Everyone can add their requests.</p>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setShowCreateHousehold(true)} className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
-                                        <Users size={14} /> Create
+                                <div className="flex gap-3">
+                                    <button onClick={() => setShowCreateHousehold(true)} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">
+                                        <Users size={16} /> Create
                                     </button>
-                                    <button onClick={() => setShowJoinHousehold(true)} className="flex-1 py-2.5 rounded-xl border border-orange-200 text-orange-600 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-1">
-                                        <LogIn size={14} /> Join
+                                    <button onClick={() => setShowJoinHousehold(true)} className="flex-1 py-3 rounded-xl border border-orange-200 text-orange-600 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">
+                                        <LogIn size={16} /> Join
                                     </button>
                                 </div>
                             </div>
                         )}
                     </div>
                 </CollapsibleSection>
-                )}
 
-                <section className="bg-sky-50/40 rounded-2xl border border-gray-100/80 overflow-hidden pb-4">
-                    <div className="px-5 py-4">
-                        <h4 className="text-xs font-black uppercase tracking-widest text-sky-600">Account & Settings</h4>
+                <section>
+                    <div className="px-5 py-5">
+                        <h4 className="text-sm font-black uppercase tracking-widest text-gray-500">Account & Settings</h4>
                     </div>
-                    <div className="mx-4 rounded-[22px] border border-gray-100 bg-white divide-y divide-gray-100 overflow-hidden">
-                        <div className="p-5 flex items-center justify-between">
+                    <div className="px-5 space-y-4">
+                        <div className="p-5 rounded-2xl bg-white border border-gray-100 flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
-                                    <RefreshCw size={18} className="text-emerald-500" />
-                                </div>
+                                <RefreshCw size={20} className="text-emerald-500 shrink-0" />
                                 <div>
-                                    <p className="text-xs font-black text-gray-900">Meal Loop</p>
+                                    <p className="text-xs font-bold text-gray-900">Meal Loop</p>
                                     {loopStatus ? (
                                         <div className="flex flex-col gap-0.5 mt-0.5">
                                             <div className="flex items-center gap-1.5">
                                                 <span className={`w-1.5 h-1.5 rounded-full ${loopStatus.dot}`} />
-                                                <p className={`text-[10px] ${loopStatus.color}`}>{loopStatus.label}</p>
+                                                <p className={`text-xs ${loopStatus.color}`}>{loopStatus.label}</p>
                                             </div>
                                             {loopStatus.skipBadge && (
-                                                <p className="text-[10px] text-amber-600 ml-3">{loopStatus.skipBadge}</p>
+                                                <p className="text-xs text-amber-600 ml-3">{loopStatus.skipBadge}</p>
                                             )}
                                         </div>
                                     ) : (
-                                        <p className="text-[11px] text-gray-500">Auto-rotate dishes across your plan</p>
+                                        <p className="text-sm text-gray-500">Auto-rotate dishes across your plan</p>
                                     )}
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setMealLoopModalOpen(true)}
-                                    className="px-4 py-2 rounded-2xl bg-white border border-gray-100 text-[10px] font-black uppercase tracking-widest text-emerald-500"
-                                >
+                                    <button
+                                        onClick={() => setMealLoopModalOpen(true)}
+                                        className="px-5 py-2.5 rounded-2xl bg-white border border-gray-100 text-xs font-black uppercase tracking-widest text-emerald-500"
+                                    >
                                     Manage
                                 </button>
                                 {mealLoop.config && (
@@ -955,65 +960,61 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                                             useLoopStore.getState().refreshLoop(dishes);
                                         }}
                                         disabled={mealLoop.refreshing}
-                                        className="px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-200 text-[10px] font-black uppercase tracking-widest text-emerald-600 disabled:opacity-40 active:scale-95 transition-all"
+                                        className="w-7 h-7 rounded-full flex items-center justify-center bg-[#FF385C]/5 text-[#FF385C] hover:bg-[#FF385C]/10 disabled:opacity-30 active:scale-90 transition-all"
                                     >
-                                        {mealLoop.refreshing ? '...' : 'Refresh'}
+                                        <RefreshCw size={11} className={mealLoop.refreshing ? 'animate-spin' : ''} />
                                     </button>
                                 )}
                             </div>
                         </div>
 
-                        {/* FIX 9: Loop analytics — shows user progress */}
                         {mealLoop.config && mealLoop.analytics.mealsAutoFilled > 0 && (
-                            <div className="p-5 bg-blue-50/50">
-                                <div className="flex items-center gap-3 mb-3">
-                                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                                        <span className="text-sm">📊</span>
-                                    </div>
+                            <div className="p-5 rounded-2xl bg-blue-50 border border-blue-100">
+                                <div className="flex items-center gap-4 mb-4">
+                                    <span className="text-xl">📊</span>
                                     <div>
-                                        <p className="text-xs font-black text-blue-800">Loop Progress</p>
-                                        <p className="text-[10px] text-blue-600">Your meal automation stats</p>
+                                        <p className="text-sm font-black text-blue-800">Loop Progress</p>
+                                        <p className="text-sm text-blue-600">Your meal automation stats</p>
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-3 gap-3">
+                                <div className="grid grid-cols-3 gap-4">
                                     <div className="text-center">
-                                        <p className="text-lg font-black text-blue-700">{mealLoop.analytics.cyclesCompleted}</p>
-                                        <p className="text-[10px] font-bold text-blue-500 uppercase">Cycles</p>
+                                        <p className="text-xl font-black text-blue-700">{mealLoop.analytics.cyclesCompleted}</p>
+                                        <p className="text-xs font-bold text-blue-500 uppercase">Cycles</p>
                                     </div>
                                     <div className="text-center">
                                         <p className="text-lg font-black text-blue-700">{mealLoop.analytics.mealsAutoFilled}</p>
-                                        <p className="text-[10px] font-bold text-blue-500 uppercase">Meals Filled</p>
+                                        <p className="text-xs font-bold text-blue-500 uppercase">Meals Filled</p>
                                     </div>
                                     <div className="text-center">
                                         <p className="text-lg font-black text-blue-700">{mealLoop.analytics.dishesSkipped}</p>
-                                        <p className="text-[10px] font-bold text-blue-500 uppercase">Skipped</p>
+                                        <p className="text-xs font-bold text-blue-500 uppercase">Skipped</p>
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        <div className="p-5 flex items-center justify-between">
+                        <div className="p-5 rounded-2xl bg-white border border-gray-100 flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="w-11 h-11 bg-white rounded-2xl flex items-center justify-center shadow-sm">
-                                    {notifications ? <Bell size={18} className="text-violet-500" /> : <BellOff size={18} className="text-gray-500" />}
-                                </div>
+                                {notifications ? <Bell size={20} className="text-violet-500 shrink-0" /> : <BellOff size={20} className="text-gray-400 shrink-0" />}
                                 <div>
-                                    <p className="text-xs font-black text-gray-900">Notifications</p>
-                                    <p className="text-[11px] text-gray-500">{notifications ? 'Daily meal reminders' : 'Off'}</p>
+                                    <p className="text-xs font-bold text-gray-900">Notifications</p>
+                                    <p className="text-sm text-gray-500">{notifications ? 'Daily meal reminders & alerts' : 'Off'}</p>
                                 </div>
                             </div>
                             <button onClick={() => setNotifications(!notifications)}
-                                className={`w-12 h-6 rounded-full transition-all duration-300 relative ${notifications ? 'bg-violet-500' : 'bg-gray-200'}`}>
+                                className={`w-12 h-6 rounded-full transition-all duration-300 relative shrink-0 ${notifications ? 'bg-violet-500' : 'bg-gray-200'}`}>
                                 <div className={`w-5 h-5 bg-white rounded-full shadow absolute top-0.5 transition-all duration-300 ${notifications ? 'left-6' : 'left-0.5'}`} />
                             </button>
                         </div>
 
-                        <div className="p-4">
+                        {onLogout && (
                             <button onClick={onLogout}
-                                className="w-full py-3 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center gap-3 font-bold active:scale-95 transition-all">
-                                <LogOut size={18} />Logout
+                                className="w-full py-4 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center gap-2 font-bold active:scale-95 transition-all text-sm"
+                            >
+                                <LogOut size={18} /> Logout
                             </button>
-                        </div>
+                        )}
                     </div>
                 </section>
 
@@ -1031,27 +1032,39 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                 }}
             />
 
-            {trayEditSlot && (
-                <SwapCustomizeModal
-                    key={`add_${trayEditSlot}`}
+            {addSlot && (
+                <DishSearchModal
+                    key={`search_${addSlot}`}
                     isOpen={true}
-                    onClose={() => setTrayEditSlot(null)}
-                    date={getISODate()}
-                    mealType={trayEditSlot}
-                    slotLabel={trayEditSlot.charAt(0).toUpperCase() + trayEditSlot.slice(1)}
-                    item={{ id: '', meal_id: '', name: '', icon: '', quantity: 1, servings: 1, smartVersion: 1, gravy: null, roti: null, rice: null, sides: [], beverages: [], dessert: [], itemQtys: {}, start_time: '', end_time: '' }}
+                    onClose={() => setAddSlot(null)}
                     dishes={dishes}
-                    userRegion={user?.region || ''}
-                    userDiet={user?.diet || 'veg'}
-                    onApply={() => {}}
-                    onAddAnother={handleTrayAddDish}
-                    initialAddMode={true}
+                    mealType={addSlot}
+                    userDiet={user?.diet}
+                    userRegion={user?.region}
+                    onSelect={handleTraySearchSelect}
                 />
             )}
 
             <CreateHouseholdModal isOpen={showCreateHousehold} onClose={() => setShowCreateHousehold(false)} />
             <JoinHouseholdModal isOpen={showJoinHousehold} onClose={() => setShowJoinHousehold(false)} />
             <InviteMemberModal isOpen={showInviteMember} onClose={() => setShowInviteMember(false)} />
+
+            <ConfirmDialog
+                isOpen={confirmDeleteDish !== null}
+                title="Delete dish?"
+                message={`Delete "${confirmDeleteDish?.name}"? This removes it from your tray and meal plan.`}
+                confirmLabel="Delete"
+                onConfirm={() => { if (confirmDeleteDish) performDeleteCustom(confirmDeleteDish); setConfirmDeleteDish(null); }}
+                onCancel={() => setConfirmDeleteDish(null)}
+            />
+            <ConfirmDialog
+                isOpen={confirmLeaveHousehold}
+                title="Leave household?"
+                message="Your requested items will remain."
+                confirmLabel="Leave"
+                onConfirm={() => { useStore.getState().leaveHousehold(); setConfirmLeaveHousehold(false); }}
+                onCancel={() => setConfirmLeaveHousehold(false)}
+            />
         </div>
     );
 };

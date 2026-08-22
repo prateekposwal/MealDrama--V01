@@ -20,7 +20,7 @@ async function getMember(userId: string, householdId: string) {
 // ─── List expenses for a household ──
 router.get('/:householdId/expenses', async (req: Request, res: Response) => {
   const { householdId } = req.params;
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
   if (!member) return res.status(403).json({ error: 'Not a member' });
@@ -37,7 +37,7 @@ router.get('/:householdId/expenses', async (req: Request, res: Response) => {
 // ─── Create expense (equal split by default) ──
 router.post('/:householdId/expenses', async (req: Request, res: Response) => {
   const { householdId } = req.params;
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
   if (!member) return res.status(403).json({ error: 'Not a member' });
@@ -97,7 +97,7 @@ router.patch('/:householdId/expenses/:expenseId/splits/:splitId/pay', async (req
 // ─── Delete expense (admin only) ──
 router.delete('/:householdId/expenses/:expenseId', async (req: Request, res: Response) => {
   const { householdId, expenseId } = req.params;
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
   if (!member || member.role !== 'admin') {
@@ -110,7 +110,7 @@ router.delete('/:householdId/expenses/:expenseId', async (req: Request, res: Res
 // ─── Get balance summary ──
 router.get('/:householdId/balances', async (req: Request, res: Response) => {
   const { householdId } = req.params;
-  const userId = (req as any).user?.id;
+  const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
   if (!member) return res.status(403).json({ error: 'Not a member' });

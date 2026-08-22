@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback } from 'react';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { useStore } from '../../app/store/useStore';
 import { useTrayStore, MealType } from '../../plan/store/useTrayStore';
 import { MealCard, SLOT_META } from '../meal/MealCard';
@@ -34,6 +35,7 @@ interface TrayScreenProps {
 }
 
 const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, initialSlot, onNavigateToLoopSettings }) => {
+    useBackButtonClose(isOpen, onClose);
     const { dishes } = useBackendDishes();
 
     const [currentWeekStart, setCurrentWeekStart] = useState(() => {
@@ -191,7 +193,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                             {weekLabel}
                         </p>
                         {/* LOOP UI REMOVED: Helper text pointing to Profile for loop settings */}
-                        <p className="text-[10px] mt-1 text-gray-400 leading-tight">
+                        <p className="text-xs mt-1 text-gray-400 leading-tight">
                             These dishes auto-fill future days. Loop &amp; scheduling in Profile → Plan Settings.
                         </p>
                     </div>
@@ -245,7 +247,7 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                                     </div>
                                     <span className="text-lg font-bold text-gray-800">{dayNum}</span>
                                     {isToday && (
-                                        <span className="text-[9px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-2 py-0.5 rounded-full">Today</span>
+                                        <span className="text-sm font-black uppercase tracking-widest bg-[#FF385C] text-white px-2 py-0.5 rounded-full">Today</span>
                                     )}
                                 </div>
 
@@ -274,8 +276,8 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                                                             mealType={mealType}
                                                             slot={key}
                                                             dishes={dishes}
-                                                            userRegion="India"
-                                                            userDiet="veg"
+                                                            userRegion={trayUserRegion}
+                                                            userDiet={trayUserDiet}
                                                             isLocked={locked}
                                                             isMissed={missed}
                                                             onRemove={handleRemove(date, mealType, item.id)}
@@ -363,8 +365,8 @@ const TrayScreen: React.FC<TrayScreenProps> = ({ isOpen, onClose, initialDate, i
                 slot={quickAddSlot}
                 date={quickAddDate}
                 dishes={dishes}
-                userRegion="India"
-                userDiet="veg"
+                userRegion={trayUserRegion}
+                userDiet={trayUserDiet}
                 onAddMeal={handleQuickAddMeal}
                 selectedDishIds={selectedDishIds}
             />

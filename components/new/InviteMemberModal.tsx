@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, Copy, Check, Share2 } from 'lucide-react';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { useStore } from '../../app/store/useStore';
 
 interface Props {
@@ -8,6 +9,7 @@ interface Props {
 }
 
 const InviteMemberModal: React.FC<Props> = ({ isOpen, onClose }) => {
+  useBackButtonClose(isOpen, onClose);
   const { household } = useStore();
   const [copied, setCopied] = useState(false);
 
@@ -56,7 +58,7 @@ const InviteMemberModal: React.FC<Props> = ({ isOpen, onClose }) => {
         </p>
 
         <div className="bg-gray-50 rounded-2xl p-5 mb-5 border border-gray-100">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Share Code</p>
+          <p className="text-xs font-black uppercase tracking-widest text-gray-400 mb-2">Share Code</p>
           <p className="text-3xl font-black tracking-[0.4em] text-gray-900 select-all">{code}</p>
         </div>
 

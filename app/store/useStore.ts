@@ -901,8 +901,9 @@ export const useStore = create<StoreState>()(
           const hh = await householdApi.create({ name });
           set({ householdId: hh.id, household: hh });
           get().setToast({ message: `Household "${name}" created!`, type: 'success' });
-        } catch (err) {
-          get().setToast({ message: 'Failed to create household.', type: 'error' });
+        } catch (err: any) {
+          console.error('[Store] createHousehold failed:', err?.message, err?.status);
+          get().setToast({ message: `Failed to create household: ${err?.message || 'Unknown error'}`, type: 'error' });
           throw err;
         }
       },

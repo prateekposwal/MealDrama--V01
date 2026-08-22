@@ -13,7 +13,7 @@ export class DishGraph {
 
     for (const d of dishes) {
       for (const variant of d.variants ?? []) {
-        const key = `${d.id}::${variant.name}`;
+        const key = `${d.id}::${variant.id}`;
         const ings = GENERATED_INGREDIENTS[key];
         if (!ings) continue;
         const names = ings.map(i => i.name.toLowerCase());

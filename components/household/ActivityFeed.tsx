@@ -46,7 +46,7 @@ export default function ActivityFeed({ householdId }: Props) {
         <div className="flex items-center gap-2">
           <span className="text-xs font-black uppercase tracking-widest text-gray-400">Activity</span>
           {!expanded && activities.length > 0 && (
-            <span className="text-[9px] font-bold text-gray-400">{activities.length} events</span>
+            <span className="text-sm font-bold text-gray-400">{activities.length} events</span>
           )}
         </div>
         {expanded ? <ChevronDown size={14} className="text-gray-300" /> : <ChevronRight size={14} className="text-gray-300" />}
@@ -65,7 +65,7 @@ export default function ActivityFeed({ householdId }: Props) {
                     <p className="text-xs font-medium text-gray-700">
                       <span className="font-bold">{a.memberName}</span> {a.action} {a.detail}
                     </p>
-                    <p className="text-[9px] text-gray-400 mt-0.5">{formatDate(a.date)}</p>
+                    <p className="text-sm text-gray-400 mt-0.5">{formatDate(a.date)}</p>
                   </div>
                 </div>
               ))}

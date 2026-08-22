@@ -7,6 +7,7 @@ import { useLoopStore } from '../../plan/store/useLoopStore';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import DishImage from './DishImage';
+import { ConfirmDialog } from './ConfirmDialog';
 import { HealthScoreBadge } from '../health/HealthScoreBadge';
 import { HealthFilterBar } from '../health/HealthFilterBar';
 import { rankDishes, getRegionKey, getDishVariants, DIET_FILTER } from '../../utils/dishSearch';
@@ -71,6 +72,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
     });
     const [healthSort, setHealthSort] = useState<HealthSortKey | null>(null);
     const [showCustomForm, setShowCustomForm] = useState(false);
+    const [confirmDelete, setConfirmDelete] = useState<{ dish: Dish; name: string } | null>(null);
     const [editingDishId, setEditingDishId] = useState<string | null>(null);
     const [customName, setCustomName] = useState('');
     const [customStyle, setCustomStyle] = useState('Gravy');
@@ -225,8 +227,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
         setShowCustomForm(true);
     }, []);
 
-    const handleDeleteCustom = useCallback((dish: Dish) => {
-        if (window.confirm(`Delete "${dish.name}"? This removes it from your tray and meal plan.`)) {
+    const performDeleteCustom = useCallback((dish: Dish) => {
             removeCustomDish(dish.id);
             const store = useStore.getState();
             const trayStore = useTrayStore.getState();
@@ -256,8 +257,11 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                 }
             });
             window.dispatchEvent(new Event('pantry:invalidate'));
-        }
     }, [removeCustomDish]);
+
+    const handleDeleteCustom = useCallback((dish: Dish) => {
+        setConfirmDelete({ dish, name: dish.name });
+    }, []);
 
     const toggleCustomTag = (tag: string) => {
         setCustomTags(prev =>
@@ -280,15 +284,15 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                             <span className="text-sm font-bold block leading-tight truncate text-gray-800">{dish.name}</span>
                             <HealthScoreBadge score={healthScore ?? 0} size="sm" />
                             {isCustom && (
-                                <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">Custom</span>
+                                <span className="text-xs font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 border border-purple-200">Custom</span>
                             )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[9px] font-medium capitalize text-gray-400">{dish.region}</span>
+                            <span className="text-sm font-medium capitalize text-gray-400">{dish.region}</span>
                         </div>
                     </div>
                     {isRegional && (
-                        <span className="text-[8px] font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">Local</span>
+                        <span className="text-xs font-black uppercase tracking-widest bg-[#FF385C] text-white px-1.5 py-0.5 rounded flex-shrink-0">Local</span>
                     )}
                 </button>
                 <div className="flex items-center gap-1 pr-2 shrink-0">
@@ -395,7 +399,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                 >
                                     {showGlobal ? '← Regional first' : 'All regions →'}
                                 </button>
-                                <span className="text-[10px] font-bold text-gray-400">
+                                <span className="text-xs font-bold text-gray-400">
                                     {rankedDishes.length} dishes
                                 </span>
                             </div>
@@ -436,11 +440,11 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                     <div className="p-5 rounded-2xl border-2 border-[#FF385C]/20 bg-white space-y-4">
                                         <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">{editingDishId ? 'Edit Custom Dish' : 'Create Custom Dish'}</p>
                                         <div>
-                                            <label className="text-[9px] font-bold text-gray-500 block mb-1">Name</label>
+                                            <label className="text-sm font-bold text-gray-500 block mb-1">Name</label>
                                             <input type="text" value={customName} onChange={e => setCustomName(e.target.value)} className="w-full rounded-xl py-2.5 px-3 text-sm font-medium border border-gray-200 bg-gray-50 text-gray-900" placeholder="Dish name" />
                                         </div>
                                         <div>
-                                            <label className="text-[9px] font-bold text-gray-500 block mb-1">Diet</label>
+                                            <label className="text-sm font-bold text-gray-500 block mb-1">Diet</label>
                                             <div className="flex gap-2">
                                                 {(['veg', 'non-veg', 'vegan'] as const).map(d => (
                                                     <button key={d} onClick={() => setCustomDiet(d)} className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all ${customDiet === d ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>
@@ -450,23 +454,23 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[9px] font-bold text-gray-500 block mb-1">Style</label>
+                                            <label className="text-sm font-bold text-gray-500 block mb-1">Style</label>
                                             <div className="flex flex-wrap gap-1.5">
                                                 {CUSTOM_STYLES.map(s => (
-                                                    <button key={s} onClick={() => setCustomStyle(s)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${customStyle === s ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>{s}</button>
+                                                    <button key={s} onClick={() => setCustomStyle(s)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${customStyle === s ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>{s}</button>
                                                 ))}
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[9px] font-bold text-gray-500 block mb-1">Tags</label>
+                                            <label className="text-sm font-bold text-gray-500 block mb-1">Tags</label>
                                             <div className="flex flex-wrap gap-1.5">
                                                 {CUSTOM_TAGS.map(t => (
-                                                    <button key={t} onClick={() => toggleCustomTag(t)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${customTags.includes(t) ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
+                                                    <button key={t} onClick={() => toggleCustomTag(t)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${customTags.includes(t) ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-gray-600 border-gray-200'}`}>{t}</button>
                                                 ))}
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[9px] font-bold text-gray-500 block mb-1">Picture</label>
+                                            <label className="text-sm font-bold text-gray-500 block mb-1">Picture</label>
                                             <div className="flex items-center gap-3">
                                                 {customImageDataUrl ? (
                                                     <div className="relative">
@@ -483,7 +487,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[9px] font-bold text-gray-500 block mb-1">Ingredients</label>
+                                            <label className="text-sm font-bold text-gray-500 block mb-1">Ingredients</label>
                                             <div className="flex gap-1.5 mb-2">
                                                 <input type="text" value={ingredientName} onChange={e => setIngredientName(e.target.value)} className="flex-1 rounded-lg py-1.5 px-2.5 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-900" placeholder="Ingredient name" />
                                                 <input type="text" value={ingredientQty} onChange={e => setIngredientQty(e.target.value)} className="w-16 rounded-lg py-1.5 px-2 text-xs font-medium border border-gray-200 bg-gray-50 text-gray-900" placeholder="Qty" />
@@ -512,7 +516,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                             {customIngredients.length > 0 && (
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {customIngredients.map((ing, idx) => (
-                                                        <div key={idx} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 text-[10px] font-medium text-gray-700">
+                                                        <div key={idx} className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 text-xs font-medium text-gray-700">
                                                             <span>{ing.name}</span>
                                                             <span className="text-gray-400">{ing.quantity}{ing.unit}</span>
                                                             <button onClick={() => setCustomIngredients(prev => prev.filter((_, i) => i !== idx))} className="text-gray-400 hover:text-red-500"><X size={10} /></button>
@@ -551,14 +555,14 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                             </span>
                                             <div className="flex items-center gap-2 mt-0.5">
                                                 {variant.addOn && (
-                                                    <span className="text-[9px] font-medium text-gray-400">
+                                                    <span className="text-sm font-medium text-gray-400">
                                                         {variant.addOn}
                                                     </span>
                                                 )}
                                                 {variant.mealContext && (
                                                     <>
-                                                        <span className="text-[9px] text-gray-300">•</span>
-                                                    <span className="text-[9px] font-medium capitalize text-gray-400">
+                                                        <span className="text-sm text-gray-300">•</span>
+                                                    <span className="text-sm font-medium capitalize text-gray-400">
                                                             {variant.mealContext}
                                                         </span>
                                                     </>
@@ -576,6 +580,18 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                 {/* Bottom safe area */}
                 <div className={`h-6 bg-white`} />
             </div>
+
+            <ConfirmDialog
+                isOpen={confirmDelete !== null}
+                title="Delete dish?"
+                message={`Delete "${confirmDelete?.name}"? This removes it from your tray and meal plan.`}
+                confirmLabel="Delete"
+                onConfirm={() => {
+                    if (confirmDelete) performDeleteCustom(confirmDelete.dish);
+                    setConfirmDelete(null);
+                }}
+                onCancel={() => setConfirmDelete(null)}
+            />
         </div>
     );
 };

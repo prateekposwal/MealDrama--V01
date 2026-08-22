@@ -3,6 +3,8 @@ import { Plus } from 'lucide-react';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import type { TrayItem, MealType } from '../../types/tray';
 import { scoreDish } from '../../utils/nutritionScore';
+import { getRegionKey } from '../../utils/dishSearch';
+import { regionPriority } from '../../utils/regionPreference';
 
 // Session-level tracker — shared across all PlateCompletionBanner instances
 // so the same dish isn't suggested for multiple slots on the same day
@@ -10,6 +12,11 @@ const _sessionShownIds = new Set<string>();
 
 function resetSessionTracker() {
   _sessionShownIds.clear();
+}
+
+/** Test-only hook: clear the session-level shown-ids tracker. */
+export function resetSessionShownForTest() {
+  resetSessionTracker();
 }
 
 interface MissingRole {
@@ -71,7 +78,7 @@ function getMissingRoles(meals: TrayItem[]): MissingRole[] {
   return missing;
 }
 
-function findSuggestion(
+export function findSuggestion(
   role: string, mealType: MealType, dishes: Dish[],
   regionKey: string, diet: string,
   excludeIds: Set<string> = new Set(),
@@ -99,12 +106,13 @@ function findSuggestion(
 
   if (candidates.length === 0) return null;
 
-  // Score and rank candidates: prefer regional + healthiest + role-relevant
+  // Score candidates: role-relevance + health + diet preference. Region is
+  // applied as a decisive first-tier ordering below (exact → nearest → all →
+  // rest), NOT a tiny +3 bump that health/meat bonuses can drown out.
+  const normalizedRegionKey = getRegionKey(regionKey);
   const scored = candidates.map(d => {
     let score = scoreDish(d);
-    const isRegional = d.region === regionKey || d.region === 'all';
     const tagMatch = healthTags.some(t => d.tags.includes(t));
-    if (isRegional) score += 3;
     if (tagMatch) score += 5;
 
     // Boost Indian-style dishes (+12) for lunch/dinner only
@@ -131,18 +139,27 @@ function findSuggestion(
     return { dish: d, score };
   });
 
-  scored.sort((a, b) => b.score - a.score);
+  // Region decides FIRST (deterministic, NEVER excludes): restrict the pick pool
+  // to the best available region tier for this user. A north user with north
+  // dishes present will never get a south dish suggested. Only when the best tier
+  // has no candidates do we relax to the next tier (then 'all', then the rest).
+  const poolByRegion = scored
+    .map(({ dish, score }) => ({ dish, score, tier: regionPriority(normalizedRegionKey, dish.region) }))
+    .sort((a, b) => a.tier - b.tier || b.score - a.score);
+  const bestTier = poolByRegion[0]?.tier ?? 0;
+  const bestPool = poolByRegion.filter(p => p.tier === bestTier);
 
-  // Pick from top candidates weighted by score — higher scored dishes more likely
-  const topN = Math.min(5, scored.length);
-  const weights = scored.slice(0, topN).map((_, i) => Math.max(1, topN - i));
+  // Pick from the best-tier candidates weighted by score — higher scored more likely.
+  // Weighted range stays INSIDE the region tier, so the roll can't jump regions.
+  const topN = Math.min(5, bestPool.length);
+  const weights = bestPool.slice(0, topN).map((_, i) => Math.max(1, topN - i));
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   let rand = Math.random() * totalWeight;
   for (let i = 0; i < topN; i++) {
     rand -= weights[i]!;
-    if (rand <= 0) return scored[i]!.dish;
+    if (rand <= 0) return bestPool[i]!.dish;
   }
-  return scored[0]!.dish;
+  return bestPool[0]!.dish;
 }
 
 interface PlateCompletionBannerProps {
@@ -194,10 +211,10 @@ const PlateCompletionBanner: React.FC<PlateCompletionBannerProps> = ({
           <Plus size={14} className="text-emerald-600" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-bold text-gray-800 leading-tight">
-            {slotLabel} is light on <span className="text-emerald-600">{display.label}</span>
+          <p className="text-[13px] font-bold text-gray-900 leading-snug">
+            {slotLabel} needs more <span className="text-emerald-600 font-black">{display.label}</span>
           </p>
-          <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">
+          <p className="text-xs text-gray-600 mt-1 leading-snug">
             Add {dish.icon} {dish.name}
           </p>
         </div>

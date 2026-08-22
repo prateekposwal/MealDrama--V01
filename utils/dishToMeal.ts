@@ -142,10 +142,10 @@ export function dishToMeal(dish: Dish, variant?: DishVariant): Meal {
         : undefined,
       rotiOptions: dish.defaultPairings.roti
         ? [dish.defaultPairings.roti]
-        : (shouldShowRoti ? ['Roti', 'Naan', 'Paratha'] : undefined),
+        : ('roti' in dish.defaultPairings ? undefined : (shouldShowRoti ? ['Roti', 'Naan', 'Paratha'] : undefined)),
       riceOptions: dish.defaultPairings.rice
         ? [dish.defaultPairings.rice]
-        : (shouldShowRice ? ['Steamed Rice', 'Jeera Rice'] : undefined),
+        : ('rice' in dish.defaultPairings ? undefined : (shouldShowRice ? ['Steamed Rice', 'Jeera Rice'] : undefined)),
       sideOptions: dish.defaultPairings.sides?.length ? dish.defaultPairings.sides : undefined,
       beverageOptions: undefined,
       defaultPairings: dish.defaultPairings,

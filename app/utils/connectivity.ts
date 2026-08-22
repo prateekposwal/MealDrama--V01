@@ -17,7 +17,8 @@ export async function checkConnectivity(timeoutMs = 3000): Promise<boolean> {
   // M13: If navigator says offline, trust it — no need to fetch
   if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
 
-  const endpoints = ['/api/health', '/api/v1/health', '/'];
+  const API_BASE = typeof window !== 'undefined' && window.location.protocol === 'file:' ? 'http://192.168.29.211:3001' : '';
+  const endpoints = [`${API_BASE}/health`, `${API_BASE}/`];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

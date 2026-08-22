@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Plus } from 'lucide-react';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { expenseApi } from '../../app/utils/expenseApi';
 import type { ExpenseCategory } from '../../types/household';
 
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function AddExpenseModal({ householdId, onClose, onCreated }: Props) {
+  useBackButtonClose(true, onClose);
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<ExpenseCategory>('other');
@@ -50,7 +52,7 @@ export default function AddExpenseModal({ householdId, onClose, onCreated }: Pro
 
         <div className="space-y-4">
           <div>
-            <label className="text-[9px] font-bold text-gray-500 block mb-1">Title</label>
+            <label className="text-sm font-bold text-gray-500 block mb-1">Title</label>
             <input
               type="text" value={title} onChange={e => setTitle(e.target.value)}
               placeholder="e.g., Cook Ramesh - July Salary"
@@ -59,7 +61,7 @@ export default function AddExpenseModal({ householdId, onClose, onCreated }: Pro
           </div>
 
           <div>
-            <label className="text-[9px] font-bold text-gray-500 block mb-1">Amount (₹)</label>
+            <label className="text-sm font-bold text-gray-500 block mb-1">Amount (₹)</label>
             <input
               type="number" value={amount} onChange={e => setAmount(e.target.value)}
               placeholder="0"
@@ -70,13 +72,13 @@ export default function AddExpenseModal({ householdId, onClose, onCreated }: Pro
           </div>
 
           <div>
-            <label className="text-[9px] font-bold text-gray-500 block mb-2">Category</label>
+            <label className="text-sm font-bold text-gray-500 block mb-2">Category</label>
             <div className="flex flex-wrap gap-1.5">
               {CATEGORIES.map(c => (
                 <button
                   key={c.key}
                   onClick={() => setCategory(c.key)}
-                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all active:scale-95 ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all active:scale-95 ${
                     category === c.key
                       ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
                       : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
@@ -88,7 +90,7 @@ export default function AddExpenseModal({ householdId, onClose, onCreated }: Pro
             </div>
           </div>
 
-          <p className="text-[9px] text-gray-400 font-medium">
+          <p className="text-sm text-gray-400 font-medium">
             Split equally among {householdId ? 'all members' : 'household members'}
           </p>
         </div>

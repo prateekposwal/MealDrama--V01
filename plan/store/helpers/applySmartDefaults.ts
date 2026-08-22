@@ -53,10 +53,12 @@ export function applySmartDefaults(
 
     // ─── GUARDRAIL: Seed carb from meal options when not in explicit defaults ──
     // 1. Only for lunch/dinner dishes (meal.rotiOptions/riceOptions are set)
-    // 2. Never override explicitly set dp.roti/dp.rice
+    // 2. Never override explicitly set dp.roti/dp.rice (including explicit null = no carb)
     // 3. Self-bread/self-rice dishes have options undefined → skipped automatically
-    const seededRoti = dp.roti ?? (meal.rotiOptions?.length ? normalizeCategory(meal.rotiOptions[0]!) : null);
-    const seededRice = dp.rice ?? (!seededRoti && meal.riceOptions?.length ? normalizeCategory(meal.riceOptions[0]!) : null);
+    const explicitRotiNull = dp && 'roti' in dp && dp.roti === null;
+    const explicitRiceNull = dp && 'rice' in dp && dp.rice === null;
+    const seededRoti = explicitRotiNull ? null : (dp.roti ?? (meal.rotiOptions?.length ? normalizeCategory(meal.rotiOptions[0]!) : null));
+    const seededRice = explicitRiceNull ? null : (dp.rice ?? (!seededRoti && meal.riceOptions?.length ? normalizeCategory(meal.riceOptions[0]!) : null));
 
     const itemQtys: Record<string, number> = {};
     for (const item of [seededRoti, seededRice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
@@ -163,7 +165,11 @@ export function applySmartDefaults(
   let roti: string | null = null;
   let rice: string | null = null;
 
-  if (!standalone && !dishHasCarb) {
+  // SOUP & SNACKS: skip carbs entirely
+  const isSoupStyle_check = (style === 'soup') || meal.name.toLowerCase().includes('soup') || ['rasam', 'shorba'].some(s => meal.name.toLowerCase().includes(s));
+  const isSnacksSlot = _slotType === 'snacks';
+
+  if (!standalone && !dishHasCarb && !isSoupStyle_check && !isSnacksSlot) {
     // Only infer carbs for dishes that need them
     const explicitRoti = (meal.rotiOptions?.length ?? 0) > 0;
     const explicitRice = (meal.riceOptions?.length ?? 0) > 0;

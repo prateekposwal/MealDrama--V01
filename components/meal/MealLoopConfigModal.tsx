@@ -166,7 +166,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           <div className="flex gap-3">
             <button
               onClick={() => setShowConfirm(false)}
-              className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
+              className="flex-1 py-4 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
             >
               Cancel
             </button>
@@ -177,7 +177,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
                 setShowConfirm(false);
                 onApply(previewConfig);
               }}
-              className="flex-1 py-3 rounded-xl bg-[#FF385C] text-white font-bold text-sm active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/30"
+              className="flex-1 py-4 rounded-xl bg-[#FF385C] text-white font-bold text-sm active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/30"
             >
               Create Loop
             </button>
@@ -246,11 +246,11 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
         </div>
 
         {/* Content */}
-        <div ref={contentRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        <div ref={contentRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
           {/* Validation error */}
           {!validation.valid && (
-            <div className="rounded-xl bg-amber-50 border border-amber-200 p-3">
-              <p className="text-[10px] font-bold text-amber-700">
+            <div className="rounded-xl bg-amber-50 border border-amber-200 p-4">
+              <p className="text-xs font-bold text-amber-700">
                 {validation.errors.join('. ')}
               </p>
             </div>
@@ -259,14 +259,14 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           {/* Cycle Length */}
           <CycleLengthSelector value={cycleLength} onChange={setCycleLength} />
           {validation.valid && previewAssignments && previewAssignments.length > 0 && (
-            <p className="text-[11px] text-gray-400 mt-1 ml-0.5">
+            <p className="text-sm text-gray-400 mt-1 ml-0.5">
               Fills {new Date(previewAssignments[0]!.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} – {new Date(previewAssignments[previewAssignments.length - 1]!.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
             </p>
           )}
 
           {/* Start Date */}
           <div>
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 block">
+            <label className="text-xs font-black uppercase tracking-widest text-gray-500 mb-2 block">
               <Calendar size={12} className="inline mr-1" />
               Start Date
             </label>
@@ -284,7 +284,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           {/* Your Preferences */}
           {validation.valid && (
             <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+              <p className="text-xs font-black uppercase tracking-widest text-emerald-700">
                 <Check size={11} className="inline mr-1" /> Your Preferences
               </p>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
@@ -303,7 +303,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
           {/* Summary Preview */}
           {validation.valid && (
             <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+              <p className="text-xs font-black uppercase tracking-widest text-gray-500">
                 Preview
               </p>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -327,12 +327,12 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
               <div className="flex gap-2 pt-1">
                 {(Object.keys(summary.slotBreakdown) as MealType[]).map(slot => (
                   <div key={slot} className="flex-1 text-center">
-                    <p className="text-[9px] font-bold text-gray-400">{SLOT_LABELS[slot].slice(0, 3)}</p>
+                    <p className="text-sm font-bold text-gray-400">{SLOT_LABELS[slot].slice(0, 3)}</p>
                     <p className="text-xs font-black text-gray-700">{summary.slotBreakdown[slot]}</p>
                   </div>
                 ))}
               </div>
-              <p className="text-[9px] text-gray-400 pt-1">
+              <p className="text-sm text-gray-400 pt-1">
                 Starts {summary.startDate} · Skips {summary.skipDays.join(', ')}
               </p>
             </div>
@@ -343,7 +343,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
         <div className="shrink-0 px-5 py-4 border-t border-gray-100 bg-white flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
+            className="flex-1 py-4 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
           >
             Cancel
           </button>
@@ -355,7 +355,7 @@ const MealLoopConfigModal: React.FC<MealLoopConfigModalProps> = ({
               }
             }}
             disabled={!canSave}
-            className={`flex-1 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+            className={`flex-1 py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
               canSave
                 ? 'bg-[#FF385C] text-white active:scale-[0.98] shadow-lg shadow-[#FF385C]/30'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed'

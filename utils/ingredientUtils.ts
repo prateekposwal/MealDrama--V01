@@ -143,6 +143,31 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'onion-rings': [ing('Onions', 2, 'pc', 'produce'), ing('Gram Flour', 50, 'g', 'grains')],
   'lemon-wedge': [ing('Lemon', 1, 'pc', 'produce')],
   'green-chili': [ing('Green Chilli', 3, 'pc', 'produce')],
+  'pappadam': [ing('Papad', 2, 'pc', 'pantry')],
+  'mirchi-ka-salan': [ing('Peanuts', 30, 'g', 'proteins'), ing('Sesame Seeds', 10, 'g', 'spices'), ing('Coconut', 30, 'g', 'produce'), ing('Red Chilli', 3, 'pc', 'produce'), ing('Tamarind', 10, 'g', 'pantry')],
+  'sev': [ing('Sev', 50, 'g', 'pantry')],
+  'farsan': [ing('Farsan Mix', 50, 'g', 'pantry')],
+  'salsa': [ing('Tomatoes', 2, 'pc', 'produce'), ing('Onions', 1, 'pc', 'produce'), ing('Coriander', 10, 'g', 'produce'), ing('Lime', 1, 'pc', 'produce')],
+  'sour-cream': [ing('Sour Cream', 50, 'g', 'dairy')],
+  'namkeen': [ing('Namkeen Mix', 50, 'g', 'pantry')],
+  'mixed-nuts': [ing('Almonds', 10, 'g', 'pantry'), ing('Cashews', 10, 'g', 'pantry'), ing('Pistachios', 10, 'g', 'pantry')],
+  'almonds': [ing('Almonds', 10, 'g', 'pantry')],
+  'pistachios': [ing('Pistachios', 10, 'g', 'pantry')],
+  'honey': [ing('Honey', 30, 'g', 'pantry')],
+  'mayonnaise': [ing('Mayonnaise', 30, 'g', 'pantry')],
+  'toast': [ing('White Bread', 2, 'pc', 'pantry')],
+  'baati': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Ghee', 30, 'g', 'dairy')],
+  'bhature': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Yogurt', 30, 'g', 'dairy'), ing('Oil', 30, 'ml', 'pantry')],
+  'herbal-tea': [ing('Herbal Tea Bag', 1, 'pc', 'pantry'), ing('Water', 200, 'ml', 'pantry')],
+  'iced-tea': [ing('Tea', 1, 'tbsp', 'pantry'), ing('Ice', 4, 'pc', 'pantry'), ing('Sugar', 20, 'g', 'pantry'), ing('Lemon', 1, 'pc', 'produce')],
+  'gundruk-soup': [ing('Gundruk', 50, 'g', 'pantry'), ing('Onions', 1, 'pc', 'produce'), ing('Tomatoes', 1, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
+  'toasted-seeds': [ing('Mixed Seeds', 20, 'g', 'pantry')],
+  'sesame-seeds': [ing('Sesame Seeds', 10, 'g', 'spices')],
+  'fermented-greens': [ing('Fermented Greens / Gundruk', 50, 'g', 'pantry')],
+  'dry-fruits-nuts': [ing('Almonds', 10, 'g', 'pantry'), ing('Cashews', 10, 'g', 'pantry'), ing('Raisins', 10, 'g', 'pantry')],
+  'dry-fruit-mix': [ing('Mixed Dry Fruits', 30, 'g', 'pantry')],
+  'rusk': [ing('Rusk', 2, 'pc', 'breads')],
+  'saffron': [ing('Saffron', 1, 'pinch', 'spices')],
 
   // ─── Beverages ────────────────────────────────────────────
   'nimbu-pani': [ing('Lemon', 2, 'pc', 'produce'), ing('Sugar', 20, 'g', 'pantry')],
@@ -244,12 +269,46 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'extra-butter': [ing('Butter', 1, 'tbsp', 'dairy')],
   'ghost-chili-chutney': [ing('Ghost Chili', 2, 'pc', 'produce'), ing('Lemon Juice', 1, 'tbsp', 'pantry')],
   'black-sesame-chutney': [ing('Black Sesame Seeds', 2, 'tbsp', 'spices'), ing('Salt', 0.5, 'tsp', 'pantry')],
+
+  // ─── True-gap dishes (explicit canonical fills — never generic fallbacks) ──
+  'malabar-parota': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Oil', 30, 'ml', 'pantry'), ing('Egg', 1, 'pc', 'proteins')],
+  'pazham-pori': [ing('Banana', 4, 'pc', 'produce'), ing('Maida', 100, 'g', 'grains'), ing('Sugar', 30, 'g', 'pantry'), ing('Oil', 30, 'ml', 'pantry')],
+  'sadhya': [ing('Rice', 100, 'g', 'grains'), ing('Banana', 1, 'pc', 'produce'), ing('Coconut', 30, 'g', 'produce'), ing('Papad', 2, 'pc', 'pantry'), ing('Curry Leaves', 1, 'sprig', 'produce')],
+  'ada-pradhaman': [ing('Rice', 50, 'g', 'grains'), ing('Coconut Milk', 200, 'ml', 'dairy'), ing('Jaggery', 50, 'g', 'pantry'), ing('Cardamom', 1, 'pinch', 'spices')],
+  'haalbai': [ing('Rice', 100, 'g', 'grains'), ing('Milk', 500, 'ml', 'dairy'), ing('Sugar', 30, 'g', 'pantry'), ing('Cardamom', 1, 'pinch', 'spices')],
+  'pori-urundai': [ing('Puffed Rice (Pori)', 100, 'g', 'grains'), ing('Jaggery', 50, 'g', 'pantry'), ing('Coconut', 30, 'g', 'produce')],
+  'shankhali': [ing('Maida', 100, 'g', 'grains'), ing('Buttermilk', 50, 'ml', 'dairy'), ing('Oil', 30, 'ml', 'pantry')],
+  'gathiya': [ing('Gram Flour (Besan)', 100, 'g', 'grains'), ing('Oil', 30, 'ml', 'pantry'), ing('Cumin', 1, 'tsp', 'spices')],
+  'sindhi-koki': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Onions', 1, 'pc', 'produce'), ing('Green Chilli', 2, 'pc', 'produce'), ing('Coriander', 10, 'g', 'produce'), ing('Ghee', 30, 'g', 'dairy')],
+  'rugra': [ing('Mushrooms (Rugra)', 200, 'g', 'produce'), ing('Onions', 1, 'pc', 'produce'), ing('Oil', 30, 'ml', 'pantry')],
+  'thenthuk': [ing('Wheat Flour', 200, 'g', 'grains'), ing('Cabbage', 0.5, 'cup', 'produce'), ing('Carrots', 0.5, 'cup', 'produce'), ing('Potatoes', 1, 'pc', 'produce'), ing('Oil', 30, 'ml', 'pantry')],
+  'chamthong': [ing('Cabbage', 0.5, 'cup', 'produce'), ing('Tomatoes', 1, 'pc', 'produce'), ing('Potatoes', 1, 'pc', 'produce'), ing('Beans', 0.25, 'cup', 'produce'), ing('Oil', 15, 'ml', 'pantry')],
+  'morok-metpa': [ing('Soybeans', 0.5, 'cup', 'proteins'), ing('Red Chilli', 3, 'pc', 'produce'), ing('Mustard Oil', 15, 'ml', 'pantry')],
+  'singju': [ing('Cabbage', 0.5, 'cup', 'produce'), ing('Onions', 0.5, 'pc', 'produce'), ing('Cucumber', 1, 'pc', 'produce'), ing('Lemon', 1, 'pc', 'produce'), ing('Red Chilli', 2, 'pc', 'produce')],
+  'paaknam': [ing('Mustard Greens', 0.5, 'cup', 'produce'), ing('Rice Flour', 50, 'g', 'grains'), ing('Mustard Oil', 15, 'ml', 'pantry')],
+  'alu-kangmet': [ing('Potatoes', 2, 'pc', 'produce'), ing('Red Chilli', 2, 'pc', 'produce'), ing('Mustard Oil', 15, 'ml', 'pantry')],
+  'pumaloi': [ing('Rice Flour', 200, 'g', 'grains'), ing('Water', 100, 'ml', 'pantry')],
+  'pudoh': [ing('Sticky Rice', 200, 'g', 'grains'), ing('Water', 100, 'ml', 'pantry')],
+  'minil-songa': [ing('Rice', 100, 'g', 'grains'), ing('Milk', 500, 'ml', 'dairy'), ing('Jaggery', 50, 'g', 'pantry')],
+  'pukhlein': [ing('Rice', 100, 'g', 'grains'), ing('Sesame Seeds', 20, 'g', 'spices'), ing('Jaggery', 30, 'g', 'pantry')],
+  'sakin-gata': [ing('Spinach', 100, 'g', 'produce'), ing('Onions', 1, 'pc', 'produce'), ing('Mustard Oil', 15, 'ml', 'pantry')],
+  'kyat': [ing('Tea', 2, 'tbsp', 'pantry'), ing('Milk', 200, 'ml', 'dairy'), ing('Sugar', 20, 'g', 'pantry')],
+  'boiled-vegetables': [ing('Carrots', 1, 'pc', 'produce'), ing('Green Beans', 1, 'cup', 'produce'), ing('Potatoes', 1, 'pc', 'produce'), ing('Cauliflower', 0.5, 'pc', 'produce'), ing('Salt', 1, 'tsp', 'pantry')],
+  'panch-phoran-tarka': [ing('Panch Phoran', 1, 'tbsp', 'spices'), ing('Oil', 15, 'ml', 'pantry'), ing('Mixed Vegetables', 1, 'cup', 'produce')],
+  'zu': [ing('Sticky Rice', 200, 'g', 'grains'), ing('Water', 200, 'ml', 'pantry')],
+  'lubrusca-wine': [ing('Grapes', 500, 'g', 'produce'), ing('Sugar', 50, 'g', 'pantry')],
+  'gundruk': [ing('Gundruk (Fermented Greens)', 50, 'g', 'pantry'), ing('Onions', 1, 'pc', 'produce'), ing('Tomatoes', 1, 'pc', 'produce'), ing('Ginger', 1, 'pc', 'produce')],
+  'chang': [ing('Sticky Rice', 200, 'g', 'grains'), ing('Water', 200, 'ml', 'pantry')],
+  'galho': [ing('Rice', 100, 'g', 'grains'), ing('Mixed Vegetables', 0.5, 'cup', 'produce'), ing('Onions', 0.5, 'pc', 'produce')],
+  'chow-mein': [ing('Noodles', 200, 'g', 'grains'), ing('Cabbage', 0.5, 'cup', 'produce'), ing('Carrots', 0.5, 'cup', 'produce'), ing('Soy Sauce', 1, 'tbsp', 'pantry'), ing('Oil', 30, 'ml', 'pantry')],
+  'loaded-veggie-nachos': [ing('Nacho Chips', 100, 'g', 'snacks'), ing('Cheese', 50, 'g', 'dairy'), ing('Onions', 0.5, 'pc', 'produce'), ing('Capsicum', 0.5, 'pc', 'produce'), ing('Salsa', 30, 'g', 'pantry')],
+  'malai-chaap': [ing('Soya Chaap', 200, 'g', 'proteins'), ing('Cream', 50, 'ml', 'dairy'), ing('Yogurt', 50, 'g', 'dairy'), ing('Garam Masala', 0.5, 'tsp', 'spices'), ing('Ghee', 20, 'g', 'dairy')],
 };
 
 export function getIngredientsForCategoryOption(catId: string): Ingredient[] {
   const direct = CATEGORY_INGREDIENTS[catId];
   if (direct) return direct;
-  const normalized = catId.toLowerCase().replace(/[\s-]+/g, '-');
+  const normalized = catId.toLowerCase().replace(/[\s-/]+/g, '-');
   const match = CATEGORY_INGREDIENTS[normalized];
   if (match) return match;
   const fuzzyKey = Object.keys(CATEGORY_INGREDIENTS).find(k => {
@@ -628,6 +687,8 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     if (idLower.includes('kulfi')) {
         result.push({ name: 'Milk', quantity: 1, unit: 'l', category: 'dairy', inStock: false });
         result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
+        result.push({ name: 'Pistachios', quantity: 20, unit: 'g', category: 'pantry', inStock: false });
+        result.push({ name: 'Cardamom', quantity: 1, unit: 'pinch', category: 'spices', inStock: false });
     }
     if (idLower.includes('halwa')) {
         result.push({ name: 'Semolina (Rava)', quantity: 100, unit: 'g', category: 'grains', inStock: false });
@@ -1082,8 +1143,11 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
 
     // CATEGORY_INGREDIENTS fallback: match dish ID tokens against known ingredient sets
-    // Catches Northeast/regional dishes that don't have specific INF patterns
-    if (result.length === 0) {
+    // Catches Northeast/regional dishes that don't have specific INF patterns.
+    // Runs when nothing NON-GENERIC resolved yet (generic defaults from earlier INF
+    // rules like Mixed Vegetables must not mask a real canonical fill).
+    const onlyGenericSoFar = !result.some(i => !['Salt', 'Ghee', 'Oil', 'Spices', 'Mixed Vegetables', 'Mixed Greens', 'Water', 'Pepper', 'Coriander', 'Coriander Leaves', 'Lemon Juice'].includes(i.name));
+    if (onlyGenericSoFar) {
         const idTokens = idLower.split('-').filter(t => t.length > 3);
         const catKey = Object.keys(CATEGORY_INGREDIENTS).find(k => {
             if (idLower === k) return true;
@@ -1115,7 +1179,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     // Normalize to hyphenated form so patterns with hyphens also match space-separated names
     const _idClassify = idLower.replace(/ /g, '-');
     const _isDrink = /lassi|chai|sharbat|juice|milkshake|shake|buttermilk|sherbet|lemonade|nimbu|panna|thandai|smoothie|coconut-water|soda|sharbat|milk-tea|milk$|hot-chocolate/.test(_idClassify);
-    const _isSweet = /kheer|halwa|jalebi|gulab.*jamun|barfi|laddu|pudding|cake|cookie|brownie|muffin|dessert|ice-cream|payasam|payesh|custard|cupcake|donut|cheesecake|mysore-pak|haalbai|basundi|doodhpak/.test(_idClassify);
+    const _isSweet = /kheer|halwa|jalebi|gulab.*jamun|barfi|laddu|ladoo|pudding|cake|cookie|brownie|muffin|dessert|ice-cream|icecream|payasam|payesh|custard|cupcake|donut|cheesecake|mysore-pak|haalbai|basundi|doodhpak|kulfi|falooda|rabdi|shrikhand|sandesh|mishti|kesari|imarti|sheer|rasgulla|malpua|phirni|aamras|modak|shankarpali|chikki|rewri|til.*laddu|semolina.*halwa|gajar.*halwa|sooji.*halwa|pradhaman|pori-urundai|pazham|minil-songa|urundai|payesh/.test(_idClassify);
     const _isSalad = /salad/.test(_idClassify);
     const _isSoup = /soup|shorba|rasam|saar|charu|stew|broth/.test(_idClassify);
     if (!_isDrink && !_isSweet && !_isSalad && !_isSoup) {

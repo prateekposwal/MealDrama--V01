@@ -19,6 +19,7 @@ async function loadLocalDishesOnce(): Promise<Dish[]> {
 
 export function useBackendDishes() {
     const storeDishes = useStore(s => s.dishes);
+    const customDishes = useStore(s => s.customDishes);
     const [dishes, setDishes] = useState<Dish[]>([]);
     const [source, setSource] = useState<'store' | 'backend' | 'local' | 'mixed'>('local');
     const [isLoading, setIsLoading] = useState(true);
@@ -29,7 +30,14 @@ export function useBackendDishes() {
         (async () => {
             const local = await loadLocalDishesOnce();
             const storeDishes = useStore.getState().dishes;
-            const best = local.length >= (storeDishes?.length || 0) ? local : storeDishes;
+            const custom = useStore.getState().customDishes || [];
+            let best = local.length >= (storeDishes?.length || 0) ? local : storeDishes;
+            // Merge custom dishes into the list
+            if (custom.length > 0) {
+                const existingIds = new Set(best.map(d => d.id));
+                const newCustom = custom.filter(d => !existingIds.has(d.id));
+                best = [...newCustom, ...best];
+            }
             if (cancelled) return;
             setDishes(best);
             setSource(best === local ? 'local' : 'store');
@@ -37,7 +45,7 @@ export function useBackendDishes() {
             setError(null);
         })();
         return () => { cancelled = true; };
-    }, []);
+    }, [customDishes.length]);
 
     const retry = useCallback(async () => {
         _loaded = false;

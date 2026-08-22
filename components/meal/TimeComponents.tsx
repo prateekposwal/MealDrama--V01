@@ -11,7 +11,7 @@ export const TimeBadge: React.FC<{
 }> = ({ start, end, onEdit }) => (
     <button
         onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-800 text-[11px] font-bold tracking-tight hover:bg-gray-200 active:scale-95 transition-all min-w-[110px] justify-center"
+        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-800 text-sm font-bold tracking-tight hover:bg-gray-200 active:scale-95 transition-all min-w-[110px] justify-center"
         title="Edit time window"
     >
         🕒 {start} – {end}
@@ -45,21 +45,21 @@ export const TimeEditor: React.FC<{
             <select
                 value={s}
                 onChange={e => setS(e.target.value)}
-                className="text-[9px] font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
+                className="text-sm font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
             >
                 {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
             </select>
-            <span className="text-[9px] text-gray-400">–</span>
+            <span className="text-sm text-gray-400">–</span>
             <select
                 value={e}
                 onChange={e => setE(e.target.value)}
-                className="text-[9px] font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
+                className="text-sm font-bold text-gray-700 bg-transparent border-none outline-none appearance-none cursor-pointer w-12 text-center"
             >
                 {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}</option>)}
             </select>
             <button
                 onClick={() => onSave(s, e)}
-                className="ml-1 px-2 py-0.5 rounded bg-emerald-500 text-white text-[9px] font-bold active:scale-95 transition-all"
+                className="ml-1 px-2 py-0.5 rounded bg-emerald-500 text-white text-sm font-bold active:scale-95 transition-all"
             >
                 Save
             </button>

@@ -23,7 +23,7 @@ export const HealthTipCard: React.FC<HealthTipCardProps> = React.memo(({ tip, on
           <ChevronRight size={14} className={`text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`} />
         </div>
         {expanded && (
-          <p className="text-[10px] text-gray-500 mt-2 leading-relaxed">{tip.body}</p>
+          <p className="text-xs text-gray-500 mt-2 leading-relaxed">{tip.body}</p>
         )}
       </button>
     );
@@ -47,7 +47,7 @@ export const HealthTipCard: React.FC<HealthTipCardProps> = React.memo(({ tip, on
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Lightbulb size={12} className="text-emerald-600" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Health Tip</span>
+            <span className="text-sm font-black uppercase tracking-widest text-emerald-600">Health Tip</span>
           </div>
           <h4 className="font-bold text-sm text-gray-900 mb-1">{tip.title}</h4>
           <p className="text-xs text-gray-600 leading-relaxed">{tip.body}</p>

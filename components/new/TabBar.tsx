@@ -19,18 +19,18 @@ export const TabBar: React.FC<{ activeTab: Tab; onTabChange: (tab: Tab) => void 
           <button
             key={key}
             onClick={() => onTabChange(key)}
-            className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-2xl transition-all duration-200"
+            className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-2xl transition-all duration-200"
             aria-label={label}
             aria-current={active ? 'page' : undefined}
           >
-            <div className={`p-2 rounded-xl transition-all duration-200 ${active ? 'bg-[#FF385C]/10 scale-110' : ''}`}>
+            <div className={`p-1.5 rounded-xl transition-all duration-200 ${active ? 'bg-[#FF385C]/10' : ''}`}>
               <Icon
                 size={22}
                 className={`transition-colors duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}
                 aria-hidden="true"
               />
             </div>
-            <span className={`text-[9px] font-black uppercase tracking-widest transition-all duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}>
+            <span className={`text-xs font-bold tracking-normal transition-colors duration-200 ${active ? 'text-[#FF385C]' : 'text-gray-400'}`}>
               {label}
             </span>
           </button>

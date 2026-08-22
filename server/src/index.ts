@@ -30,11 +30,7 @@ app.use(passport.initialize());
 
 // CORS
 const corsOptions: cors.CorsOptions = {
-  origin: process.env.CORS_ORIGINS?.split(',') || [
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'http://localhost:5174',
-  ],
+  origin: process.env.CORS_ORIGINS?.split(',') || true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
@@ -183,6 +179,7 @@ app.use('/api/v1/custom-dishes', require('./routes/custom-dishes').default);
 app.use('/api/v1/loop-config', require('./routes/loopConfig').default);
 app.use('/api/v1/tts', require('./routes/tts').default);
 app.use('/api/v1/households', require('./routes/pantry').default);
+app.use('/api/v1/ai', require('./routes/ai').default);
 
 // 404 handler
 app.use((req: Request, res: Response) => {
@@ -210,7 +207,7 @@ const startServer = async () => {
     console.log('✓ Database connected');
 
     // Start Express server
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`✓ Server running on port ${PORT}`);
       console.log(`✓ Environment: ${NODE_ENV}`);
       console.log(`✓ API Base: http://localhost:${PORT}/api/v1`);

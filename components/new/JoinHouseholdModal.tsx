@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, LogIn } from 'lucide-react';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { useStore } from '../../app/store/useStore';
 
 interface Props {
@@ -8,6 +9,7 @@ interface Props {
 }
 
 const JoinHouseholdModal: React.FC<Props> = ({ isOpen, onClose }) => {
+  useBackButtonClose(isOpen, onClose);
   const { joinHousehold } = useStore();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);

@@ -51,6 +51,7 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
     // Regional sort
     const scored = filtered.map(d => {
       let score = 0;
+      let pantryMatch = 0;
       if (d.region.toLowerCase().includes(regionKey)) score += 3;
       // Bonus if dish uses pantry staples
       if (pantryStaples.length > 0 && d.tags) {
@@ -58,11 +59,12 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
         const stapleMatches = pantryStaples.filter(s =>
           dishTags.some(t => t.includes(s.toLowerCase()))
         ).length;
+        pantryMatch = stapleMatches;
         score += stapleMatches * 2;
       }
       // Bonus for regional state match
       if (d.states.some(s => s.toLowerCase().includes(regionKey))) score += 1;
-      return { dish: d, score };
+      return { dish: d, score, pantryMatch };
     });
 
     // Sort by score (descending), then alphabetically
@@ -71,7 +73,7 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
       return a.dish.name.localeCompare(b.dish.name);
     });
 
-    return scored.slice(0, 3).map(s => s.dish);
+    return scored.slice(0, 3).map(s => s);
   }, [dishes, slot, userDiet, userRegion, regionKey, pantryStaples]);
 
     return (
@@ -85,7 +87,7 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
         <span className="text-lg">
           {slot === 'Breakfast' ? '🌅' : slot === 'Lunch' ? '☀️' : slot === 'Snacks' ? '🥜' : '🌙'}
         </span>
-        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+        <span className="text-xs font-black uppercase tracking-widest text-gray-400">
             {slot}
         </span>
         <span className="text-xs ml-auto text-gray-400">
@@ -95,7 +97,7 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
 
       {/* Smart Suggestion Chips */}
       <div className="flex gap-2 flex-wrap" role="list" aria-label="Meal suggestions">
-        {suggestions.map(dish => (
+        {suggestions.map(({ dish, pantryMatch }) => (
             <button
                 key={dish.id}
                 onClick={() => onAddMeal(date, slot, dish)}
@@ -108,10 +110,15 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
                 <span className="text-xs font-bold block leading-tight truncate text-gray-800">
                     {dish.name}
                 </span>
-                <span className="text-[9px] font-medium capitalize text-gray-400">
+                <span className="text-sm font-medium capitalize text-gray-400">
                 {dish.region}
               </span>
             </div>
+            {pantryMatch > 0 && (
+              <span className="shrink-0 text-[11px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded-full" title="Uses pantry staples">
+                🥘 {pantryMatch}
+              </span>
+            )}
             <Sparkles size={10} className="text-[#FF385C] flex-shrink-0" aria-hidden="true" />
           </button>
         ))}

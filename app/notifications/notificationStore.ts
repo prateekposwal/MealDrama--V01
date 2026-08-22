@@ -16,7 +16,10 @@ export type NotificationType =
   | 'plan_ending'
   | 'meal_changed'
   | 'cook_share'
-  | 'tip';
+  | 'tip'
+  | 'pantry_reminder'
+  | 'pantry_low'
+  | 'pantry_expired';
 
 export interface AppNotification {
   id: string;
@@ -25,7 +28,7 @@ export interface AppNotification {
   message: string;
   timestamp: number;
   read: boolean;
-  action?: { label: string };
+  action?: { label: string; route?: string };
 }
 
 interface NotificationState {

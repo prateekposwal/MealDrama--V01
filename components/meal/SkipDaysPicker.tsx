@@ -11,7 +11,7 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 export const SkipDaysPicker: React.FC<SkipDaysPickerProps> = ({ skipDays, onToggle }) => (
   <div>
-    <label className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 block">
+    <label className="text-xs font-black uppercase tracking-widest text-gray-500 mb-2 block">
       <SkipForward size={12} className="inline mr-1" />
       Skip Days
     </label>

@@ -199,8 +199,15 @@ export const useTrayStore = create<TrayStore>()(
        * 3. Applies any overrides (quantity, servings, etc.)
        * 4. Optimistic update → debounce PATCH → offline queue
        */
-       addMealToSlot: (date, mealType, meal, overrides) => {
-         // Call helper to get defaults from meal metadata + slot context
+        addMealToSlot: (date, mealType, meal, overrides) => {
+          // Guard: prevent adding to completed or skipped slots
+          const cur = get();
+          const ck = slotKey(date, mealType);
+          if (cur.completions[ck] || cur.skipped[ck]) {
+            console.warn(`[TrayStore] Cannot add meal to ${ck}: slot is completed or skipped`);
+            return;
+          }
+          // Call helper to get defaults from meal metadata + slot context
          const defaults = applySmartDefaults(meal, mealType, undefined, { useSmartSuggestions: true });
 
          // Auto-add ALL culturally relevant accompaniments to pantry staples

@@ -25,14 +25,14 @@ const DishImage: React.FC<DishImageProps> = ({ name, slot, size = 'lg', classNam
 
     if (!imageUrl || error) {
         return (
-            <div className={`${SIZE_CLASSES[size]} bg-gradient-to-br from-gray-100 to-gray-200 rounded-2xl flex items-center justify-center text-3xl shadow-sm ${className}`}>
+            <div className={`${SIZE_CLASSES[size]} bg-gray-100 rounded-2xl flex items-center justify-center text-3xl shadow-sm ${className}`}>
                 🍽️
             </div>
         );
     }
 
     return (
-        <div className={`${SIZE_CLASSES[size]} bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl overflow-hidden shadow-sm relative ${className}`}>
+        <div className={`${SIZE_CLASSES[size]} bg-white rounded-2xl overflow-hidden shadow-sm relative ${className}`}>
             {!loaded && (
                 <div className="absolute inset-0 bg-gray-200 animate-pulse rounded-2xl" />
             )}

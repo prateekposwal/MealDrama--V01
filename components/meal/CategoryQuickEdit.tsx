@@ -1,5 +1,6 @@
 import React, { useMemo, useCallback } from 'react';
 import { X, Plus, Minus } from 'lucide-react';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 
 const COMMON_OPTIONS: Record<string, string[]> = {
   Gravy: ['Dal Tadka', 'Dal Makhani', 'Chole', 'Rajma', 'Sambar', 'Kadhi', 'Mixed Veg Curry', 'Paneer Butter Masala', 'Egg Curry', 'Fish Curry', 'Chicken Curry'],
@@ -22,6 +23,7 @@ interface CategoryQuickEditProps {
 export const CategoryQuickEdit: React.FC<CategoryQuickEditProps> = ({
   isOpen, category, currentItems, onClose, onUpdateQty, onAddItem,
 }) => {
+  useBackButtonClose(isOpen, onClose);
   const suggestions = useMemo(() => COMMON_OPTIONS[category] ?? [], [category]);
   const currentSet = useMemo(() => new Set(currentItems.map(i => i.name.toLowerCase())), [currentItems]);
   const available = useMemo(() => suggestions.filter(s => !currentSet.has(s.toLowerCase())), [suggestions, currentSet]);
@@ -36,7 +38,7 @@ export const CategoryQuickEdit: React.FC<CategoryQuickEditProps> = ({
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
       <div
-        className="relative bg-white rounded-t-[28px] sm:rounded-[28px] w-full max-w-lg mx-auto max-h-[70vh] overflow-y-auto pb-6 px-5 pt-4"
+        className="relative bg-white rounded-t-[28px] sm:rounded-[28px] w-full max-w-lg mx-auto max-h-[70vh] overflow-y-auto px-5 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))]"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-5">
@@ -48,7 +50,7 @@ export const CategoryQuickEdit: React.FC<CategoryQuickEditProps> = ({
 
         {currentItems.length > 0 && (
           <div className="mb-4 space-y-1.5">
-            <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Current</span>
+            <span className="text-xs font-black uppercase tracking-widest text-gray-400">Current</span>
             {currentItems.map(i => (
               <div key={i.name} className="flex items-center justify-between px-4 py-3 rounded-xl bg-gray-50 border border-gray-100">
                 <span className="text-sm font-bold text-gray-800">{i.name}</span>
@@ -73,7 +75,7 @@ export const CategoryQuickEdit: React.FC<CategoryQuickEditProps> = ({
         )}
 
         <div className="space-y-1.5">
-          <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Add {category}</span>
+          <span className="text-xs font-black uppercase tracking-widest text-gray-400">Add {category}</span>
           <div className="flex flex-wrap gap-2">
             {available.length === 0 && (
               <p className="text-sm text-gray-400 py-2">All common options added — type a custom name below</p>

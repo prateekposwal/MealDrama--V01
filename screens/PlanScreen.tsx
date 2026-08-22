@@ -14,6 +14,7 @@ import type { SuggestionMeal } from '../app/lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
 const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
 const MealLoopConfigModal = lazy(() => import('../components/meal/MealLoopConfigModal'));
+const DishSearchModal = lazy(() => import('../components/meal/DishSearchModal'));
 import { useBackendDishes } from '../hooks/useBackendDishes';
 import { useMealMap } from '../plan/hooks/useMealMap';
 import { ChevronLeft, ChevronRight, ChevronDown, Calendar, Users, Plus, Minus, Navigation, Settings } from 'lucide-react';
@@ -161,7 +162,7 @@ const HistoryDayRow = React.memo<HistoryDayRowProps>(({
         </div>
         <span className="text-lg font-bold text-gray-500">{dayNum}</span>
         {guestCount > 0 && (
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100/50 text-violet-400">+{guestCount} guests</span>
+          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-violet-100/50 text-violet-400">+{guestCount} guests</span>
         )}
       </div>
 
@@ -174,7 +175,7 @@ const HistoryDayRow = React.memo<HistoryDayRowProps>(({
               <div key={`${date}-${key}`}>
                 {slotMeta && (
                   <div className="flex items-center gap-1.5 mb-1 px-2">
-                    <span className="text-[10px] font-medium text-gray-500">{slotMeta.time}</span>
+                    <span className="text-xs font-medium text-gray-500">{slotMeta.time}</span>
                   </div>
                 )}
                 <div className={`rounded-xl px-3 py-2 ${historySlotColors[mealType] || 'bg-gray-50/30'}`}>
@@ -264,13 +265,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     useBackButtonClose(showNavPicker, () => setShowNavPicker(false));
     const [showLoopModal, setShowLoopModal] = useState(false);
     const [expandedDay, setExpandedDay] = useState<string | null>(null);
-
-    const ADD_DISH_DUMMY: TrayItem = {
-        id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
-        quantity: 1, servings: 1, smartVersion: 1,
-        gravy: null, roti: null, rice: null,
-        sides: [], beverages: [], dessert: [], itemQtys: {},
-    };
 
     const getMeals = useTrayStore(s => s.getMeals);
     const addMealToSlot = useTrayStore(s => s.addMealToSlot);
@@ -737,7 +731,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
         }
       `}</style>
             {/* ─── Header ─── */}
-            <header className="px-4 pt-4 pb-4">
+            <header className="px-4 pt-10 pb-4">
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-black tracking-tight">Meal Plan</h1>
@@ -774,13 +768,13 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                 </div>
                                 <button
                                     onClick={() => setGuestMode({ active: false, guestCount: 0, extraServings: 0, startDate: '', endDate: '' })}
-                                    className="text-[10px] font-bold text-violet-500 underline"
+                                    className="text-xs font-bold text-violet-500 underline"
                                 >
                                     Remove
                                 </button>
                             </div>
                             <div className="flex items-center gap-2 mt-2">
-                                <span className="text-[10px] text-violet-500 font-medium">Guests:</span>
+                                <span className="text-xs text-violet-500 font-medium">Guests:</span>
                                 <div className="flex items-center gap-1">
                                     <button
                                         onClick={() => {
@@ -816,11 +810,11 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         <Plus size={12} />
                                     </button>
                                 </div>
-                                <span className="text-[10px] text-violet-400 ml-auto">
+                                <span className="text-xs text-violet-400 ml-auto">
                                     {weekStart} → {weekDates[weekDates.length - 1] || weekStart}
                                 </span>
                             </div>
-                            <p className="text-[10px] text-violet-500/70 mt-1.5">
+                            <p className="text-xs text-violet-500/70 mt-1.5">
                                 Each meal gets +{guestMode.extraServings} extra serve{guestMode.extraServings !== 1 ? 's' : ''} across the week
                             </p>
                         </div>
@@ -850,7 +844,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 <div className="flex gap-2">
                     <button
                         onClick={() => setPlanTab('upcoming')}
-                        className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                        className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
                             planTab === 'upcoming'
                                 ? 'bg-gray-900 text-white'
                                 : 'bg-gray-100 text-gray-500'
@@ -860,7 +854,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     </button>
                     <button
                         onClick={() => setPlanTab('history')}
-                        className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                        className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest transition-all ${
                             planTab === 'history'
                                 ? 'bg-gray-900 text-white'
                                 : 'bg-gray-100 text-gray-500'
@@ -868,7 +862,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     >
                         History
                         {pastDatesWithMeals.length > 0 && (
-                            <span className="ml-1.5 text-[10px] opacity-60">{pastDatesWithMeals.length}</span>
+                            <span className="ml-1.5 text-xs opacity-60">{pastDatesWithMeals.length}</span>
                         )}
                     </button>
                 </div>
@@ -898,7 +892,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         isActive ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
                                     }`}
                                 >
-                                    <span className="text-[10px] font-black uppercase block leading-tight">{dayAbbr}</span>
+                                    <span className="text-xs font-black uppercase block leading-tight">{dayAbbr}</span>
                                     <span className="text-sm font-bold block leading-tight">{dayNum}</span>
                                     <div className="flex gap-0.5 mt-1 justify-center">
                                         {slotStatus.map((filled, i) => (
@@ -950,7 +944,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         </div>
                                         <span className="text-lg font-bold text-gray-800">{dayNum}</span>
                                         {guestCount > 0 && (
-                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-600">+{guestCount} guests</span>
+                                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-violet-100 text-violet-600">+{guestCount} guests</span>
                                         )}
                                     </div>
                                     <button
@@ -982,7 +976,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                             className="w-full h-10 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all hover:border-gray-300"
                                                         >
                                                             <Plus size={14} className="text-gray-500" />
-                                                            <span className="text-[10px] font-medium text-gray-500">{label}</span>
+                                                            <span className="text-xs font-medium text-gray-500">{label}</span>
                                                         </button>
                                                     </React.Fragment>
                                                 );
@@ -1037,10 +1031,10 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                         <DishImage key={m.meal_id || i} name={m.name} size="xs" />
                                                     )) : (
                                                         <div className="w-8 h-8 rounded-xl bg-gray-100 border border-dashed border-gray-200 flex items-center justify-center">
-                                                            <span className="text-[10px] text-gray-300 font-bold">{key === 'Breakfast' ? 'B' : key === 'Lunch' ? 'L' : key === 'Snacks' ? 'S' : 'D'}</span>
+                                                            <span className="text-xs text-gray-300 font-bold">{key === 'Breakfast' ? 'B' : key === 'Lunch' ? 'L' : key === 'Snacks' ? 'S' : 'D'}</span>
                                                         </div>
                                                     )}
-                                                    {filled && <span className="text-[10px] font-medium text-gray-500 truncate max-w-[60px]">{meals[0]?.name}</span>}
+                                                    {filled && <span className="text-xs font-medium text-gray-500 truncate max-w-[60px]">{meals[0]?.name}</span>}
                                                 </div>
                                             );
                                         })}
@@ -1061,11 +1055,11 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-2xl px-4 py-3 shadow-lg flex items-center justify-between">
                         <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-gray-900">{filledSlots}/{totalSlots} slots filled</span>
-                            <span className="text-[10px] text-gray-500">{totalPlannedMeals} meals</span>
+                            <span className="text-xs text-gray-500">{totalPlannedMeals} meals</span>
                         </div>
                         <button
                             onClick={() => window.dispatchEvent(new CustomEvent('navigate:profile'))}
-                            className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-gray-900 text-white active:scale-95 transition-all inline-flex items-center gap-1"
+                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-gray-900 text-white active:scale-95 transition-all inline-flex items-center gap-1"
                         >
                             Set up
                         </button>
@@ -1145,18 +1139,6 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             {/* FABs — nav always visible when dates exist, add dish only in upcoming — hidden while any modal is open */}
             {!showSlotPicker && !addDishOpen && !swapCustomizeOpenKey && (planTab === 'upcoming' ? upcomingDates : pastDatesWithMeals).length > 0 && (
             <div className="fixed bottom-24 right-6 z-[60] flex flex-col items-center gap-3">
-                <button
-                    onClick={() => {
-                        const dates = planTab === 'upcoming' ? upcomingDates : pastDatesWithMeals;
-                        setNavDate(dates[0] || today);
-                        setNavSlot(null);
-                        setShowNavPicker(true);
-                    }}
-                    className="w-14 h-14 bg-gray-900 text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all"
-                    aria-label="Navigate to day"
-                >
-                    <Navigation size={20} />
-                </button>
                 {planTab === 'upcoming' && (
                 <button
                     onClick={() => {
@@ -1198,7 +1180,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                             selected ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
                                         }`}
                                     >
-                                        <span className="text-[10px] font-black uppercase tracking-widest block">{dayName}</span>
+                                        <span className="text-xs font-black uppercase tracking-widest block">{dayName}</span>
                                         <span className="text-sm font-bold block mt-0.5">{dayNum}</span>
                                     </button>
                                 );
@@ -1222,7 +1204,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         </span>
                                         <div className="text-left">
                                             <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                            <span className="text-[10px] text-gray-500">
+                                            <span className="text-xs text-gray-500">
                                                 {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                             </span>
                                         </div>
@@ -1243,7 +1225,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                         </span>
                                         <div className="text-left">
                                             <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                            <span className="text-[10px] text-gray-500">
+                                            <span className="text-xs text-gray-500">
                                                 {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                             </span>
                                         </div>
@@ -1291,7 +1273,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                 selected ? 'bg-gray-900 text-white shadow-sm' : 'bg-gray-100 text-gray-600 active:scale-95'
                                             }`}
                                         >
-                                            <span className="text-[10px] font-black uppercase tracking-widest block">{dayName}</span>
+                                            <span className="text-xs font-black uppercase tracking-widest block">{dayName}</span>
                                             <span className="text-sm font-bold block mt-0.5">{dayNum}</span>
                                         </button>
                                     );
@@ -1321,7 +1303,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                     </span>
                                     <div className="text-left">
                                         <span className="text-sm font-bold text-gray-900 block">{label}</span>
-                                        <span className="text-[10px] text-gray-500">
+                                        <span className="text-xs text-gray-500">
                                             {key === 'Breakfast' ? 'Morning meals' : key === 'Lunch' ? 'Midday meals' : key === 'Snacks' ? 'Evening bites' : 'Night meals'}
                                         </span>
                                     </div>
@@ -1359,23 +1341,16 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 onNavigateToLoopSettings={() => window.dispatchEvent(new CustomEvent('navigate:profile'))}
             />
 
-            {/* Add Dish Modal — SwapCustomizeModal in search/add mode (FAB flow) */}
+            {/* Add Dish Modal — DishSearchModal (FAB flow) */}
             {addDishOpen && addDishDate && (
-                <Suspense fallback={null}><SwapCustomizeModal
-                    key={`add_${addDishSlot}_${addDishDate}`}
+                <Suspense fallback={null}><DishSearchModal
                     isOpen={addDishOpen}
                     onClose={() => setAddDishOpen(false)}
-                    date={addDishDate}
-                    mealType={addDishSlot}
-                    slotLabel={addDishSlot.charAt(0).toUpperCase() + addDishSlot.slice(1)}
-                    item={ADD_DISH_DUMMY}
                     dishes={dishes}
+                    mealType={addDishSlot}
                     userRegion={regionKey}
                     userDiet={userDiet}
-                    onApply={() => {}}
-                    onAddAnother={handleAddAnother}
-                    onChange={() => {}}
-                    initialAddMode={true}
+                    onSelect={(dish) => handleQuickAddMeal(addDishDate, addDishSlot, dish)}
                 /></Suspense>
             )}
 

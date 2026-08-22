@@ -60,7 +60,7 @@ export default function ExpenseList({ householdId, isRoommateHousehold, currentM
         <div className="flex items-center gap-2">
           <span className="text-xs font-black uppercase tracking-widest text-gray-400">Expenses</span>
           {!expanded && totalUnpaid > 0 && (
-            <span className="text-[9px] font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">
+            <span className="text-sm font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded-full">
               ₹{totalUnpaid} unpaid
             </span>
           )}
@@ -73,7 +73,7 @@ export default function ExpenseList({ householdId, isRoommateHousehold, currentM
           {/* Balance summary */}
           {balances.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-3 space-y-1.5">
-              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Balances</p>
+              <p className="text-sm font-bold text-gray-400 uppercase tracking-widest">Balances</p>
               {balances.map(b => (
                 <div key={b.memberId} className="flex items-center justify-between text-xs">
                   <span className="font-medium text-gray-700">{b.memberName}</span>
@@ -98,9 +98,9 @@ export default function ExpenseList({ householdId, isRoommateHousehold, currentM
                       <p className="text-xs font-bold text-gray-900 truncate">{e.title}</p>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-gray-400">₹{e.amount}</span>
-                      <span className="text-[9px] text-gray-300">·</span>
-                      <span className="text-[9px] text-gray-400">{e.splits.filter(s => s.paid).length}/{e.splits.length} paid</span>
+                      <span className="text-xs text-gray-400">₹{e.amount}</span>
+                      <span className="text-sm text-gray-300">·</span>
+                      <span className="text-sm text-gray-400">{e.splits.filter(s => s.paid).length}/{e.splits.length} paid</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">

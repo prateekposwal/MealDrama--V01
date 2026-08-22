@@ -34,13 +34,13 @@ export const HealthFilterBar: React.FC<HealthFilterBarProps> = React.memo(({
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <Sparkles size={14} className="text-emerald-500" />
-        <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">Health Filters</span>
+        <span className="text-xs font-black uppercase tracking-widest text-gray-500">Health Filters</span>
       </div>
 
       <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
         <button
           onClick={() => onPresetChange(null)}
-          className={`shrink-0 px-3 py-1.5 rounded-full text-[9px] font-bold border transition-all ${
+          className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-bold border transition-all ${
             activePreset === null
               ? 'bg-gray-900 text-white border-gray-900'
               : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
@@ -52,7 +52,7 @@ export const HealthFilterBar: React.FC<HealthFilterBarProps> = React.memo(({
           <button
             key={p.id}
             onClick={() => onPresetChange(activePreset === p.id ? null : p.id)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-[9px] font-bold border transition-all flex items-center gap-1 ${
+            className={`shrink-0 px-3 py-1.5 rounded-full text-sm font-bold border transition-all flex items-center gap-1 ${
               activePreset === p.id
                 ? 'bg-emerald-500 text-white border-emerald-500'
                 : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
@@ -66,13 +66,13 @@ export const HealthFilterBar: React.FC<HealthFilterBarProps> = React.memo(({
 
       <div className="flex items-center gap-2">
         <ArrowUpDown size={12} className="text-gray-400" />
-        <span className="text-[9px] font-bold text-gray-400">Sort by:</span>
+        <span className="text-sm font-bold text-gray-400">Sort by:</span>
         <div className="flex gap-1">
           {sortOptions.map(s => (
             <button
               key={s.id}
               onClick={() => onSortChange(activeSort === s.id ? null : s.id)}
-              className={`px-2 py-1 rounded-md text-[8px] font-bold border transition-all ${
+              className={`px-2 py-1 rounded-md text-xs font-bold border transition-all ${
                 activeSort === s.id
                   ? 'bg-gray-800 text-white border-gray-800'
                   : 'bg-white text-gray-400 border-gray-200 hover:border-gray-400'

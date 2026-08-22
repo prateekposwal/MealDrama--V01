@@ -1,36 +1,36 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Check, MessageCircle } from 'lucide-react';
 
 const REGIONS = [
-  { label: 'North India', icon: '🌾', note: 'Ghee overload' },
-  { label: 'South India', icon: '🥥', note: 'Coconut everything' },
-  { label: 'East India', icon: '🐟', note: 'Fish & feelings' },
-  { label: 'West India', icon: '🌶️', note: 'Spice is life' },
-  { label: 'Central India', icon: '🍲', note: 'Comfort food headquarters' },
-  { label: 'Northeast India', icon: '🍚', note: 'Ferments, fire, full emotion' },
+  { label: 'North India', icon: '🌾', note: 'Ghee, butter, rich curries' },
+  { label: 'South India', icon: '🥥', note: 'Rice, coconut, dosa' },
+  { label: 'East India', icon: '🐟', note: 'Fish, mustard, sweets' },
+  { label: 'West India', icon: '🌶️', note: 'Spicy, tangy, street food' },
+  { label: 'Central India', icon: '🍲', note: 'Comfort food, hearty meals' },
+  { label: 'Northeast India', icon: '🍚', note: 'Fermented, herbs, grilled' },
 ] as const;
 
 const DIETS = [
-  { label: 'Veg', icon: '🥦', note: "Mummy's favorite" },
-  { label: 'Eggitarian', icon: '🥚', note: 'Anda is life' },
-  { label: 'Non-Veg', icon: '🍗', note: 'Chicken pe aaye ho' },
-  { label: 'Vegan', icon: '🌱', note: 'No dairy, no sorry' },
+  { label: 'Veg', icon: '🥦', note: 'No meat, no egg' },
+  { label: 'Eggitarian', icon: '🥚', note: 'Veg + eggs' },
+  { label: 'Non-Veg', icon: '🍗', note: 'All meats included' },
+  { label: 'Vegan', icon: '🌱', note: 'No animal products' },
 ] as const;
 
 const HEALTH_GOALS = [
-  { label: 'Balanced', icon: '⚖️', note: 'No restrictions' },
-  { label: 'High Protein', icon: '🥩', note: 'Build & recover' },
-  { label: 'High Fiber', icon: '🌾', note: 'Gut health first' },
-  { label: 'Low Calorie', icon: '🥗', note: 'Light eating' },
+  { label: 'Balanced', icon: '⚖️', note: 'No restrictions, eat well' },
+  { label: 'High Protein', icon: '🥩', note: 'Build muscle, stay full' },
+  { label: 'High Fiber', icon: '🌾', note: 'Digestive health' },
+  { label: 'Low Calorie', icon: '🥗', note: 'Lighter meals' },
   { label: 'Low Fat', icon: '🫒', note: 'Cut the grease' },
-  { label: 'Weight Loss', icon: '🔥', note: 'Calorie deficit' },
+  { label: 'Weight Loss', icon: '🔥', note: 'Calorie-conscious' },
 ] as const;
 
 const STEPS = [
-  { key: 'region', title: 'PICK YOUR FOOD REGION' },
-  { key: 'diet', title: 'YOUR FOOD PREFERENCE' },
-  { key: 'health', title: 'ANY HEALTH FOCUS?' },
-  { key: 'cook', title: "YOUR COOK'S NUMBER" },
+  { key: 'region', title: 'Your Food Region', subtitle: 'What kind of flavors do you love?', benefit: 'We\'ll recommend dishes from your favorite cuisine.' },
+  { key: 'diet', title: 'Your Diet Preference', subtitle: 'What do you eat?', benefit: 'Every suggested dish will match your diet.' },
+  { key: 'health', title: 'Your Health Focus', subtitle: 'Any specific goal?', benefit: 'Meals will be tailored to your wellness needs.' },
+  { key: 'cook', title: 'Cook\'s WhatsApp', subtitle: 'Who makes the meals?', benefit: 'Your cook gets the daily plan every morning.' },
 ] as const;
 
 interface FlashOnboardingProps {
@@ -56,46 +56,31 @@ interface FlashOnboardingProps {
 
 const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMode, prefill }) => {
   const [step, setStep] = useState(0);
-  const [region, setRegion] = useState(prefill?.region ?? 'North India');
-  const [diet, setDiet] = useState(prefill?.diet ?? 'Veg');
+  const [region, setRegion] = useState(prefill?.region ?? '');
+  const [diet, setDiet] = useState(prefill?.diet ?? '');
   const [spiceLevel] = useState(prefill?.spiceLevel ?? 2);
-  const [healthGoal, setHealthGoal] = useState(prefill?.healthGoal ?? 'Balanced');
+  const [healthGoal, setHealthGoal] = useState(prefill?.healthGoal ?? '');
   const [cookContact, setCookContact] = useState(prefill?.cookContact ?? '');
   const [plannedSlots] = useState<('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[]>(
     prefill?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'],
   );
-  const [direction, setDirection] = useState(0);
 
-  useEffect(() => {
-    if (isEditMode && prefill) {
-      if (prefill.region) setRegion(prefill.region);
-      if (prefill.diet) setDiet(prefill.diet);
-      if (prefill.cookContact !== undefined) setCookContact(prefill.cookContact);
-    }
-  }, [isEditMode, prefill]);
-
-  const canContinue = step === 0 ? true : step === 1 ? true : step === 2 ? true : step === 3 ? cookContact.trim().length >= 10 : true;
+  const canContinue = step === 0 ? !!region : step === 1 ? !!diet : step === 2 ? !!healthGoal : true;
 
   const goNext = useCallback(() => {
-    if (step < STEPS.length - 1) {
-      setDirection(1);
-      setStep(s => s + 1);
-    }
+    if (step < STEPS.length - 1) setStep(s => s + 1);
   }, [step]);
 
   const goBack = useCallback(() => {
-    if (step > 0) {
-      setDirection(-1);
-      setStep(s => s - 1);
-    }
+    if (step > 0) setStep(s => s - 1);
   }, [step]);
 
   const handleComplete = useCallback(() => {
     onComplete({
-      region,
-      diet,
+      region: region || 'North India',
+      diet: diet || 'Veg',
       spiceLevel,
-      healthGoal,
+      healthGoal: healthGoal || 'Balanced',
       cookContact,
       plannedSlots,
       onboardingComplete: true,
@@ -103,56 +88,63 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
   }, [onComplete, region, diet, spiceLevel, healthGoal, cookContact, plannedSlots]);
 
   const isLastStep = step === STEPS.length - 1;
+  const stepProgress = ((step + 1) / STEPS.length) * 100;
 
   return (
-    <div className="min-h-screen bg-white max-w-lg mx-auto flex flex-col">
-      {/* Progress dots */}
-      <div className="flex items-center justify-center gap-2 pt-14 pb-6">
-        {STEPS.map((_, i) => (
-          <div
-            key={i}
-            className={`h-1.5 rounded-full transition-all duration-300 ${
-              i === step ? 'w-8 bg-[#FF385C]' : i < step ? 'w-2 bg-[#FF385C]/50' : 'w-2 bg-gray-200'
-            }`}
-          />
-        ))}
-      </div>
-
-      {/* Header with back */}
-      <div className="flex items-center gap-3 px-6 mb-2">
-        {step > 0 && (
-          <button
-            onClick={goBack}
-            className="w-9 h-9 rounded-xl flex items-center justify-center bg-gray-100 text-gray-600 active:scale-90 transition-all"
-          >
-            <ChevronLeft size={18} />
-          </button>
-        )}
-        <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-          Step {step + 1} of {STEPS.length}
-        </p>
+    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto w-full">
+      {/* Top bar with step indicator */}
+      <div className="bg-white px-6 pt-8 pb-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            {step > 0 && (
+              <button onClick={goBack} className="w-10 h-10 rounded-xl flex items-center justify-center bg-gray-100 text-gray-500 active:scale-90 transition-all">
+                <ChevronLeft size={20} />
+              </button>
+            )}
+            <span className="text-sm font-bold text-gray-400">
+              Step {step + 1} of {STEPS.length}
+            </span>
+          </div>
+          {!isEditMode && (
+            <span className="text-xs font-bold text-gray-300">
+              {Math.round(stepProgress)}%
+            </span>
+          )}
+        </div>
+        {/* Progress bar */}
+        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="h-full bg-[#FF385C] rounded-full transition-all duration-500 ease-out" style={{ width: `${stepProgress}%` }} />
+        </div>
+        {/* Step labels */}
+        <div className="flex justify-between mt-3">
+          {STEPS.map((s, i) => (
+            <span key={i} className={`text-xs font-bold uppercase transition-colors duration-300 ${
+              i <= step ? 'text-[#FF385C]' : 'text-gray-300'
+            }`}>{s.key}</span>
+          ))}
+        </div>
       </div>
 
       {/* Step content */}
-      <div className="flex-1 px-6 overflow-y-auto">
+      <div className="flex-1 px-6 pt-8 pb-4 overflow-y-auto">
         {/* Step 1: Region */}
         {step === 0 && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
-            <div className="mb-6">
-              <h2 className="text-2xl font-black tracking-tight text-gray-900">{STEPS[0].title}</h2>
-              <p className="text-sm text-gray-500 mt-1.5">Choose the flavors you enjoy most. You can change anytime.</p>
+            <div className="mb-8">
+              <h2 className="text-3xl font-black tracking-tight text-gray-900">{STEPS[0].title}</h2>
+              <p className="text-base text-gray-500 mt-2">{STEPS[0].subtitle}</p>
+              <div className="mt-4 p-4 rounded-xl bg-orange-50 border border-orange-100">
+                <p className="text-sm text-orange-700 font-medium leading-relaxed">{STEPS[0].benefit}</p>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               {REGIONS.map(opt => (
-                <button
-                  key={opt.label}
-                  onClick={() => setRegion(opt.label)}
-                  className={`p-4 rounded-[20px] border-2 text-left transition-all active:scale-[0.98] ${
-                    region === opt.label ? 'border-[#FF385C] bg-[#FF385C]/5' : 'border-gray-100 bg-white hover:border-gray-200'
-                  }`}
-                >
-                  <p className="font-bold text-sm text-gray-900">{opt.icon} {opt.label}</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{opt.note}</p>
+                <button key={opt.label} onClick={() => setRegion(opt.label)}
+                  className={`p-5 rounded-2xl border-2 text-left transition-all active:scale-[0.98] ${
+                    region === opt.label ? 'border-[#FF385C] bg-[#FF385C]/5 ring-2 ring-[#FF385C]/20' : 'border-gray-100 bg-white hover:border-gray-200'
+                  }`}>
+                  <p className="font-bold text-base text-gray-900 mb-1">{opt.icon} {opt.label}</p>
+                  <p className="text-sm text-gray-500 leading-snug">{opt.note}</p>
                 </button>
               ))}
             </div>
@@ -162,21 +154,21 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
         {/* Step 2: Diet Preference */}
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
-            <div className="mb-6">
-              <h2 className="text-2xl font-black tracking-tight text-gray-900">{STEPS[1].title}</h2>
-              <p className="text-sm text-gray-500 mt-1.5">Pick what fits your lifestyle.</p>
+            <div className="mb-8">
+              <h2 className="text-3xl font-black tracking-tight text-gray-900">{STEPS[1].title}</h2>
+              <p className="text-base text-gray-500 mt-2">{STEPS[1].subtitle}</p>
+              <div className="mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                <p className="text-sm text-emerald-700 font-medium leading-relaxed">{STEPS[1].benefit}</p>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               {DIETS.map(opt => (
-                <button
-                  key={opt.label}
-                  onClick={() => setDiet(opt.label)}
-                  className={`p-4 rounded-[20px] border-2 text-left transition-all active:scale-[0.98] ${
-                    diet === opt.label ? 'border-[#FF385C] bg-[#FF385C]/5' : 'border-gray-100 bg-white hover:border-gray-200'
-                  }`}
-                >
-                  <p className="font-bold text-sm text-gray-900">{opt.icon} {opt.label}</p>
-                  <p className="text-[11px] text-gray-500 mt-1">{opt.note}</p>
+                <button key={opt.label} onClick={() => setDiet(opt.label)}
+                  className={`p-5 rounded-2xl border-2 text-left transition-all active:scale-[0.98] ${
+                    diet === opt.label ? 'border-[#FF385C] bg-[#FF385C]/5 ring-2 ring-[#FF385C]/20' : 'border-gray-100 bg-white hover:border-gray-200'
+                  }`}>
+                  <p className="font-bold text-base text-gray-900 mb-1">{opt.icon} {opt.label}</p>
+                  <p className="text-sm text-gray-500 leading-snug">{opt.note}</p>
                 </button>
               ))}
             </div>
@@ -186,72 +178,106 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
         {/* Step 3: Health Goal */}
         {step === 2 && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
-            <div className="mb-6">
-              <h2 className="text-2xl font-black tracking-tight text-gray-900">{STEPS[2].title}</h2>
-              <p className="text-sm text-gray-500 mt-1.5">We'll auto-apply this when suggesting dishes. Change anytime.</p>
+            <div className="mb-8">
+              <h2 className="text-3xl font-black tracking-tight text-gray-900">{STEPS[2].title}</h2>
+              <p className="text-base text-gray-500 mt-2">{STEPS[2].subtitle}</p>
+              <div className="mt-4 p-4 rounded-xl bg-blue-50 border border-blue-100">
+                <p className="text-sm text-blue-700 font-medium leading-relaxed">{STEPS[2].benefit}</p>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               {HEALTH_GOALS.map(opt => (
-                <button
-                  key={opt.label}
-                  onClick={() => setHealthGoal(opt.label)}
-                  className={`p-4 rounded-[20px] border-2 text-left transition-all active:scale-[0.98] ${
-                    healthGoal === opt.label ? 'border-[#FF385C] bg-[#FF385C]/5' : 'border-gray-100 bg-white hover:border-gray-200'
-                  }`}
-                >
-                  <p className="font-bold text-sm text-gray-900">{opt.icon} {opt.label}</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{opt.note}</p>
+                <button key={opt.label} onClick={() => setHealthGoal(opt.label)}
+                  className={`p-5 rounded-2xl border-2 text-left transition-all active:scale-[0.98] ${
+                    healthGoal === opt.label ? 'border-[#FF385C] bg-[#FF385C]/5 ring-2 ring-[#FF385C]/20' : 'border-gray-100 bg-white hover:border-gray-200'
+                  }`}>
+                  <p className="font-bold text-base text-gray-900 mb-1">{opt.icon} {opt.label}</p>
+                  <p className="text-sm text-gray-500 leading-snug">{opt.note}</p>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Step 4: Cook Contact */}
+        {/* Step 4: Summary + Cook Contact */}
         {step === 3 && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
-            <div className="mb-6">
-              <h2 className="text-2xl font-black tracking-tight text-gray-900">Cook's WhatsApp Number</h2>
-              <p className="text-sm text-gray-500 mt-1.5">This is where your daily meal plan gets sent. Your cook will receive the full plan — dishes, accompaniments, quantities — every morning.</p>
+            <div className="mb-8">
+              <h2 className="text-3xl font-black tracking-tight text-gray-900">Almost there!</h2>
+              <p className="text-base text-gray-500 mt-2">Here's what you've set up. Add your cook's number to get the plan delivered.</p>
             </div>
-            <div className="rounded-[24px] border border-gray-100 bg-gray-50 p-5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-gray-500">WhatsApp Number</label>
+
+            {/* Summary cards */}
+            <div className="space-y-3 mb-8">
+              <div className="flex items-center gap-4 p-4 rounded-xl bg-white border border-gray-100">
+                <span className="text-2xl">{REGIONS.find(r => r.label === (region || 'North India'))?.icon}</span>
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Region</p>
+                  <p className="text-base font-bold text-gray-900">{region || 'North India'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 p-4 rounded-xl bg-white border border-gray-100">
+                <span className="text-2xl">{DIETS.find(d => d.label === (diet || 'Veg'))?.icon}</span>
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Diet</p>
+                  <p className="text-base font-bold text-gray-900">{diet || 'Veg'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 p-4 rounded-xl bg-white border border-gray-100">
+                <span className="text-2xl">{HEALTH_GOALS.find(h => h.label === (healthGoal || 'Balanced'))?.icon}</span>
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Health Focus</p>
+                  <p className="text-base font-bold text-gray-900">{healthGoal || 'Balanced'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Cook number */}
+            <div className="rounded-2xl border-2 border-gray-100 bg-white p-6">
+              <div className="flex items-center gap-2 mb-2">
+                <MessageCircle size={20} className="text-green-500" />
+                <label className="text-sm font-bold text-gray-700">Cook's WhatsApp Number</label>
+              </div>
+              <p className="text-sm text-gray-500 mb-5 leading-relaxed">
+                Your cook receives the full plan — dishes, quantities, pairings — every morning. No app needed on their end.
+              </p>
               <input
                 type="tel"
                 value={cookContact}
                 onChange={e => setCookContact(e.target.value)}
                 placeholder="+91 98765 43210"
-                className="w-full bg-white border border-gray-200 rounded-[20px] px-5 py-4 text-sm font-bold mt-2 focus:outline-none focus:ring-2 focus:ring-[#FF385C]"
+                className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-5 py-4 text-base font-semibold focus:outline-none focus:ring-2 focus:ring-[#FF385C] focus:border-transparent"
                 autoFocus
               />
-              <p className="text-[11px] text-gray-500 mt-3 flex items-center gap-1.5">
-                <MessageCircle size={14} className="text-green-500" />
-                Plan will be shared daily via WhatsApp
-              </p>
+              {cookContact.length >= 10 && (
+                <div className="mt-4 flex items-center gap-2 text-green-600 animate-in fade-in">
+                  <Check size={16} />
+                  <span className="text-sm font-medium">Number set — plan will be shared daily</span>
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
 
       {/* Bottom action */}
-      <div className="px-6 pb-10 pt-4 border-t border-gray-100 bg-white">
+      <div className="bg-white px-6 pt-5 border-t border-gray-100 pb-[max(2rem,env(safe-area-inset-bottom,0px))]">
         <button
           onClick={isLastStep ? handleComplete : goNext}
           disabled={!canContinue}
-          className="w-full py-5 rounded-[24px] bg-[#FF385C] text-white font-black text-base flex items-center justify-center gap-3 shadow-xl shadow-[#FF385C]/20 active:scale-[0.98] transition-all disabled:opacity-40"
+          className="w-full py-5 rounded-2xl bg-[#FF385C] text-white font-bold text-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-30 hover:bg-[#e03050] shadow-lg shadow-[#FF385C]/20"
         >
           {isLastStep ? (
-            <>
-              <Check size={18} />
-              Let's Go
-            </>
+            <><Check size={20} /> Start Planning</>
           ) : (
-            <>
-              Next
-              <ChevronRight size={18} />
-            </>
+            <><span>Continue</span> <ChevronRight size={20} /></>
           )}
         </button>
+        {!isLastStep && (
+          <button onClick={() => setStep(STEPS.length - 1)} className="w-full text-center text-sm text-gray-400 font-semibold mt-4 active:opacity-60">
+            Skip to end
+          </button>
+        )}
       </div>
     </div>
   );

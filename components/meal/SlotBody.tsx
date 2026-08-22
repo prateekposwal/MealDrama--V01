@@ -8,7 +8,7 @@ import type { MealType, TrayItem, GuestMode } from '../../plan/store/useTrayStor
 import { computeEffectiveServings, resolveSlotTimes, isAfterEnd } from '../../types/tray';
 import type { AggregatedCategory } from '../../types/tray';
 import type { DishVariant } from '../../meal/constants/dishLibrary';
-import { useNormalizedComposition } from './useNormalizedComposition';
+import { useNormalizedComposition, computeNormalizedComposition } from './useNormalizedComposition';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import type { SuggestionMeal } from '../../app/lib/trayApi';
 import { MealCard } from './MealCard';
@@ -17,6 +17,7 @@ import { SmartSuggestionChips } from './SmartSuggestionChips';
 import { TimeBadge, TimeEditor } from './TimeComponents';
 const SwapCustomizeModal = lazy(() => import('./SwapCustomizeModal'));
 const CategoryQuickEdit = lazy(() => import('./CategoryQuickEdit'));
+import DishSearchModal from './DishSearchModal';
 import DishImage from '../new/DishImage';
 import PlateCompletionBanner from '../health/PlateCompletionBanner';
 import { CheckCheck, ChevronRight, Forward, Shuffle, Sparkles, X, Plus, RefreshCw } from 'lucide-react';
@@ -109,7 +110,7 @@ function getModeBehavior(mode: SlotMode, date: string, slotLabel: string, meals:
       }
       editable = true;
       showSuggestions = true;
-      cardClass = 'ring-2 ring-[#FF385C]/25 rounded-[28px] overflow-hidden shadow-lg shadow-[#FF385C]/10';
+      cardClass = '';
       break;
     case 'upcoming':
       if (isToday) {
@@ -315,7 +316,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   const [quickEditCategory, setQuickEditCategory] = useState<string | null>(null);
 
   const handleAddPairing = useCallback((name: string) => {
-    const first = meals[0];
+    const first = meals[meals.length - 1];
     if (!first || !quickEditCategory) return;
     const cat = quickEditCategory.toLowerCase();
     const updates: Partial<TrayItem> = {};
@@ -396,7 +397,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
             </div>
             <button
               onClick={onUndoSkip}
-              className="text-[10px] font-bold text-amber-700 underline active:opacity-60 flex items-center gap-1"
+              className="text-xs font-bold text-amber-700 underline active:opacity-60 flex items-center gap-1"
             >
               Restore Meal
             </button>
@@ -415,14 +416,14 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
             {onUndoComplete && (
               <button
                 onClick={onUndoComplete}
-                className="text-[10px] font-bold text-emerald-600 underline active:opacity-60"
+                className="text-xs font-bold text-emerald-600 underline active:opacity-60"
               >
                 Undo
               </button>
             )}
           </div>
           <div className="p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Tomorrow's Plan</p>
+            <p className="text-xs font-black uppercase tracking-widest text-gray-500 mb-2">Tomorrow's Plan</p>
             {tomorrowMeals && tomorrowMeals.length > 0 ? (
               <div className="space-y-2">
                 {tomorrowMeals.map(item => (
@@ -437,7 +438,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 <span className="text-xs text-gray-500">Nothing planned yet</span>
                 <button
                   onClick={onOpenSearch}
-                  className="flex items-center gap-1 text-[10px] font-bold text-[#FF385C]"
+                  className="flex items-center gap-1 text-xs font-bold text-[#FF385C]"
                 >
                   Add dish <ChevronRight size={10} />
             </button>
@@ -451,7 +452,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {!isUserCompleted && meals.length > 0 && mode === 'active' && editable && (
         <div className="flex items-center gap-2 px-0.5">
           <div className="w-1 h-1 rounded-full bg-[#FF385C]/40" />
-          <p className="text-[11px] text-gray-500 font-medium">{slotMicrocopy}</p>
+          <p className="text-sm text-gray-500 font-medium">{slotMicrocopy}</p>
         </div>
       )}
 
@@ -461,9 +462,10 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
 
           {mergeExtraItems && slotMeals.length > 1 ? (
             <>
+              {/* Newest meal as primary card, older ones as extras below */}
               <div style={_ANIM_STYLE_0} className="card-enter">
                 <MealCard
-                  item={slotMeals[0]!}
+                  item={slotMeals[slotMeals.length - 1]!}
                   date={date}
                   mealType={mealType}
                   slot={slotLabel}
@@ -473,26 +475,26 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   isLocked={isLocked}
                   isMissed={isMissed}
                   editable={editable}
-                  guestExtra={computeEffectiveServings(slotMeals[0]!.quantity || 1, date, guestMode).extra}
-                  onUpdateInline={onUpdateInline(date, mealType, slotMeals[0]!.id)}
-                  onRemove={onRemove(date, mealType, slotMeals[0]!.id)}
-                  swapCustomizeOpen={swapCustomizeOpenKey === slotMeals[0]!.id}
-                  onSwapCustomizeOpen={() => onSwapCustomizeOpen?.(slotMeals[0]!.id)}
+                  guestExtra={computeEffectiveServings(slotMeals[slotMeals.length - 1]!.quantity || 1, date, guestMode).extra}
+                  onUpdateInline={onUpdateInline(date, mealType, slotMeals[slotMeals.length - 1]!.id)}
+                  onRemove={onRemove(date, mealType, slotMeals[slotMeals.length - 1]!.id)}
+                  swapCustomizeOpen={swapCustomizeOpenKey === slotMeals[slotMeals.length - 1]!.id}
+                  onSwapCustomizeOpen={() => onSwapCustomizeOpen?.(slotMeals[slotMeals.length - 1]!.id)}
                   onSwapCustomizeClose={stableSwapCustomizeClose}
                   onShareSlot={onShareSlot}
                   hideSlotLabel={hideSlotLabel}
                 />
               </div>
               <div className="px-5 pb-4 space-y-1.5">
-                {(slotMeals.slice(1) as TrayItem[]).map(extra => (
-                  <div key={extra.id} style={_ANIM_STYLE_1} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50 border border-gray-100 extra-card-enter">
+                {(slotMeals.slice(0, -1) as TrayItem[]).reverse().map(extra => (
+                  <div key={extra.id} style={_ANIM_STYLE_1} className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-100 shadow-sm extra-card-enter active:scale-[0.99] transition-all">
                     <button onClick={() => onSwapCustomizeOpen?.(extra.id)} className="shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl active:scale-90 transition-all">
-                      <DishImage name={extra.name} slot={slotLabel} size="sm" />
+                      <DishImage name={extra.name} slot={slotLabel} size="md" />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap mb-4">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {extra.requestedBy && (
-                          <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
+                          <span className={`text-sm font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0 ${
                             memberName(extra.requestedBy) === '(left)'
                               ? 'bg-gray-100 border-gray-200 text-gray-500'
                               : 'bg-orange-100 border-orange-200 text-orange-700'
@@ -500,67 +502,57 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                             🙋 {memberName(extra.requestedBy)}
                           </span>
                         )}
-                        <span className="text-xs font-bold text-gray-700 truncate">
-                          {extra.style ? `${extra.style} ${extra.name}` : extra.name}
+                        <span className="text-sm font-bold text-gray-800 truncate leading-snug">
+                          {extra.name}
                         </span>
+                        {(() => {
+                            const seen = new Set<string>();
+                            const primary = [extra.roti, extra.rice].filter(Boolean).map(s => (s as string).toLowerCase().trim());
+                            primary.forEach(s => seen.add(s));
+                            const secondary = [
+                                ...(extra.sides ?? []),
+                                ...(extra.beverages ?? []),
+                                ...(extra.dessert ?? []),
+                                extra.gravy,
+                            ].filter(Boolean).filter(s => {
+                                const key = (s as string).toLowerCase().trim();
+                                if (seen.has(key)) return false;
+                                seen.add(key);
+                                return true;
+                            });
+                            const all = [...primary, ...secondary];
+                            return all.length > 0 ? (
+                                <span className="text-xs text-gray-400 font-medium leading-tight block">({all.join(', ')})</span>
+                            ) : null;
+                        })()}
+                      </div>
+                      
+                      <div className="flex items-center gap-2 mt-1">
                         {editable ? (
-                          <div className="flex items-center gap-1 ml-0.5">
-                            {extra.quantity > 1 && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: extra.quantity - 1 }); }}
-                                className="w-7 h-7 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
-                              >−</button>
-                            )}
-                            <span className="text-xs font-bold text-gray-700 tabular-nums min-w-[8px] text-center">{extra.quantity}</span>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: extra.quantity + 1 }); }}
-                              className="w-7 h-7 rounded-md flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-[10px] font-bold leading-none"
+                          <div className="flex items-center gap-1">
+                            <button onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: Math.max(1, (extra.quantity || 1) - 1) }); }}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-sm font-bold leading-none hover:bg-gray-100"
+                            >−</button>
+                            <span className="text-xs font-bold text-gray-700 tabular-nums min-w-[12px] text-center">{extra.quantity || 1}</span>
+                            <button onClick={(e) => { e.stopPropagation(); onUpdateInline(date, mealType, extra.id)({ quantity: (extra.quantity || 1) + 1 }); }}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-sm font-bold leading-none hover:bg-gray-100"
                             >+</button>
                           </div>
-                        ) : extra.quantity > 1 && (
-                          <span className="text-[8px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0">
-                            x{extra.quantity}
-                          </span>
-                        )}
+                        ) : extra.quantity > 1 ? (
+                          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">x{extra.quantity}</span>
+                        ) : null}
                       </div>
-                      {(() => {
-                        const seen = new Set<string>();
-                        const cats = [
-                          extra.gravy,
-                          extra.roti,
-                          extra.rice,
-                          ...(extra.sides ?? []),
-                          ...(extra.beverages ?? []),
-                          ...(extra.dessert ?? []),
-                        ].filter(Boolean).filter(s => {
-                          const key = (s as string).toLowerCase().trim();
-                          if (seen.has(key)) return false;
-                          seen.add(key);
-                          return true;
-                        });
-                        return cats.length > 0 ? (
-                          <span className="text-[10px] text-gray-500 font-medium leading-tight mt-3 block">
-                            ({cats.join(', ')})
-                          </span>
-                        ) : null;
-                      })()}
                     </div>
                     {editable && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => onSwapCustomizeOpen?.(extra.id)}
-                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-100 text-gray-500 active:scale-90 transition-all flex-shrink-0 hover:ring-2 hover:ring-emerald-300 hover:ring-offset-1"
+                      <div className="flex flex-col gap-1 self-center">
+                        <button onClick={() => onSwapCustomizeOpen?.(extra.id)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-100 text-gray-500 active:scale-90 transition-all flex-shrink-0 hover:ring-2 hover:ring-emerald-300 hover:ring-offset-1"
                           aria-label={`Customize ${extra.name}`}
-                        >
-                          <Sparkles size={10} />
-                        </button>
-                        <button
-                          onClick={onRemove(date, mealType, extra.id)}
-                          className="w-6 h-6 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all flex-shrink-0 hover:ring-2 hover:ring-red-300 hover:ring-offset-1"
+                        ><Sparkles size={11} /></button>
+                        <button onClick={onRemove(date, mealType, extra.id)}
+                          className="w-7 h-7 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500 active:scale-90 transition-all flex-shrink-0"
                           aria-label={`Remove ${extra.name}`}
-                        >
-                          <X size={10} />
-                        </button>
+                        ><X size={11} /></button>
                       </div>
                     )}
                   </div>
@@ -600,90 +592,58 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
         </div>
       )}
 
-      {/* ─── Aggregated slot items per category ─── */}
+       {/* ─── Aggregated slot pairings — per person ─── */}
       {showAggregated && (
-        <div ref={aggregationRef} className="aggregated-categories scroll-mt-24 mt-4">
-          <div className={`group flex items-center justify-between rounded-xl ${SLOT_META[slotLabel]?.bg || 'bg-emerald-50/60'} px-3 py-2.5 ${pulse ? 'animate-pulse-ring' : ''}`}>
-            <div className="flex-1 flex items-center gap-2">
-              <div className="flex items-center -space-x-2">
-                <div className="relative hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl transition-all">
-                  <DishImage name={meals[0]?.name || slotLabel} slot={slotLabel} size="sm" />
-                  {meals[0] && (() => {
-                    const qty = meals[0].itemQtys ? Object.values(meals[0].itemQtys).reduce((a, b) => a + b, 0) : meals[0].quantity;
-                      return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center z-10 shadow-lg">×{qty}</span> : null;
-                  })()}
-                </div>
-                {meals.length > 1 && (
-                  <div className="relative hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl transition-all">
-                    <DishImage name={meals[1]?.name || slotLabel} slot={slotLabel} size="sm" />
-                    {meals[1] && (() => {
-                      const qty = meals[1].itemQtys ? Object.values(meals[1].itemQtys).reduce((a, b) => a + b, 0) : meals[1].quantity;
-                    return qty > 1 ? <span className="absolute -bottom-0.5 -right-0.5 bg-gray-900 text-white text-[8px] font-bold leading-none px-1 py-0.5 rounded-full min-w-[14px] text-center z-10 shadow-lg">×{qty}</span> : null;
-                    })()}
+        <div ref={aggregationRef} className="aggregated-categories scroll-mt-24 mt-4 space-y-1.5">
+          {(() => {
+            const byPerson = new Map<string, TrayItem[]>();
+            for (const m of meals) {
+              const person = m.requestedBy ? memberName(m.requestedBy) : 'Me';
+              if (!byPerson.has(person)) byPerson.set(person, []);
+              byPerson.get(person)!.push(m);
+            }
+            if (byPerson.size === 0) return null;
+            return Array.from(byPerson.entries()).map(([person, personMeals]) => {
+              const agg = computeNormalizedComposition(personMeals);
+              const cats = [
+                { items: agg.gravy, icon: '🥩', label: 'Gravy' },
+                { items: agg.roti, icon: '🫓', label: 'Bread' },
+                { items: agg.rice, icon: '🍚', label: 'Rice' },
+                { items: agg.sides, icon: '🥗', label: 'Sides' },
+                { items: agg.beverages, icon: '🍵', label: 'Beverages' },
+                { items: agg.dessert, icon: '🍨', label: 'Dessert' },
+              ].filter(c => c.items.length > 0);
+              if (cats.length === 0) return null;
+              return (
+                <div key={person} className="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
+                  <div className="flex items-center gap-2">
+                    {personMeals.map((m, i) => (
+                      <div key={m.id} className="relative cursor-pointer active:scale-95 transition-all shrink-0" onClick={() => { if (editable) onSwapCustomizeOpen?.(m.id); }}>
+                        <div className={`w-[40px] h-[40px] rounded-xl overflow-hidden border-2 border-white shadow-sm ${i > 0 ? '-ml-3' : ''}`}>
+                          <DishImage name={m.name} slot={slotLabel} size="full" className="w-full h-full object-cover" />
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs font-black uppercase tracking-widest text-gray-500">{slotLabel}</span>
+                        {person !== 'Me' && (
+                          <span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-orange-100 border border-orange-200 text-orange-700 leading-none">🙋 {person}</span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-0.5">
+                        {cats.map(cat => (
+                          <button key={cat.icon} onClick={() => editable && setQuickEditCategory(cat.label)}
+                            className="text-sm font-bold px-2.5 py-1.5 rounded-xl border leading-none bg-white border-gray-200 text-gray-600 hover:border-[#FF385C]/30 hover:text-[#FF385C] hover:bg-[#FFF0F3] cursor-pointer active:scale-95 transition-all shadow-sm"
+                          >{cat.icon}</button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
-              <div>
-                <span className="text-xs font-black uppercase tracking-widest text-gray-600">{slotLabel}</span>
-                <span className="text-[10px] font-semibold text-gray-500">{slotLabel} Pairings</span>
-              </div>
-              <div className="flex items-center gap-1.5 ml-auto mr-2">
-                {categoryConfig.filter(cat => cat.items.length > 0).map(cat => {
-                  const total = cat.items.reduce((s, i) => s + i.totalQty, 0);
-                  const cls = total === 0 ? 'bg-red-50 text-red-600 border-red-200'
-                    : total <= 2 ? `bg-emerald-50 text-emerald-700 border-emerald-200`
-                    : 'bg-amber-50 text-amber-700 border-amber-200';
-                  return (
-                    <span key={cat.label} className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${cls} leading-none flex items-center gap-0.5`}>
-                      <span>{cat.icon}</span>
-                      <span>{total}</span>
-                    </span>
-                  );
-                })}
-              </div>
-              {newItemsCount > 0 && (
-                <span className="ml-auto mr-1 flex items-center justify-center min-w-[20px] h-[18px] px-1.5 rounded-full bg-[#FF385C] text-white text-[10px] font-bold leading-none animate-in fade-in zoom-in">
-                  +{newItemsCount}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col gap-2 mt-2 px-2 pb-2">
-            {categoryConfig.filter(cat => cat.items.length > 0).map(cat => (
-              <div key={cat.label} className="flex flex-col gap-1">
-                <div className="flex items-center gap-2 cursor-pointer active:opacity-70" onClick={() => editable && setQuickEditCategory(cat.label)}>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{cat.icon} {cat.label}</span>
-                  <span className="text-[10px] font-bold text-gray-500 ml-auto">
-                    {cat.items.reduce((s, i) => s + i.totalQty, 0)} item{(cat.items.reduce((s, i) => s + i.totalQty, 0) > 1 || cat.items.reduce((s, i) => s + i.totalQty, 0) === 0) ? 's' : ''}
-                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {cat.items.map((agg: AggregatedCategory) => (
-                    <span
-                      key={agg.name}
-                      onClick={() => editable && setQuickEditCategory(cat.label)}
-                      className={`inline-flex items-center gap-1.5 rounded-lg ${cat.color.split(' ')[0]} px-3 py-1.5 cursor-pointer active:scale-95 transition-all select-none`}
-                      style={_CHIP_STYLE}
-                    >
-                      <span className="text-xs font-bold text-gray-800">{agg.name}</span>
-                      {agg.totalQty > 1 && (
-                        <span className="text-[10px] font-bold bg-white/60 px-1.5 py-0.5 rounded-full text-gray-500">×{agg.totalQty}</span>
-                      )}
-                    </span>
-                  ))}
-                  {editable && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setQuickEditCategory(cat.label); }}
-                      className="inline-flex items-center gap-1 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-gray-500 hover:text-gray-600 hover:border-gray-400 active:scale-95 transition-all text-xs font-medium"
-                    >
-                      <Plus size={12} />
-                      {cat.label}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+              );
+            });
+          })()}
         </div>
       )}
 
@@ -707,7 +667,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           {onSwapAll && meals.length > 0 && (
             <button
               onClick={() => onSwapAll(date, mealType)}
-              className="group flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 active:scale-[0.98] transition-all text-[10px] font-bold"
+              className="group flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:border-emerald-300 active:scale-[0.98] transition-all text-xs font-bold"
             >
               <RefreshCw size={12} />
               Swap All
@@ -730,7 +690,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {!isUserCompleted && meals.length === 0 && showSuggestions && !isLocked && editable && onAddAnother && (
         <button
           onClick={() => setAddDishOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-emerald-600 hover:border-emerald-400 active:scale-[0.98] transition-all text-[10px] font-bold group"
+          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-emerald-600 hover:border-emerald-400 active:scale-[0.98] transition-all text-xs font-bold group"
         >
           <Plus size={12} className="transition-transform duration-200 group-hover:rotate-90" />
           Add Dish
@@ -739,29 +699,27 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
       {!isUserCompleted && meals.length === 0 && (!showSuggestions || isLocked) && (
         <div className="p-3 rounded-[20px] bg-gray-50 border border-gray-100 flex items-center justify-between">
           <span className="text-xs font-bold text-gray-500">{slotLabel}</span>
-          <span className="text-[10px] text-gray-500">Time slot passed</span>
+          <span className="text-xs text-gray-500">Time slot passed</span>
         </div>
       )}
 
-      {/* ─── Slot-level actions: Skip & Mark Complete ─── */}
+      {/* ─── Slot-level action: Mark Complete ─── */}
       {!isUserCompleted && mode === 'active' && meals.length > 0 && (
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3 px-0.5">
           {onComplete && (
-            <button
-              onClick={onComplete}
-              className="group flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-emerald-300 text-emerald-500 hover:text-emerald-600 hover:border-emerald-400 active:scale-[0.98] transition-all text-[10px] font-bold"
+            <button onClick={onComplete}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-500 text-white text-xs font-bold shadow-sm active:scale-[0.98] transition-all hover:bg-emerald-600"
             >
-              <CheckCheck size={10} className="transition-transform duration-200 group-hover:scale-110" />
-              Complete
+              <CheckCheck size={14} />
+              Mark Complete
             </button>
           )}
           {onSkipSlot && (
-            <button
-              onClick={onSkipSlot}
-              className="group flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 hover:text-[#FF385C] hover:border-[#FF385C]/30 active:scale-[0.98] transition-all text-[10px] font-bold"
+            <button onClick={onSkipSlot}
+              className="flex items-center gap-1.5 py-3 px-4 rounded-xl bg-white border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 active:scale-[0.98] transition-all text-sm font-bold"
             >
-              <Forward size={10} className="transition-transform duration-200 group-hover:-translate-x-0.5" />
-              Skip {slotLabel}
+              <Forward size={12} />
+              Skip
             </button>
           )}
         </div>
@@ -776,7 +734,7 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                 <Shuffle size={10} className="text-amber-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-bold text-amber-800">{w.message}</p>
+                <p className="text-sm font-bold text-amber-800">{w.message}</p>
               </div>
             </div>
           ))}
@@ -799,27 +757,21 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
           onApply={handleModalApply}
           onAddAnother={onAddAnother}
           onChange={handleModalChange}
+          onSwapDish={() => { onSwapCustomizeClose?.(); setAddDishOpen(true); }}
         /></Suspense>
       )}
 
       {/* Add Dish Modal — exclusive with Customize modal */}
       {addDishOpen && onAddAnother && !swapCustomizeOpenKey && (
-        <Suspense fallback={null}><SwapCustomizeModal
-          key={`add_${slotLabel}_${date}`}
+        <DishSearchModal
           isOpen={addDishOpen}
           onClose={stableAddDishClose}
-          date={date}
-          mealType={mealType}
-          slotLabel={slotLabel}
-          item={_ADD_DISH_DUMMY}
           dishes={dishes}
+          mealType={mealType}
           userRegion={userRegion}
           userDiet={userDiet}
-          onApply={_NOOP}
-          onAddAnother={onAddAnother}
-          initialAddMode={true}
-          onChange={handleModalChange}
-        /></Suspense>
+          onSelect={(dish) => { onAddAnother?.(date, mealType, dish); stableAddDishClose(); }}
+        />
       )}
 
       {quickEditCategory && (

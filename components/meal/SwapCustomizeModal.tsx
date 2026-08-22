@@ -1,1701 +1,373 @@
-import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { useShallow } from 'zustand/react/shallow';
-import { useDebounce } from '../../hooks/useDebounce';
-import { useAsyncGuard, ModalLifecycleGuard, DeferredSync } from '../../utils/asyncGuard';
-import type { MealType, TrayItem } from '../../plan/store/useTrayStore';
-import { applySmartDefaults, useTrayStore } from '../../plan/store/useTrayStore';
-import type { Meal } from '../../types/tray';
-import type { Dish, DishVariant, Region, Category } from '../../meal/constants/dishLibrary';
-import { dishToMeal } from '../../utils/dishToMeal';
-import { resolveDisplayName } from '../../utils/resolveDisplayName';
-import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
-import { useBackButtonClose } from '../../hooks/useBackButtonClose';
-import { scoreDish } from '../../utils/nutritionScore';
-import { DISH_HEALTH_MAP } from '../../app/constants/healthGuidelines';
-import type { DayMeals } from '../../plan/store/useTrayStore';
-import { HealthScoreBadge } from '../health/HealthScoreBadge';
-import {
-  indian_meal_categories, categoryGroups, getRecommendedCategories, getDishStyle,
-  isStreetFood, isNutItem, getItemRegion, mergeCategoryOptions,
-  CATEGORY_CONFIG, DISH_STYLES, STYLE_GROUP_ICONS, getPairingSuggestions,
-  internalToStyleGroup, styleGroupToInternal,
-} from '../../meal/constants/dishStyles';
-import type { IndianMealCategory, DishStyleGroup } from '../../meal/constants/dishStyles';
-import { useStore } from '../../app/store/useStore';
-import { HealthFilterBar } from '../health/HealthFilterBar';
-import { goalToPreset, normalizeGoal } from '../../utils/healthSortFilter';
-import { getRecentDishes, addRecentDish } from '../../utils/recentDishes';
-import { recordDishAdded } from '../../utils/dishPreferences';
-import { rankDishes, getRegionKey } from '../../utils/dishSearch';
-import type { HealthSortKey, HealthFilterPreset } from '../../utils/healthSortFilter';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { X, Plus, Minus } from 'lucide-react';
 import DishImage from '../new/DishImage';
+import { isCarb } from '../../utils/normalizeMealComponents';
 import { generateMealTitle } from '../../utils/generateMealTitle';
-import { detectEmbeddedCarb, isRotiLike, isBreadLike } from '../../utils/normalizeMealComponents';
-import {
-  X, Search, Sparkles, Check, ChevronLeft, ChevronDown, Plus, Minus, AlertTriangle, Info,
-} from 'lucide-react';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
+import type { MealType, TrayItem } from '../../plan/store/useTrayStore';
+import type { Dish, DishVariant } from '../../meal/constants/dishLibrary';
 
-const ICON_MAP: Record<string, string> = {
-  curry: '🍛', dry: '🥘', tadka: '🫕', gravy: '🍛',
-  roti: '🫓', naan: '🫓', paratha: '🫓', 'tandoori roti': '🫓',
-  'butter naan': '🫓', 'garlic naan': '🫓', bhakri: '🫓', thepla: '🫓',
-  luchi: '🫓', bafla: '🫓', 'plain dosa': '🫓', appam: '🫓',
-  puri: '🫓', 'steamed rice': '🍚', 'jeera rice': '🍚', pulao: '🍚', biryani: '🍚',
-  'lemon rice': '🍚', 'sticky rice': '🍚', 'fried rice': '🍚',
-  curd: '🥛', butter: '🧈', salad: '🥗', pickle: '🥒',
-  chutney: '🫘', raita: '🥣', papad: '🫓', onion: '🧅', lemon: '🍋',
-   kadhi: '🫕',
-  'green salad': '🥗', kachumber: '🥒',
-  'mixed fruit': '🍎', 'seasonal fruit': '🍇', fruit: '🍎',
-  water: '💧', lassi: '🥤', chai: '🍵',
-  jam: '🍓', egg: '🥚', cheese: '🧀', ketchup: '🧃', peanuts: '🥜',
-  'aloo paratha': '🫓', 'paneer paratha': '🫓', 'gobi paratha': '🫓',
-  'missi roti': '🫓', 'kulcha': '🫓',
-  'khamiri roti': '🫓', 'bhature': '🫓',
-  'steamed basmati': '🍚', 'veg pulao': '🍚', 'khichdi': '🍚', 'sona masoori': '🍚',
-  'biryani base': '🍚', 'pongal': '🍚', 'upma': '🍚', 'curd pulao': '🍚',
-  'matar pulao': '🍚', 'jeera sona masoori': '🍚', 'coconut rice': '🍚',
-  'masala chai': '🍵', 'salted lassi': '🥤', 'sweet lassi': '🥤',
-  'jaljeera': '🧃', 'aam panna': '🧃',
-  'sol kadhi': '🧃', 'coconut water': '🥥', 'thandai': '🥤', 'badam milk': '🥛',
-  'sattu sharbat': '🧃', 'kokum sherbet': '🧃', 'ginger lemon': '🍋',
-  'cucumber raita': '🥣', 'boondi raita': '🥣', 'masala raita': '🥣',
-  'kachumber salad': '🥗', 'mango pickle': '🥒', 'lime pickle': '🥒',
-  'mixed chutney': '🫘', 'coconut chutney': '🫘', 'mint chutney': '🫘',
-  'tamarind chutney': '🫘', 'fryums': '🍟', 'onion rings': '🧅', 'lemon wedge': '🍋',
-  'green chili': '🌶️',
-  'kheer / payasam': '🍮', 'gulab jamun': '🍡', 'rasgulla': '🍥', 'jalebi': '🥨',
-  'gajar halwa': '🍮', 'sooji halwa': '🍮', 'rasmalai': '🍥', 'shrikhand': '🥣',
-  'barfi (milk/coconut)': '🍬', 'modak': '🥟', 'phirni': '🍮',
-  'ladoo (besan/motichoor)': '🍬', 'malpua': '🥞', 'kulfi': '🍦', 'ras malai': '🍥',
-  // Canonical names from normalizeCategory
-  'phulka': '🫓', 'rice': '🍚',
-  'rumali roti': '🫓', 'chapati': '🫓', 'plain roti': '🫓', 'tawa roti': '🫓',
-  'atta roti': '🫓', 'wheat roti': '🫓', 'tandoori': '🫓',
-  'tandoori naan': '🫓', 'masala paratha': '🫓',
-  'lacha paratha': '🫓', 'plain paratha': '🫓',
-  'millet roti': '🫓', 'corn roti': '🫓', 'oats roti': '🫓',
-  'quinoa roti': '🫓', 'rajgira roti': '🫓', 'kuttu roti': '🫓',
-  'singhara roti': '🫓', 'other grain roti': '🫓',
-  'bhatura': '🫓', 'pav': '🫓', 'bread': '🫓',
-  // Chai/beverage accompaniments
-  'biscuits': '🍪', 'cookies': '🍪', 'roasted peanuts': '🥜',
-  'namkeen': '🍿', 'mathri': '🥨',
-  // South Indian essentials
-  'sambar': '🍲', 'rasam': '🍲', 'curry leaves chutney': '🫘',
-  // Curd & Dairy
-  'dahi': '🥛', 'ghee': '🧈',
-  // Biryani accompaniments
-  'mirchi ka salan': '🌶️', 'bagara baingan': '🍆',
-  // Chaat/street food
-  'imli chutney': '🫘', 'green chutney': '🫘',
-  'sev': '🍜', 'murukku': '🥨', 'boondi': '🟡',
-};
-
-const ROLE_CHECK: Record<string, { check: (m: TrayItem) => boolean; label: string; emoji: string }> = {
-  protein: {
-    check: (m) => {
-      const n = m.name.toLowerCase();
-      return ['dal', 'paneer', 'chicken', 'egg', 'fish', 'mutton', 'soya', 'tofu', 'sprout'].some(k => n.includes(k))
-        || (m.sides ?? []).some(s => ['dal', 'paneer', 'chicken', 'egg', 'fish', 'soya'].some(k => s.toLowerCase().includes(k)));
-    },
-    label: 'protein', emoji: '🥩',
-  },
-  fiber: {
-    check: (m) => {
-      const n = m.name.toLowerCase();
-      return ['salad', 'raita', 'sabzi', 'bhaji', 'saag', 'leafy', 'green', 'fruit'].some(k => n.includes(k))
-        || (m.sides ?? []).some(s => ['salad', 'raita', 'sabzi', 'bhaji'].some(k => s.toLowerCase().includes(k)));
-    },
-    label: 'fiber / veggies', emoji: '🥗',
-  },
-  dessert: {
-    check: (m) => (m.dessert ?? []).length > 0 || ['halwa', 'kheer', 'gulab', 'jalebi', 'rasgulla', 'ice cream', 'cake', 'mithai'].some(k => m.name.toLowerCase().includes(k)),
-    label: 'dessert', emoji: '🍨',
-  },
-};
-
-function getDayGapTip(
-  dayMeals: DayMeals | undefined,
-  currentType: MealType,
-  healthGoal?: string,
-): { label: string; emoji: string; tip: string } | null {
-  if (!dayMeals) return null;
-  const allItems = Object.entries(dayMeals)
-    .filter(([slot]) => slot !== currentType)
-    .flatMap(([, meals]) => meals);
-  if (allItems.length === 0) return null;
-
-  for (const [role, cfg] of Object.entries(ROLE_CHECK)) {
-    const has = allItems.some(cfg.check);
-    if (!has) {
-      if (normalizeGoal(healthGoal) === 'high-protein' && role === 'protein') {
-        return { ...cfg, tip: `Today needs more ${cfg.label} — pick a protein-rich dish to hit your goal` };
-      }
-      return { ...cfg, tip: `Your day is light on ${cfg.label}` };
-    }
-  }
-  return null;
-}
-
-interface SwapCustomizeModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  date: string;
-  mealType: MealType;
-  slotLabel: string;
-  item: TrayItem;
-  dishes: Dish[];
-  userRegion: string;
-  userDiet: string;
-  onApply: (
-    itemId: string,
-    updates: {
-      meal_id: string;
-      name: string;
-      icon: string;
-      quantity: number;
-      title?: string;
-      style?: string;
-      variant?: string;
-      variantId?: string;
-      gravy: string | null;
-      roti: string | null;
-      rice: string | null;
-      sides: string[];
-      beverages: string[];
-      dessert: string[];
-      customizations?: Array<{
-        category: string;
-        suggested: string[];
-        chosen: string[];
-        timestamp: number;
-      }>;
-    },
-  ) => void;
-  onAddAnother?: (date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => void;
-  initialAddMode?: boolean;
-  /** Called in real-time when selections change (no modal close) */
-  onChange?: (itemId: string, updates: Partial<TrayItem>) => void;
-}
-
-const allCategories: IndianMealCategory[] = ['bread', 'rice', 'side', 'beverage', 'dessert'];
-const styleGroups: DishStyleGroup[] = ['Gravy', 'Dry', 'Fry', 'Tadka', 'Roast', 'Steam', 'Rice', 'Breakfast', 'Beverage', 'Sweet', 'Bread', 'Side'];
-
-const CUSTOM_DISH_STYLES: { value: string; label: string; icon: string }[] = [
-  { value: 'Gravy', label: 'Gravy', icon: '🍛' },
-  { value: 'Dry', label: 'Dry', icon: '🥘' },
-  { value: 'Fry', label: 'Fry', icon: '🍟' },
-  { value: 'Rice', label: 'Rice', icon: '🍚' },
-  { value: 'Sweet', label: 'Sweet', icon: '🍨' },
-  { value: 'Roast', label: 'Roast', icon: '🔥' },
-  { value: 'Steam', label: 'Steam', icon: '♨️' },
-  { value: 'Breakfast', label: 'Breakfast', icon: '🌅' },
-  { value: 'Beverage', label: 'Beverage', icon: '🥛' },
-  { value: 'Bread', label: 'Bread', icon: '🫓' },
-  { value: 'Side', label: 'Side', icon: '🥗' },
+interface CatMeta { icon: string; label: string; key: string; max: number; }
+const CATS: CatMeta[] = [
+  { icon: '🥗', label: 'Sides', key: 'sides', max: 4 },
+  { icon: '🥤', label: 'Beverages', key: 'beverages', max: 3 },
+  { icon: '🫓', label: 'Bread', key: 'bread', max: 3 },
+  { icon: '🍚', label: 'Rice', key: 'rice', max: 1 },
+  { icon: '🍨', label: 'Dessert', key: 'dessert', max: 2 },
 ];
 
-export const SwapCustomizeModal: React.FC<SwapCustomizeModalProps> = React.memo(({
-  isOpen,
-  onClose,
-  date,
-  mealType,
-  slotLabel,
-  item,
-  dishes,
-  userRegion,
-  userDiet,
-  onApply,
-  onAddAnother,
-  initialAddMode,
-  onChange,
-}) => {
-  useLockBodyScroll(isOpen);
+const REGION_OPTIONS: Record<string, Record<string, string[]>> = {
+  north: {
+    sides: ['Salad', 'Papad', 'Raita', 'Pickle', 'Chutney', 'Curd', 'Kachumber', 'Onion Salad', 'Lemon Wedge', 'Mint Chutney', 'Tamarind Chutney'],
+    beverages: ['Chai', 'Buttermilk', 'Lassi', 'Chaas', 'Masala Chai', 'Jaljeera', 'Water'],
+    bread: ['Tandoori Roti', 'Naan', 'Phulka', 'Paratha', 'Puri', 'Bhatura', 'Missi Roti', 'Rumali Roti'],
+    rice: ['Jeera Rice', 'Pulao', 'Biryani', 'Steamed Rice', 'Fried Rice'],
+    dessert: ['Gulab Jamun', 'Kheer', 'Gajar Halwa', 'Jalebi', 'Ice Cream', 'Rasmalai'],
+  },
+  south: {
+    sides: ['Sambar', 'Coconut Chutney', 'Papad', 'Pickle', 'Raita', 'Curd', 'Tamarind Chutney', 'Green Chutney', 'Onion Salad'],
+    beverages: ['Filter Coffee', 'Chai', 'Buttermilk', 'Lassi', 'Chaas', 'Water', 'Nimbu Pani'],
+    bread: ['Dosa', 'Appam', 'Idli', 'Uttapam', 'Plain Dosa', 'Masala Dosa'],
+    rice: ['Steamed Rice', 'Lemon Rice', 'Coconut Rice', 'Curd Rice', 'Sambar Rice', 'Biryani', 'Pulao'],
+    dessert: ['Payasam', 'Kheer', 'Ice Cream', 'Rasmalai', 'Fruit Salad', 'Phirni'],
+  },
+  west: {
+    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Raita', 'Curd', 'Kachumber', 'Sambharo', 'Mint Chutney'],
+    beverages: ['Chai', 'Buttermilk', 'Chaas', 'Jaljeera', 'Lassi', 'Nimbu Pani', 'Water', 'Masala Chai'],
+    bread: ['Bhakri', 'Thepla', 'Puri', 'Paratha', 'Naan', 'Phulka', 'Roti'],
+    rice: ['Steamed Rice', 'Pulao', 'Biryani', 'Jeera Rice', 'Fried Rice'],
+    dessert: ['Shrikhand', 'Gulab Jamun', 'Kheer', 'Ice Cream', 'Gajar Halwa', 'Jalebi'],
+  },
+  east: {
+    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Curd', 'Raita', 'Lemon Wedge', 'Green Salad'],
+    beverages: ['Chai', 'Buttermilk', 'Chaas', 'Lassi', 'Water', 'Aam Panna', 'Nimbu Pani'],
+    bread: ['Luchi', 'Puri', 'Paratha', 'Roti', 'Phulka'],
+    rice: ['Steamed Rice', 'Pulao', 'Biryani', 'Fried Rice', 'Jeera Rice', 'Lemon Rice'],
+    dessert: ['Rasmalai', 'Kheer', 'Ice Cream', 'Gulab Jamun', 'Fruit Salad', 'Payasam'],
+  },
+  central: {
+    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Raita', 'Curd', 'Kachumber', 'Onion Salad'],
+    beverages: ['Chai', 'Buttermilk', 'Chaas', 'Lassi', 'Jaljeera', 'Water', 'Nimbu Pani'],
+    bread: ['Roti', 'Paratha', 'Puri', 'Bhatura', 'Naan', 'Phulka'],
+    rice: ['Steamed Rice', 'Jeera Rice', 'Pulao', 'Biryani', 'Fried Rice'],
+    dessert: ['Gulab Jamun', 'Kheer', 'Ice Cream', 'Jalebi', 'Gajar Halwa', 'Rasmalai'],
+  },
+  northeast: {
+    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Curd', 'Lemon Wedge', 'Green Salad', 'Bamboo Shoot'],
+    beverages: ['Chai', 'Buttermilk', 'Lassi', 'Water', 'Nimbu Pani', 'Green Tea'],
+    bread: ['Roti', 'Puri', 'Paratha', 'Phulka'],
+    rice: ['Steamed Rice', 'Pulao', 'Fried Rice', 'Jeera Rice'],
+    dessert: ['Kheer', 'Ice Cream', 'Gulab Jamun', 'Fruit Salad', 'Payasam'],
+  },
+};
+
+function getRegionOptions(region: string, category: string): string[] {
+  const r = region?.toLowerCase() || '';
+  const regionData = REGION_OPTIONS[r] || REGION_OPTIONS['north'];
+  return regionData[category] || REGION_OPTIONS['north'][category] || [];
+}
+
+const STYLES = ['Gravy', 'Dry', 'Fried', 'Roasted', 'Boiled', 'Steamed'];
+
+interface Props {
+  isOpen: boolean; onClose: () => void; item: TrayItem; dishes: Dish[];
+  onApply: (itemId: string, updates: Partial<TrayItem>) => void;
+  date?: string; mealType?: MealType; slotLabel?: string;
+  userRegion?: string; userDiet?: string;
+  onAddAnother?: (date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => void;
+  onChange?: (itemId: string, updates: Partial<TrayItem>) => void;
+  onSwapDish?: () => void;
+  initialAddMode?: boolean; // legacy, use DishSearchModal instead
+}
+
+const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, onApply, onSwapDish }) => {
   useBackButtonClose(isOpen, onClose);
-  const slotMeals = useTrayStore(
-    useShallow((state) => state.plan.days[date]?.[mealType] ?? [])
-  );
-  const allDayMeals = useTrayStore(
-    useShallow((state) => state.plan.days[date])
-  );
-  const healthGoal = useStore(s => s.user?.healthGoals?.[0]);
-  const dayGapTip = useMemo(() => getDayGapTip(allDayMeals, mealType, healthGoal), [allDayMeals, mealType, healthGoal]);
-  const [dish, setDish] = useState<Dish | null>(null);
-  const [meal, setMeal] = useState<Meal | null>(null);
-  const [selectedCategories, setSelectedCategories] = useState<Record<IndianMealCategory, string[]>>({
-    bread: [], rice: [], side: [], beverage: [], dessert: [],
+  const dishObj = dishes.find(d => d.id === item.meal_id);
+  const dishRegion = dishObj?.region || 'north';
+  const [style, setStyle] = useState(item.style || '');
+  const [customInput, setCustomInput] = useState<Record<string, string>>({});
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [filterDiet, setFilterDiet] = useState('');
+  const [healthSort, setHealthSort] = useState('');
+  const [pairings, setPairings] = useState<Record<string, string[]>>(() => {
+    const dish = dishes.find(d => d.id === item.meal_id);
+    const def = dish?.defaultPairings;
+    const result: Record<string, string[]> = { sides: [], beverages: [], bread: [], rice: [], dessert: [] };
+    const allNames = new Set<string>();
+    // Bread and Rice first
+    const breadVal = item.roti || (def?.roti ?? '');
+    const riceVal = item.rice || (def?.rice ?? '');
+    if (breadVal) { result.bread = [breadVal]; allNames.add(breadVal.toLowerCase()); }
+    if (riceVal) { result.rice = [riceVal]; allNames.add(riceVal.toLowerCase()); }
+    // Helper to add items, filtering out carbs from non-carb categories
+  const addIfNew = (items: string[] | undefined, defItems: string[] | undefined, key: string, isCarbCategory: boolean) => {
+      (items?.length ? items : (defItems || [])).forEach(s => {
+        if (allNames.has(s.toLowerCase())) return;
+        if (!isCarbCategory && isCarb(s)) return;
+        (result as any)[key].push(s); allNames.add(s.toLowerCase());
+      });
+    };
+    addIfNew(item.sides, def?.sides, 'sides', false);
+    addIfNew(item.beverages, def?.beverages, 'beverages', false);
+    addIfNew(item.dessert, def?.dessert, 'dessert', false);
+    return result;
   });
-  const [selectedStyleGroup, setSelectedStyleGroup] = useState<DishStyleGroup | null>(null);
-  const [quantity, setQuantity] = useState(1);
-  const [showSwapSearch, setShowSwapSearch] = useState(initialAddMode);
-  const [searchQuery, setSearchQuery] = useState('');
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  const [focusedResultIndex, setFocusedResultIndex] = useState(-1);
-  const resultRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-
-  const [showGlobal, setShowGlobal] = useState(false);
-  const [showAllSwapResults, setShowAllSwapResults] = useState(false);
-  const [healthPreset, setHealthPreset] = useState<HealthFilterPreset | null>(() => {
-    const g = useStore.getState().user?.healthGoals?.[0];
-    return goalToPreset(g);
+  const [qty, setQty] = useState<Record<string, number>>(() => {
+    const dish = dishes.find(d => d.id === item.meal_id);
+    const def = dish?.defaultPairings;
+    const q: Record<string, number> = {};
+    const allNames = new Set<string>();
+    const breadVal = item.roti || (def?.roti ?? '');
+    const riceVal = item.rice || (def?.rice ?? '');
+    if (breadVal) { q[breadVal] = item.itemQtys?.[breadVal] || 1; allNames.add(breadVal.toLowerCase()); }
+    if (riceVal) { q[riceVal] = item.itemQtys?.[riceVal] || 1; allNames.add(riceVal.toLowerCase()); }
+    const addQ = (items: string[] | undefined, defItems: string[] | undefined) => {
+      (items?.length ? items : (defItems || [])).forEach(s => {
+        if (allNames.has(s.toLowerCase())) return;
+        if (isCarb(s)) return;
+        q[s] = 1; allNames.add(s.toLowerCase());
+      });
+    };
+    addQ(item.sides, def?.sides);
+    addQ(item.beverages, def?.beverages);
+    addQ(item.dessert, def?.dessert);
+    return q;
   });
-  const [healthSort, setHealthSort] = useState<HealthSortKey | null>(null);
-  const [selectedSwapDish, setSelectedSwapDish] = useState<Dish | null>(null);
-  const selectedSwapDishRef = useRef<Dish | null>(null);
-  const [selectedVariant, setSelectedVariant] = useState<DishVariant | null>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const [justAddedDish, setJustAddedDish] = useState<string | null>(null);
-  const [healthDelta, setHealthDelta] = useState<{ currentScore: number; newScore: number; currentName: string; newName: string } | null>(null);
-  const healthDeltaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Async safety: latest-request-wins + modal lifecycle protection ──
-  const asyncGuard = useAsyncGuard();
-  const modalGuardRef = useRef<ModalLifecycleGuard>(new ModalLifecycleGuard());
-  const syncBufferRef = useRef<DeferredSync<Partial<TrayItem>>>(new DeferredSync(150));
-
-  useEffect(() => {
-    setShowAllSwapResults(false);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    document.body.classList.toggle('search-mode', searchQuery.length > 0);
-    return () => document.body.classList.remove('search-mode');
-  }, [searchQuery]);
-
-  // Variant-inclusive display name for the dish header
-  const displayName = useMemo(() => {
-    if (!dish?.name) return '';
-    return resolveDisplayName(dish.name, selectedVariant);
-  }, [dish?.name, selectedVariant]);
-  const regionKey = getRegionKey(userRegion);
-  const user = useStore(s => s.user);
-  const updateProfile = useStore(s => s.updateProfile);
-  const customDishes = useStore(s => s.customDishes);
-
-  // Autocomplete: top 5 quick matches from Trie (instant, no debounce)
-  const autocompleteResults = useMemo(() => {
-    if (!showSwapSearch || !searchQuery || searchQuery.length < 2) return [];
-    const q = searchQuery.toLowerCase();
-    const autoDishes = rankDishes({
-      dishes,
-      slot: mealType,
-      diet: userDiet,
-      regionKey,
-      query: q,
-      showGlobal,
-      customDishes,
-      excludeIds: slotMeals.map((m: { meal_id: string }) => m.meal_id),
-    });
-    return autoDishes.slice(0, 5);
-  }, [showSwapSearch, searchQuery, dishes, customDishes, mealType, userDiet, regionKey, showGlobal, slotMeals]);
-  const addCustomDish = useStore(s => s.addCustomDish);
-  const allergyMode = user?.allergyMode ?? false;
-  const [expandedCategories, setExpandedCategories] = useState<Partial<Record<IndianMealCategory, boolean>>>({});
-  const [overrideLimit, setOverrideLimit] = useState(false);
-  const [showStylePicker, setShowStylePicker] = useState(false);
-  const [addAnotherMode, setAddAnotherMode] = useState(false);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const initRef = useRef<string | null>(null);
-  const seededMealRef = useRef<string | null>(null);
-  const explicitlyRemovedRef = useRef<Set<string>>(new Set());
-  const [showRegionHints, setShowRegionHints] = useState(false);
-  const [customInputs, setCustomInputs] = useState<Record<string, string>>({});
-  const [showCustomDishForm, setShowCustomDishForm] = useState(false);
-  const [customDishName, setCustomDishName] = useState('');
-  const [customDishStyle, setCustomDishStyle] = useState<string>('Gravy');
-  const [customDishDiet, setCustomDishDiet] = useState<'veg' | 'non-veg'>('veg');
-
-  const toggleExpanded = useCallback((cat: IndianMealCategory) => {
-    setExpandedCategories(prev => ({ ...prev, [cat]: !(prev[cat] ?? false) }));
-  }, []);
-
-  const toggleOverrideLimit = useCallback(() => {
-    setOverrideLimit(true);
-  }, []);
-
-  const toggleCategoryItemWrap = useCallback((cat: IndianMealCategory, item: string) => {
-    setSelectedCategories(prev => {
-      const current = prev[cat];
-      const max = CATEGORY_CONFIG[cat].max;
-      const already = current.includes(item);
-      if (already) {
-        explicitlyRemovedRef.current.add(`${cat}_${item.toLowerCase().trim()}`);
-        return { ...prev, [cat]: current.filter(i => i !== item) };
+  const toggle = useCallback((cat: string, name: string) => {
+    const meta = CATS.find(c => c.key === cat);
+    // Don't add carb-like items to non-carb categories
+    if (cat !== 'bread' && cat !== 'rice' && isCarb(name)) return;
+    setPairings(prev => {
+      const cur = prev[cat] || [];
+      if (cur.includes(name)) return { ...prev, [cat]: cur.filter(i => i !== name) };
+      // Check if item already exists in another category
+      for (const [k, v] of Object.entries(prev)) {
+        if (k !== cat && v.some(i => i.toLowerCase() === name.toLowerCase())) return prev;
       }
-      if (!overrideLimit && current.length >= max) return { ...prev, [cat]: [item] };
-      return { ...prev, [cat]: [...current, item] };
+      if (meta && meta.max === 1) return { ...prev, [cat]: [name] };
+      if (meta && cur.length >= meta.max) return prev;
+      return { ...prev, [cat]: [...cur, name].filter((v, i, a) => a.indexOf(v) === i) };
     });
-    syncNeeded.current = true;
-  }, [overrideLimit]);
-
-  const handleClose = useCallback(() => {
-    explicitlyRemovedRef.current.clear();
-    seededMealRef.current = null;
-    modalGuardRef.current.close();
-    asyncGuard.abort();
-    syncBufferRef.current.cancel();
-    if (autoCloseTimerRef.current) {
-      clearTimeout(autoCloseTimerRef.current);
-      autoCloseTimerRef.current = null;
+    if (!(pairings[cat] || []).includes(name)) {
+      // Check qty doesn't already have this item from another category
+      setQty(q => q[name] ? q : { ...q, [name]: 1 });
     }
-    setJustAddedDish(null);
-    onClose();
-  }, [onClose, asyncGuard]);
+  }, [pairings]);
 
-  const handleStyleSelect = useCallback((group: DishStyleGroup) => {
-    const suggestions = getPairingSuggestions(group);
-    setSelectedStyleGroup(group);
-    setSelectedCategories(suggestions);
-    setShowStylePicker(false);
-    syncNeeded.current = true;
-  }, []);
+  const adjQty = useCallback((name: string, d: number) => setQty(q => ({ ...q, [name]: Math.max(1, (q[name] || 1) + d) })), []);
 
+  // Auto-scroll to most relevant pairing based on dish defaults
+  const catRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const pairingsRef = useRef<HTMLDivElement>(null);
+
+  // Reset state when item changes
   useEffect(() => {
-    if (isOpen) {
-      modalGuardRef.current.reset();
-      asyncGuard.reset();
-      syncBufferRef.current.cancel();
-      if (initialAddMode) {
-        if (initRef.current === '__add_mode__') return;
-        setAddAnotherMode(true);
-        setShowSwapSearch(true);
-        setSearchQuery('');
-        setShowGlobal(false);
-        setHealthPreset(null);
-        setHealthSort(null);
-        setSelectedSwapDish(null);
-        setSelectedVariant(null);
-        setOverrideLimit(false);
-        setShowStylePicker(false);
-        setShowCustomDishForm(false);
-        setCustomDishStyle('Gravy');
-        setCustomDishDiet('veg');
-        setCustomDishName('');
-        setCustomInputs({});
-        setShowRegionHints(false);
-        initRef.current = '__add_mode__';
-        return;
-      }
-      if (initRef.current === item.meal_id) return;
-      setShowSwapSearch(false);
-      setSearchQuery('');
-      setShowGlobal(false);
-      setHealthPreset(null);
-      setHealthSort(null);
-      setSelectedSwapDish(null);
-      setSelectedVariant(null);
-      setOverrideLimit(false);
-      setShowStylePicker(false);
-      setAddAnotherMode(false);
-      setShowCustomDishForm(false);
-      setCustomDishStyle('Gravy');
-      setCustomDishDiet('veg');
-      setCustomDishName('');
-      setShowRegionHints(false);
-      const allDishes = [...dishes, ...customDishes];
-      const sourceDish = allDishes.find(d => d.id === item.meal_id) || allDishes.find(d => d.name === item.name);
-      if (sourceDish) {
-        const m = dishToMeal(sourceDish);
-        const style = getDishStyle(sourceDish.id);
-        // Restore variant if item has one
-        const restoredVariant = item.variant && item.variantId
-          ? sourceDish.variants.find(v => v.id === item.variantId || v.name === item.variant) ?? null
-          : null;
-        if (restoredVariant) setSelectedVariant(restoredVariant);
-        setDish(sourceDish);
-        setMeal(m);
-        setQuantity(item.quantity || 1);
-        const validStyleGroups: DishStyleGroup[] = ['Gravy','Dry','Fry','Tadka','Roast','Steam','Rice','Breakfast','Beverage','Sweet','Bread','Side','Soup'];
-        const restoredStyle = item.style && validStyleGroups.includes(item.style as DishStyleGroup)
-          ? (item.style as DishStyleGroup)
-          : (style ? internalToStyleGroup(style) : null);
-        setSelectedStyleGroup(restoredStyle);
-        const breadSet = new Set(indian_meal_categories.bread.map(s => s.toLowerCase().trim()));
-        const riceSet = new Set(indian_meal_categories.rice.map(s => s.toLowerCase().trim()));
-        if (seededMealRef.current !== item.meal_id) {
-          seededMealRef.current = item.meal_id;
-          const removed = explicitlyRemovedRef.current;
+    setStyle(item.style || '');
+    const dish = dishes.find(d => d.id === item.meal_id);
+    const def = dish?.defaultPairings;
+    const result: Record<string, string[]> = { sides: [], beverages: [], bread: [], rice: [], dessert: [] };
+    const allNames = new Set<string>();
+    const breadVal = item.roti || (def?.roti ?? '');
+    const riceVal = item.rice || (def?.rice ?? '');
+    if (breadVal) { result.bread = [breadVal]; allNames.add(breadVal.toLowerCase()); }
+    if (riceVal) { result.rice = [riceVal]; allNames.add(riceVal.toLowerCase()); }
+    const addIfNew = (items: string[] | undefined, defItems: string[] | undefined, key: string) => {
+      (items?.length ? items : (defItems || [])).forEach(s => {
+        if (allNames.has(s.toLowerCase())) return;
+        if (isCarb(s)) return;
+        (result as any)[key].push(s); allNames.add(s.toLowerCase());
+      });
+    };
+    addIfNew(item.sides, def?.sides, 'sides');
+    addIfNew(item.beverages, def?.beverages, 'beverages');
+    addIfNew(item.dessert, def?.dessert, 'dessert');
+    setPairings(result);
+    // Qtys
+    const newQ: Record<string, number> = {};
+    const allQ = new Set<string>();
+    if (breadVal) { newQ[breadVal] = item.itemQtys?.[breadVal] || 1; allQ.add(breadVal.toLowerCase()); }
+    if (riceVal) { newQ[riceVal] = item.itemQtys?.[riceVal] || 1; allQ.add(riceVal.toLowerCase()); }
+    const addQ = (items: string[] | undefined, defItems: string[] | undefined) => {
+      (items?.length ? items : (defItems || [])).forEach(s => {
+        if (allQ.has(s.toLowerCase())) return;
+        if (isCarb(s)) return;
+        newQ[s] = 1; allQ.add(s.toLowerCase());
+      });
+    };
+    addQ(item.sides, def?.sides);
+    addQ(item.beverages, def?.beverages);
+    addQ(item.dessert, def?.dessert);
+    setQty(newQ);
+    setCustomInput({});
+    setStyleOpen(false);
+  }, [item.id, item.meal_id, dishes]);
 
-          // ─── FIX: Detect embedded carb and override stale stored values ──
-          // Existing items may have extra carbs from old loop fills (e.g., both
-          // roti AND rice stored). Detect what carb the dish name implies and
-          // clear conflicting values so only the correct carb is pre-selected.
-          // Only override when the meal context allows that carb type (e.g., skip
-          // "Millet Roti" for a smoothie whose name contains "ragi").
-          const embeddedCarb = detectEmbeddedCarb(m.name);
-          let effectiveRoti = item.roti;
-          let effectiveRice = item.rice;
-
-          if (embeddedCarb) {
-            if (isRotiLike(embeddedCarb) || isBreadLike(embeddedCarb)) {
-              // Only override roti when the meal context allows roti options
-              if (m.rotiOptions && m.rotiOptions.length > 0) {
-                effectiveRoti = embeddedCarb;
-                effectiveRice = null;
-              }
-            } else {
-              // Only override rice when the meal context allows rice options
-              if (m.riceOptions && m.riceOptions.length > 0) {
-                effectiveRoti = null;
-                effectiveRice = embeddedCarb;
-              }
-            }
-          }
-
-          setSelectedCategories({
-            bread: effectiveRoti ? [effectiveRoti].filter(s => !removed.has(`bread_${s.toLowerCase().trim()}`)) : [],
-            rice: effectiveRice ? [effectiveRice].filter(s => !removed.has(`rice_${s.toLowerCase().trim()}`)) : [],
-            side: item.sides?.length ? item.sides.filter(s => {
-              const key = s.toLowerCase().trim();
-              return !removed.has(`side_${key}`) && !breadSet.has(key) && !riceSet.has(key);
-            }) : [],
-            beverage: item.beverages?.length ? item.beverages.filter(s => !removed.has(`beverage_${s.toLowerCase().trim()}`)) : [],
-            dessert: item.dessert?.length ? item.dessert.filter(s => !removed.has(`dessert_${s.toLowerCase().trim()}`)) : [],
-          });
-        } else {
-          // Restore categories on subsequent opens (fix: chips disappearing)
-          setSelectedCategories({
-            bread: item.roti ? [item.roti] : [],
-            rice: item.rice ? [item.rice] : [],
-            side: item.sides?.length ? item.sides.filter(s => {
-              const key = s.toLowerCase().trim();
-              return !breadSet.has(key) && !riceSet.has(key);
-            }) : [],
-            beverage: item.beverages?.length ? item.beverages : [],
-            dessert: item.dessert?.length ? item.dessert : [],
-          });
-        }
-        initRef.current = item.meal_id;
-      } else {
-        // Saved dish not found in library (stale reference, migration cleared dishes, etc.)
-        // Auto-switch to search mode so the user can pick a new dish directly.
-        // Don't set initRef here — dishes/customDishes may load async, and we want
-        // the effect to re-run when they arrive so the lookup can succeed.
-        setShowSwapSearch(true);
-        setAddAnotherMode(true);
-      }
-    } else {
-      initRef.current = null;
-      setAddAnotherMode(false);
-      setSelectedVariant(null);
-    }
-  }, [isOpen, item.meal_id, item.roti, item.rice, item.sides, item.beverages, item.dessert, dishes, customDishes, mealType]);
-
+  // Auto-scroll: prioritize bread/rice for lunch/dinner, sides/beverages for others
   useEffect(() => {
-    if (showSwapSearch && searchInputRef.current) {
-      searchInputRef.current.focus();
-    }
-  }, [showSwapSearch]);
-
-  const handleSwapOpen = useCallback(() => {
-    setShowSwapSearch(true);
-    setSearchQuery('');
-  }, []);
-
-  const handleSwapSelect = useCallback((newDish: Dish) => {
-    const activeSlot = mealType;
-    const category = activeSlot.toLowerCase();
-    const isVegan = userDiet?.toLowerCase() === 'vegan';
-    const relevantVariants = newDish.variants.filter(v => {
-      if (!v.mealContext) return true;
-      if (isVegan) return false;
-      return v.mealContext.includes(category) || !v.mealContext;
-    });
-    if (relevantVariants.length > 1) {
-      setSelectedSwapDish(newDish);
-      selectedSwapDishRef.current = newDish;
-      return;
-    }
-    if (addAnotherMode) {
-      onAddAnother?.(date, mealType, newDish, relevantVariants.length === 1 ? relevantVariants[0] : undefined);
-      addRecentDish(newDish);
-      recordDishAdded(newDish.id, newDish.tags);
-      setJustAddedDish(newDish.name);
-      setSearchQuery('');
-      // Auto-dismiss toast after 1.5s but keep modal open
-      if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
-      autoCloseTimerRef.current = setTimeout(() => {
-        if (modalGuardRef.current.isClosed) return;
-        setJustAddedDish(null);
-        autoCloseTimerRef.current = null;
-      }, 1500);
-      return;
-    }
-    const m = dishToMeal(newDish);
-    const defaults = applySmartDefaults(m, mealType);
-    const style = getDishStyle(newDish.id);
-    setDish(newDish);
-    setMeal(m);
-    setSelectedStyleGroup(style ? internalToStyleGroup(style) : null);
-    setSelectedCategories({
-      bread: defaults.roti ? [defaults.roti] : [],
-      rice: defaults.rice ? [defaults.rice] : [],
-      side: defaults.sides,
-      beverage: defaults.beverages,
-      dessert: defaults.dessert,
-    });
-    setShowSwapSearch(false);
-    setSearchQuery('');
-    setSelectedSwapDish(null);
-    if (relevantVariants.length === 1) {
-      setSelectedVariant(relevantVariants[0]!);
-    } else {
-      setSelectedVariant(null);
-    }
-    syncNeeded.current = true;
-
-    const newScore = scoreDish(newDish);
-    const curScore = dish ? scoreDish(dish) : 0;
-    if (curScore !== newScore) {
-      setHealthDelta({ currentScore: curScore, currentName: dish?.name ?? '', newScore, newName: newDish.name });
-      if (healthDeltaTimerRef.current) clearTimeout(healthDeltaTimerRef.current);
-      healthDeltaTimerRef.current = setTimeout(() => setHealthDelta(null), 3500);
-    }
-    addRecentDish(newDish);
-    recordDishAdded(newDish.id, newDish.tags);
-  }, [addAnotherMode, mealType, userDiet, onAddAnother, date, dish]);
-
-  const handleSwapVariantSelect = useCallback((variant: DishVariant) => {
-    const d = selectedSwapDish ?? selectedSwapDishRef.current;
-    if (!d) return;
-    if (addAnotherMode) {
-      onAddAnother?.(date, mealType, d, variant);
-      setSelectedSwapDish(null);
-      selectedSwapDishRef.current = null;
-      setSelectedVariant(null);
-      setSearchQuery('');
-      return;
-    }
-    const m = dishToMeal(d);
-    const defaults = applySmartDefaults(m, mealType);
-    const style = getDishStyle(d.id);
-    const variantAddOn = variant.addOn?.toLowerCase() ?? '';
-    const variantPrefersRoti = variantAddOn.includes('roti') || variantAddOn.includes('naan') || variantAddOn.includes('paratha');
-    const variantPrefersRice = variantAddOn.includes('rice');
-    setSelectedVariant(variant);
-    setDish(d);
-    setMeal(m);
-    setSelectedStyleGroup(style ? internalToStyleGroup(style) : null);
-    setSelectedCategories({
-      bread: !variantPrefersRice ? (defaults.roti ? [defaults.roti] : []) : [],
-      rice: !variantPrefersRoti ? (defaults.rice ? [defaults.rice] : []) : [],
-      side: defaults.sides,
-      beverage: defaults.beverages,
-      dessert: defaults.dessert,
-    });
-    setShowSwapSearch(false);
-    setSearchQuery('');
-    setSelectedSwapDish(null);
-    selectedSwapDishRef.current = null;
-    syncNeeded.current = true;
-
-    const newScore = scoreDish(d);
-    const curScore = dish ? scoreDish(dish) : 0;
-    if (curScore !== newScore) {
-      setHealthDelta({ currentScore: curScore, currentName: dish?.name ?? '', newScore, newName: d.name });
-      if (healthDeltaTimerRef.current) clearTimeout(healthDeltaTimerRef.current);
-      healthDeltaTimerRef.current = setTimeout(() => setHealthDelta(null), 3500);
-    }
-  }, [addAnotherMode, mealType, selectedSwapDish, onAddAnother, date, dish]);
-
-  const handleCreateCustomDish = useCallback(() => {
-    const name = customDishName.trim();
-    if (!name) return;
-    const timestamp = Date.now();
-    const dishId = `custom_${timestamp}`;
-    const regionMap: Record<string, Region> = {
-      north: 'north', south: 'south', east: 'east', west: 'west',
-      central: 'central', northeast: 'northeast',
-    };
-    const region = regionMap[regionKey] || 'north';
-    const newDish: Dish = {
-      id: dishId,
-      name,
-      icon: CUSTOM_DISH_STYLES.find(s => s.value === customDishStyle)?.icon || '🍽️',
-      region,
-      states: [],
-      category: [mealType.toLowerCase() as Category],
-      type: customDishDiet,
-      weight: 'medium',
-      nutrition: [],
-      tags: ['custom'],
-      variants: [{
-        id: `${dishId}_v1`,
-        name,
-        baseStyle: customDishStyle === 'Sweet' ? 'sweet-dessert' : customDishStyle.toLowerCase(),
-        mealContext: mealType.toLowerCase() as Category,
-      }],
-      description: `My custom ${customDishStyle.toLowerCase()} dish`,
-    };
-    addCustomDish(newDish);
-    handleSwapSelect(newDish);
-    setShowCustomDishForm(false);
-  }, [customDishName, customDishStyle, customDishDiet, regionKey, mealType, addCustomDish, handleSwapSelect]);
-
-  const buildUpdatesObject = useCallback(() => {
-    const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
-    if (!currentDish) return null;
-    const fullName = resolveDisplayName(currentDish.name, selectedVariant);
-    const title = generateMealTitle(
-      fullName,
-      [...new Set(selectedCategories.side)],
-      [...new Set(selectedCategories.beverage)],
-      selectedCategories.rice[0] ?? selectedCategories.bread[0] ?? undefined,
-    );
-    const suggestions = getPairingSuggestions(selectedStyleGroup);
-    const customizationLog = {
-      dishId: currentDish.id,
-      dishName: currentDish.name,
-      style: selectedStyleGroup ?? undefined,
-      categories: allCategories.map(cat => ({
-        category: cat,
-        suggested: suggestions[cat] ?? [],
-        chosen: [...new Set(selectedCategories[cat])],
-        timestamp: Date.now(),
-      })),
-    };
-    return {
-      meal_id: currentDish.id,
-      name: fullName,
-      icon: currentDish.icon,
-      variant: selectedVariant?.name,
-      variantId: selectedVariant?.id,
-      quantity,
-      title,
-      style: selectedStyleGroup ?? undefined,
-      gravy: null,
-      roti: selectedCategories.bread[0] ?? null,
-      rice: selectedCategories.rice[0] ?? null,
-      sides: [...new Set(selectedCategories.side)],
-      beverages: [...new Set(selectedCategories.beverage)],
-      dessert: [...new Set(selectedCategories.dessert)],
-      customizations: customizationLog.categories,
-    };
-  }, [dish, item.meal_id, dishes, selectedVariant, quantity, selectedCategories, selectedStyleGroup]);
-
-  // ── User-interaction sync guard: only sync when explicitly triggered by user interaction ──
-  const syncNeeded = useRef(false);
-
-  useEffect(() => {
-    if (!syncNeeded.current) return;
-    syncNeeded.current = false;
-    if (!onChange) return;
-    if (modalGuardRef.current.isClosed) return;
-
-    const requestId = asyncGuard.start();
-    const updates = buildUpdatesObject();
-    if (!updates) return;
-
-    // Latest-request-wins: ignore if a newer request started
-    if (!asyncGuard.isCurrent(requestId)) return;
-
-    // Deferred sync: buffer rapid changes, flush after stable period
-    syncBufferRef.current.queue(updates, (u) => {
-      if (modalGuardRef.current.isClosed) return;
-      onChange(item.id, u);
-    });
-  }, [selectedCategories, quantity, onChange, buildUpdatesObject, item.id, asyncGuard]);
-
-  // ── Strict deduplication: normalize selections to Map ──
-  // Key = `${name.toLowerCase().trim()}_${category}` ensures casing/spacing doesn't create duplicates.
-  // Merge on repeat add: existing.qty += 1. Never push duplicates.
-  // Each Map entry includes mapKey for stable React rendering.
-  const selectionMap = useMemo(() => {
-    const map = new Map<string, { name: string; qty: number; category: IndianMealCategory; mapKey: string }>();
-    for (const cat of allCategories) {
-      for (const item of selectedCategories[cat]) {
-        const mapKey = `${item.toLowerCase().trim()}_${cat}`;
-        const existing = map.get(mapKey);
-        if (existing) {
-          existing.qty += 1;
-        } else {
-          map.set(mapKey, { name: item, qty: 1, category: cat, mapKey });
-        }
+    if (!isOpen) return;
+    const timer = setTimeout(() => {
+      const dish = dishes.find(d => d.id === item.meal_id);
+      const dp = dish?.defaultPairings;
+      const isLunchDinner = item.name ? true : false;
+      // Bread and Rice first for Lunch/Dinner, otherwise sides/beverages
+      const keyOrder = ['bread', 'rice', 'sides', 'beverages', 'dessert'];
+      const targetKey = keyOrder.find(k => {
+        if (k === 'bread') return item.roti || dp?.roti;
+        if (k === 'rice') return item.rice || dp?.rice;
+        return (dp as any)?.[k]?.length > 0 || (item as any)?.[k === 'sides' ? 'sides' : k]?.length > 0;
+      });
+      if (targetKey) {
+        const el = catRefs.current[targetKey];
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    }
-    return map;
-  }, [selectedCategories]);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [isOpen, item.meal_id, item.id, dishes]);
 
-  // ── Apply: flush pending syncs, then close ──
   const handleApply = useCallback(() => {
-    if (onChange) {
-      // Flush any buffered syncs before closing so the latest selections
-      // (including removals) are persisted before the modal reopens.
-      syncBufferRef.current.flush();
-      explicitlyRemovedRef.current.clear();
-      seededMealRef.current = null;
-      onClose();
-      return;
-    }
-    // Legacy: consumers without onChange (should not happen after migration)
-    const currentDish = dish ?? dishes.find(d => d.id === item.meal_id) ?? dishes.find(d => d.name === item.name);
-    if (!currentDish) return;
-    const fullName = resolveDisplayName(currentDish.name, selectedVariant);
-    const title = generateMealTitle(
-      fullName,
-      selectedCategories.side,
-      selectedCategories.beverage,
-      selectedCategories.rice[0] ?? selectedCategories.bread[0] ?? undefined,
-    );
-    const suggestions = getPairingSuggestions(selectedStyleGroup);
-    const customizationLog = {
-      dishId: currentDish.id,
-      dishName: currentDish.name,
-      style: selectedStyleGroup ?? undefined,
-      categories: allCategories.map(cat => ({
-        category: cat,
-        suggested: suggestions[cat] ?? [],
-        chosen: selectedCategories[cat],
-        timestamp: Date.now(),
-      })),
-    };
-    onApply(item.id, {
-      meal_id: currentDish.id,
-      name: fullName,
-      icon: currentDish.icon,
-      variant: selectedVariant?.name,
-      variantId: selectedVariant?.id,
-      quantity,
-      title,
-      style: selectedStyleGroup ?? undefined,
-      gravy: null,
-      roti: selectedCategories.bread[0] ?? null,
-      rice: selectedCategories.rice[0] ?? null,
-      sides: selectedCategories.side,
-      beverages: selectedCategories.beverage,
-      dessert: selectedCategories.dessert,
-      customizations: customizationLog.categories,
-    });
-    explicitlyRemovedRef.current.clear();
-    seededMealRef.current = null;
-    onClose();
-  }, [onChange, buildUpdatesObject, onApply, onClose, dish, item.id, item.meal_id, dishes, selectedVariant, quantity, selectedCategories, selectedStyleGroup]);
-
-  const swapSearchDishes = useMemo(() => {
-    if (!showSwapSearch) return [];
-
-    const slotDishIds = slotMeals.map(m => m.meal_id);
-
-    const results = rankDishes({
-      dishes,
-      slot: mealType,
-      diet: userDiet,
-      regionKey,
-      query: debouncedSearchQuery,
-      showGlobal,
-      healthPreset,
-      healthSort,
-      customDishes,
-      excludeIds: slotDishIds,
-    });
-
-    // Boost recently used dishes to top
-    if (!debouncedSearchQuery) {
-      const recent = getRecentDishes();
-      if (recent.length > 0) {
-        const recentIds = new Set(recent.map(r => r.id));
-        const boosted: typeof results = [];
-        const rest: typeof results = [];
-        for (const item of results) {
-          if (recentIds.has(item.dish.id)) {
-            boosted.push(item);
-          } else {
-            rest.push(item);
-          }
-        }
-        boosted.sort((a, b) => {
-          const aIdx = recent.findIndex(r => r.id === a.dish.id);
-          const bIdx = recent.findIndex(r => r.id === b.dish.id);
-          return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
-        });
-        return [...boosted, ...rest];
-      }
-    }
-
-    return results;
-  }, [showSwapSearch, dishes, customDishes, mealType, userDiet, regionKey, debouncedSearchQuery, showGlobal, healthPreset, healthSort, slotMeals]);
-
-  const renderSwapItem = useCallback(({ dish, healthScore }: { dish: Dish; healthScore: number }) => {
-    const isRegional = dish.region === 'all' || dish.region === regionKey;
-    const hScore = healthScore;
-    const meta = DISH_HEALTH_MAP[dish.id];
-    const tags = meta?.tags ?? [];
-    const goodFor: string[] = [];
-    if (hScore >= 8 && tags.includes('high-protein')) goodFor.push('High Protein');
-    if (hScore >= 12 && (tags.includes('fiber') || tags.includes('high-fiber'))) goodFor.push('High Fiber');
-    if (hScore >= 8 && tags.includes('low-calorie')) goodFor.push('Low Cal');
-    if (hScore >= 8 && tags.includes('low-fat')) goodFor.push('Low Fat');
-    if (hScore >= 15) goodFor.push('Light');
-
-    return (
-      <button
-        key={dish.id}
-        onClick={() => handleSwapSelect(dish)}
-        className="flex items-center gap-3 p-2.5 rounded-2xl transition-all active:scale-[0.97] bg-white border border-gray-100 hover:border-gray-300 hover:shadow-sm"
-        aria-label={`Select ${dish.name}`}>
-        <div className="relative w-14 h-14 shrink-0 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center overflow-hidden border border-gray-50">
-          <DishImage name={dish.name} slot={mealType} size="md" />
-          {isRegional && (
-            <span className="absolute -top-0.5 -right-0.5 text-[6px] font-bold bg-[#FF385C] text-white px-1 rounded-full shadow-sm">L</span>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-bold text-gray-900 leading-tight block">
-            {dish.name}
-          </span>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="text-[9px] font-medium text-gray-400 capitalize">{dish.region}</span>
-            <HealthScoreBadge score={hScore} size="sm" />
-          </div>
-          {goodFor.length > 0 && (
-            <span className="text-[8px] font-bold text-emerald-600 mt-0.5 block">{goodFor[0]}</span>
-          )}
-        </div>
-      </button>
-    );
-  }, [handleSwapSelect, regionKey, mealType]);
-
-  const dishVariants = useMemo(() => {
-    if (!selectedSwapDish) return [];
-    const category = mealType.toLowerCase();
-    const isVegan = userDiet?.toLowerCase() === 'vegan';
-    return selectedSwapDish.variants.filter(v => {
-      if (!v.mealContext) return true;
-      if (isVegan) return false;
-      return v.mealContext.includes(category) || !v.mealContext;
-    }).slice(0, 6);
-  }, [selectedSwapDish, mealType, userDiet]);
-
-  const mergedOptions = useMemo((): Record<IndianMealCategory, string[]> => {
-    const breadSet = new Set(indian_meal_categories.bread.map(s => s.toLowerCase().trim()));
-    const riceSet = new Set(indian_meal_categories.rice.map(s => s.toLowerCase().trim()));
-    const filteredSides = [...(item.sides ?? []), ...(meal?.sideOptions ?? [])].filter(s => {
-      const key = s.toLowerCase().trim();
-      return !breadSet.has(key) && !riceSet.has(key);
-    });
-    return {
-      bread: mergeCategoryOptions(item.roti ? [item.roti] : undefined, indian_meal_categories.bread),
-      rice: mergeCategoryOptions(item.rice ? [item.rice] : undefined, indian_meal_categories.rice),
-      side: mergeCategoryOptions(filteredSides, indian_meal_categories.side),
-      beverage: mergeCategoryOptions([...(item.beverages ?? []), ...(meal?.beverageOptions ?? [])], indian_meal_categories.beverage),
-      dessert: mergeCategoryOptions(item.dessert?.length ? item.dessert : undefined, indian_meal_categories.dessert),
-    };
-  }, [item.roti, item.rice, item.sides, item.beverages, item.dessert, meal?.sideOptions, meal?.beverageOptions]);
-
-  const recommendedCats = useMemo((): IndianMealCategory[] => {
-    if (!dish || isStreetFood(dish.id)) return [];
-    const dishStyle = getDishStyle(dish.id);
-    const effectiveStyle = selectedStyleGroup
-      ? styleGroupToInternal(selectedStyleGroup)
-      : (dishStyle ?? 'gravy');
-    return getRecommendedCategories(effectiveStyle);
-  }, [dish, selectedStyleGroup]);
-
-  const isStreetFoodDish = dish && isStreetFood(dish.id);
-  const dishRegion = dish?.region ?? '';
+    const u: Partial<TrayItem> = {};
+    if (style) u.style = style;
+    const b = pairings.bread || []; u.roti = b.length > 0 ? b[b.length - 1] : null;
+    const r = pairings.rice || []; u.rice = r.length > 0 ? r[r.length - 1] : null;
+    u.sides = pairings.sides || []; u.beverages = pairings.beverages || []; u.dessert = pairings.dessert || [];
+    u.itemQtys = qty;
+    // Regenerate title so MealCard shows updated pairings
+    const carb = u.roti || u.rice || undefined;
+    u.title = generateMealTitle(item.name, u.sides || [], u.beverages || [], carb);
+    onApply(item.id, u); onClose();
+  }, [style, pairings, qty, onApply, onClose, item.name]);
 
   if (!isOpen) return null;
 
+  const allSelected = CATS.flatMap(c => (pairings[c.key] || []).map(n => ({ cat: c, name: n })));
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={handleClose} aria-hidden="true" />
-      {/* Added confirmation toast */}
-      {justAddedDish && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[70] animate-in slide-in-from-top-2 fade-in duration-200">
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/30">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-            <span className="text-sm font-bold">{justAddedDish} added</span>
-          </div>
-        </div>
-      )}
-      <div
-        className="relative w-full sm:max-w-lg max-h-[90vh] bg-gray-50 rounded-t-[32px] sm:rounded-[32px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-200 flex flex-col overflow-hidden pb-[max(64px,env(safe-area-inset-bottom))]"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Customize ${slotLabel}`}
->
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-t-[28px] sm:rounded-[28px] w-full max-w-lg mx-auto max-h-[95vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+
         {/* Header */}
-        <div className="shrink-0 px-5 pt-5 pb-3 border-b border-gray-100 bg-white">
-          {showSwapSearch ? (
+        <div className="flex items-center gap-3 px-5 pt-4 pb-4 border-b border-gray-100 shrink-0">
+          <DishImage name={item.name} slot={item.name} size="xl" className="shrink-0" />
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  if (initialAddMode) { handleClose(); return; }
-                  if (selectedSwapDish) {
-                    setSelectedSwapDish(null);
-                  } else {
-                    setShowSwapSearch(false);
-                    setSearchQuery('');
-                    setAddAnotherMode(false);
-                  }
-                }}
-                className="w-8 h-8 rounded-xl flex items-center justify-center bg-gray-100" aria-label="Back">
-                <ChevronLeft size={16} className="text-gray-700" />
-              </button>
-              {selectedSwapDish ? (
-                <h3 className="text-sm font-black tracking-tight text-gray-900 truncate">
-                  {selectedSwapDish.name}
-                </h3>
-              ) : (
-                <div className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-100">
-                  <Search size={14} className="text-gray-400" />
-                  <input ref={searchInputRef} type="text" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setFocusedResultIndex(-1); }} placeholder={addAnotherMode ? "Search dishes to add..." : "Search dishes..."} className="bg-transparent text-sm w-full outline-none placeholder:text-gray-400 text-gray-800" aria-label="Search dishes" aria-expanded={swapSearchDishes.length > 0} aria-controls="search-results" onKeyDown={e => {
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault();
-                      const max = Math.min(swapSearchDishes.length, showAllSwapResults ? swapSearchDishes.length : 40);
-                      setFocusedResultIndex(prev => Math.min(prev + 1, max - 1));
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault();
-                      setFocusedResultIndex(prev => Math.max(prev - 1, -1));
-                    } else if (e.key === 'Enter' && focusedResultIndex >= 0) {
-                      e.preventDefault();
-                      const item = swapSearchDishes[focusedResultIndex];
-                      if (item) {
-                        const el = document.getElementById(`swap-result-${item.dish.id}`);
-                        el?.click();
-                      }
-                    } else if (e.key === 'Escape') {
-                      setSearchQuery('');
-                      setFocusedResultIndex(-1);
-                    }
-                  }} />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery('')} aria-label="Clear search">
-                      <X size={12} className="text-gray-400" />
-                    </button>
-                  )}
-                </div>
+              <p className="text-lg sm:text-xl font-bold text-gray-900 leading-tight line-clamp-2">{item.name}</p>
+              {onSwapDish && (
+                <button onClick={() => { onSwapDish(); onClose(); }}
+                  className="shrink-0 w-7 h-7 rounded-full bg-[#FF385C]/10 text-[#FF385C] flex items-center justify-center active:scale-90 transition-all hover:bg-[#FF385C]/20 text-sm font-bold"
+                  title="Swap this dish">↻</button>
               )}
             </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-black tracking-tight text-gray-900">
-                Customize
-              </h2>
-              <button
-                onClick={handleClose} className="w-8 h-8 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90" aria-label="Close">
-                <X size={14} className="text-gray-500" />
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90 transition-all shrink-0"><X size={14} /></button>
+        </div>
+
+        {/* Style — collapsible */}
+        <div className="px-6 pt-3 pb-2 border-b border-gray-100 bg-gray-50/30 shrink-0">
+          <button onClick={() => setStyleOpen(!styleOpen)} className="flex items-center gap-2 w-full active:opacity-70">
+            <span className={`text-xs font-black uppercase tracking-widest ${style ? 'text-[#FF385C]' : 'text-gray-500'}`}>
+              🍳 Style{style ? ` · ${style}` : ''}
+            </span>
+            <span className={`text-gray-300 transition-transform duration-200 text-xs ${styleOpen ? 'rotate-90' : ''}`}>▸</span>
+          </button>
+          {styleOpen && (
+          <div className="flex gap-2 overflow-x-auto pb-1 mt-2 scrollbar-hide">
+            {STYLES.map(s => (
+              <button key={s} onClick={() => setStyle(style === s ? '' : s)}
+                className="flex-shrink-0 flex flex-col items-center gap-1 active:scale-95 transition-all"
+              >
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-lg border-2 transition-all ${style === s ? 'border-[#FF385C] bg-[#FF385C]/10 shadow-sm' : 'border-gray-100 bg-gray-50'}`}>
+                  {s === 'Gravy' ? '🥩' : s === 'Dry' ? '🍗' : s === 'Fried' ? '🍤' : s === 'Roasted' ? '🔥' : s === 'Boiled' ? '🥟' : '♨️'}
+                </div>
+                <span className={`text-sm font-bold ${style === s ? 'text-[#FF385C]' : 'text-gray-500'}`}>{s}</span>
               </button>
-            </div>
+            ))}
+          </div>
           )}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          {showSwapSearch ? (
-            selectedSwapDish ? (
-              /* ─── VARIANT SELECTION ─── */
-              <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-              <div className="p-4 space-y-2">
-                {dishVariants.length === 0 ? (
-                  <p className="text-sm text-center py-8 text-gray-500">No variants available</p>
-                ) : (
-                  dishVariants.map(variant => (
-                    <button
-                      key={variant.id}
-                      onClick={() => handleSwapVariantSelect(variant)}
-                      className="w-full flex items-center gap-3 p-3.5 rounded-xl border transition-all active:scale-[0.98] text-left bg-white border-gray-200 hover:border-gray-300">
-                      <DishImage name={selectedSwapDish.name} slot={mealType} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-bold block leading-tight truncate text-gray-900">
-                          {variant.name}
-                        </span>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {variant.addOn && (
-                            <span className="text-[9px] font-medium text-gray-400">{variant.addOn}</span>
-                          )}
-                          {variant.mealContext && (
-                            <>
-                              <span className="text-[9px] text-gray-300">•</span>
-                              <span className="text-[9px] font-medium capitalize text-gray-400">
-                                {variant.mealContext}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <Sparkles size={12} className="text-[#FF385C] flex-shrink-0" />
-                    </button>
-                  ))
-                )}
-              </div>
-              </div>
-            ) : showCustomDishForm ? (
-              /* ─── CUSTOM DISH FORM ─── */
-              <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-              <div className="p-4">
-                <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-4">
-                  <h3 className="text-sm font-black tracking-tight text-gray-900">Create Custom Dish</h3>
-                  <div>
-                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1 block">
-                      Name
-                    </label>
-                    <input
-                      type="text"
-                      value={customDishName}
-                      onChange={e => setCustomDishName(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm font-medium text-gray-800 outline-none focus:border-[#FF385C]"
-                      placeholder="Dish name"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1 block">
-                      Style
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {CUSTOM_DISH_STYLES.map(s => (
-                        <button
-                          key={s.value}
-                          onClick={() => setCustomDishStyle(s.value)}
-                          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
-                            customDishStyle === s.value
-                              ? 'bg-[#FF385C]/10 border-2 border-[#FF385C]'
-                              : 'bg-gray-50 border border-gray-100'
-                          }`}
-                        >
-                          <span className="text-lg">{s.icon}</span>
-                          <span className={`text-[7px] font-bold ${customDishStyle === s.value ? 'text-[#FF385C]' : 'text-gray-500'}`}>
-                            {s.label}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[9px] font-black uppercase tracking-widest text-gray-500 mb-1 block">
-                      Diet
-                    </label>
-                    <div className="flex rounded-xl overflow-hidden border border-gray-200">
-                      <button
-                        onClick={() => setCustomDishDiet('veg')}
-                        className={`flex-1 py-2 text-xs font-bold transition-all ${
-                          customDishDiet === 'veg'
-                            ? 'bg-green-500 text-white'
-                            : 'bg-white text-gray-500'
-                        }`}
-                      >
-                        🌿 Veg
-                      </button>
-                      <button
-                        onClick={() => setCustomDishDiet('non-veg')}
-                        className={`flex-1 py-2 text-xs font-bold transition-all ${
-                          customDishDiet === 'non-veg'
-                            ? 'bg-red-500 text-white'
-                            : 'bg-white text-gray-500'
-                        }`}
-                      >
-                        🥩 Non-Veg
-                      </button>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={() => setShowCustomDishForm(false)}
-                      className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleCreateCustomDish}
-                      disabled={!customDishName.trim()}
-                      className="flex-1 py-2.5 rounded-xl bg-[#FF385C] text-white font-bold text-sm active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/30 disabled:opacity-50"
-                    >
-                      Add to Tray
+        {/* Your Pairings — always visible above scroll */}
+        {allSelected.length > 0 && (
+          <div ref={pairingsRef} className="shrink-0 px-6 py-3 border-b border-gray-100 bg-emerald-50/30">
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-600 mb-2">✓ Your Pairings</p>
+            <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide -mx-1 px-1">
+              {allSelected.map(({ cat, name }) => (
+                <div key={`${cat.key}-${name}`} className="flex-shrink-0 flex flex-col items-center gap-1.5 w-[88px] group">
+                  <div className="relative w-[72px] h-[72px] rounded-2xl overflow-hidden border-2 border-emerald-200 bg-emerald-50/50 shadow-sm">
+                    <DishImage name={name} size="full" className="w-full h-full object-cover" />
+                    <button onClick={() => toggle(cat.key, name)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-opacity active:scale-90 hover:bg-red-50" title="Remove">
+                      <X size={9} className="text-gray-400" />
                     </button>
                   </div>
-                </div>
-              </div>
-              </div>
-            ) : (
-              /* ─── SWAP SEARCH GRID ─── */
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden p-4">
-                <div className="mb-4">
-                  <HealthFilterBar
-                    activePreset={healthPreset}
-                    activeSort={healthSort}
-                    onPresetChange={setHealthPreset}
-                    onSortChange={setHealthSort}
-                  />
-                  {/* Household member selector */}
-                  {(() => {
-                    const h = useStore.getState().household;
-                    if (!h || h.members.length <= 1) return null;
-                    return (
-                      <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-gray-100">
-                        <span className="text-[9px] font-bold text-gray-400 mr-1 self-center">For:</span>
-                        {h.members.map(m => (
-                          <button
-                            key={m.id}
-                            onClick={() => setSelectedMemberId(m.id === selectedMemberId ? null : m.id)}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all active:scale-95 ${
-                              selectedMemberId === m.id
-                                ? 'bg-[#FF385C] text-white border-[#FF385C]'
-                                : 'bg-white text-gray-500 border-gray-200 hover:border-[#FF385C]/30'
-                            }`}
-                          >
-                            {m.name}
-                          </button>
-                        ))}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                <div className="flex items-center justify-between mb-4">
-                  <button
-                    onClick={() => setShowGlobal(!showGlobal)}
-                    className="text-xs font-bold text-[#FF385C]">
-                    {showGlobal ? '← Regional first' : 'All regions →'}
-                  </button>
-                  <span className="text-[10px] font-bold text-gray-400">
-                    {swapSearchDishes.length} dishes
-                  </span>
-                </div>
-
-                {!searchQuery && dayGapTip && (
-                  <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200">
-                    <span className="text-sm shrink-0">{dayGapTip.emoji}</span>
-                    <p className="text-[10px] font-medium text-amber-800 leading-tight">
-                      {dayGapTip.tip}
-                    </p>
-                  </div>
-                )}
-
-                {/* Autocomplete dropdown — instant suggestions while typing */}
-                {autocompleteResults.length > 0 && searchQuery.length >= 2 && debouncedSearchQuery !== searchQuery && (
-                  <div className="mb-2 rounded-xl border border-gray-200 bg-white shadow-lg overflow-hidden z-20 max-h-[200px] overflow-y-auto">
-                    <div className="px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-100 bg-gray-50">
-                      Suggestions
-                    </div>
-                    {autocompleteResults.map((item: { dish: { id: string; name: string; icon?: string; region?: string }; healthScore: number }, idx: number) => (
-                      <button
-                        key={item.dish.id}
-                        onClick={() => {
-                          setSearchQuery(item.dish.name);
-                          setFocusedResultIndex(0);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 active:bg-gray-100 transition-all text-left border-b border-gray-50 last:border-0"
-                      >
-                        <DishImage name={item.dish.name} slot={mealType} size="sm" />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-xs font-bold text-gray-800">{item.dish.name}</span>
-                          <span className="text-[9px] text-gray-400 ml-1.5 capitalize">{item.dish.region}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {swapSearchDishes.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center p-8">
-                    {searchQuery ? (
-                      <>
-                        <Sparkles size={24} className="mx-auto mb-2 text-gray-300" />
-                        <p className="text-sm text-gray-400 mb-4">
-                          &ldquo;{searchQuery}&rdquo; not found
-                        </p>
-                        <button
-                          onClick={() => { setCustomDishName(searchQuery); setShowCustomDishForm(true); }}
-                          className="px-5 py-2.5 bg-[#FF385C] text-white rounded-xl font-bold text-sm active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/30"
-                        >
-                          Create &lsquo;{searchQuery}&rsquo; as Custom Dish
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles size={24} className="mx-auto mb-2 text-gray-300" />
-                        <p className="text-sm text-gray-400">No more dishes</p>
-                      </>
-                    )}
-                  </div>
-                  ) : (
-                  <>
-                    <div className="grid grid-cols-2 gap-2 overflow-y-auto flex-1 min-h-0 px-0.5 pb-2 content-start" id="search-results" role="listbox" aria-label="Search results">
-                      {swapSearchDishes.slice(0, showAllSwapResults ? swapSearchDishes.length : 80).map((item, idx) => (
-                        <div key={item.dish.id} id={`swap-result-${item.dish.id}`} ref={el => { resultRefs.current[idx] = el as HTMLButtonElement | null; }} role="option" aria-selected={idx === focusedResultIndex} className={idx === focusedResultIndex ? 'ring-2 ring-emerald-400 rounded-2xl' : ''}>
-                        {renderSwapItem(item)}
-                        </div>
-                      ))}
-                    </div>
-                    {!showAllSwapResults && swapSearchDishes.length > 80 && (
-                      <div className="flex flex-col items-center gap-2 mt-2 shrink-0">
-                        <p className="text-[10px] text-center text-gray-400 font-medium">
-                          Showing 80 of {swapSearchDishes.length}
-                        </p>
-                        <button
-                          onClick={() => setShowAllSwapResults(true)}
-                          className="text-[10px] font-bold text-emerald-600 underline active:scale-95"
-                        >
-                          Show all
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-
-              </div>
-            )
-          ) : (
-            /* ─── MAIN VIEW ─── */
-            <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
-            <div className="p-5 space-y-4">
-              {dish ? (
-                <div className="rounded-2xl border border-[#FF385C]/20 bg-[#FF385C]/5 p-4">
-                  {/* ─── Dish Header ─── */}
-                  <div className="flex items-start gap-3">
-                    <DishImage name={dish.name} slot={mealType} size="md" />
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm font-bold text-gray-900 truncate block">
-                        {displayName}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-medium text-gray-400 capitalize">
-                          {dish.region} · {dish.type}
-                        </span>
-                        <button
-                          onClick={handleSwapOpen}
-                          className="group h-8 rounded-xl border border-dashed border-emerald-400 text-emerald-600 active:scale-90 transition-all flex items-center gap-1 px-2.5 ml-auto"
-                          aria-label="Swap dish">
-                          <Sparkles size={13} className="transition-transform duration-200 group-hover:scale-110" />
-                          <span className="text-[10px] font-bold">Swap</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {healthDelta && (
-                    <div className="animate-in fade-in slide-in-from-top-2 duration-300 mx-1">
-                      <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-[10px] font-bold ${
-                        healthDelta.newScore > healthDelta.currentScore
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : healthDelta.newScore < healthDelta.currentScore
-                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                          : 'bg-gray-50 text-gray-500 border border-gray-200'
-                      }`}>
-                        <span className="truncate">{healthDelta.currentName}</span>
-                        <span className="text-gray-400 shrink-0">{healthDelta.currentScore}</span>
-                        <span className="text-gray-300 shrink-0">→</span>
-                        <span className="truncate">{healthDelta.newName}</span>
-                        <span className="shrink-0">{healthDelta.newScore}</span>
-                        <span className="shrink-0 ml-auto">
-                          {healthDelta.newScore > healthDelta.currentScore ? '✨ Healthier' :
-                           healthDelta.newScore < healthDelta.currentScore ? '⬇️ Less healthy' :
-                           '— Same'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* ─── Quantity ─── */}
-                  <div className="flex items-center gap-2 mt-3">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Qty</span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => { setQuantity(Math.max(1, quantity - 1)); syncNeeded.current = true; }}
-
-                        disabled={quantity <= 1}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center bg-white border border-gray-200 text-gray-600 active:scale-90 disabled:opacity-30"
-                        aria-label="Decrease quantity">
-                        <Minus size={10} />
-                      </button>
-                      <span className="w-8 text-center text-sm font-bold text-gray-800 tabular-nums">
-                        {quantity}
-                      </span>
-                      <button
-                        onClick={() => { setQuantity(Math.min(50, quantity + 1)); syncNeeded.current = true; }}
-                        disabled={quantity >= 50}
-                        className="w-7 h-7 rounded-lg flex items-center justify-center bg-white border border-gray-200 text-gray-600 active:scale-90 disabled:opacity-30"
-                        aria-label="Increase quantity">
-                        <Plus size={10} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* ─── Per-Dish Customization ─── */}
-                  <div className="mt-4 space-y-3">
-                    {/* ─── STYLE PICKER ─── */}
-                    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setShowStylePicker(prev => !prev)}
-                        className="w-full flex items-center justify-between p-4 text-left active:bg-gray-50 transition-colors">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[13px]">🎨</span>
-                          <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">
-                            Pick a Style
-                            {selectedStyleGroup && (
-                              <span className="ml-1.5 text-[9px] font-bold text-[#FF385C] bg-[#FF385C]/10 px-1.5 py-0.5 rounded-full">
-                                {STYLE_GROUP_ICONS[selectedStyleGroup]} {selectedStyleGroup}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        <ChevronDown
-                          size={14}
-                          className={`text-gray-400 transition-transform duration-200 ${showStylePicker ? 'rotate-180' : ''}`}
-                        />
-                      </button>
-                      {showStylePicker && (
-                        <div className="px-4 pb-4">
-                          <p className="text-[9px] text-gray-400 mb-3">Changing style updates the suggested accompaniments</p>
-                          <div className="grid grid-cols-4 gap-2">
-                            {styleGroups.map(group => {
-                              const active = selectedStyleGroup === group;
-                              return (
-                                <button
-                                  key={group}
-                                  onClick={() => handleStyleSelect(group)}
-                                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl transition-all ${
-                                    active
-                                      ? 'bg-[#FF385C]/10 border-2 border-[#FF385C]'
-                                      : 'bg-gray-50 border border-gray-100 hover:border-gray-200'
-                                  }`}
->
-                                  <span className="text-xl">{STYLE_GROUP_ICONS[group]}</span>
-                                  <span className={`text-[8px] font-bold ${active ? 'text-[#FF385C]' : 'text-gray-500'}`}>
-                                    {group}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* ─── STREET FOOD TOOLTIP ─── */}
-                    {isStreetFoodDish && (
-                      <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
-                        <Info size={13} className="text-amber-500 mt-0.5 flex-shrink-0" />
-                        <p className="text-[10px] text-amber-700">
-                          Street food best with sides &amp; beverages. Add bread/rice if you need the extra carbs.
-                        </p>
-                      </div>
-                    )}
-
-                    {/* ─── Selections Summary — always visible (deduplicated via selectionMap) ─── */}
-                    {selectionMap.size > 0 && (
-                      <div className="rounded-2xl bg-[#FF385C]/5 border border-[#FF385C]/15 p-3">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-[#FF385C] mb-2">Your Selections</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {Array.from(selectionMap.values()).map(({ name, qty, category, mapKey }) => {
-                            const icon = CATEGORY_CONFIG[category].icon;
-                            return (
-                              <span
-                                key={mapKey}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white border border-[#FF385C]/20 text-[#FF385C] text-[11px] font-bold shadow-sm"
-                              >
-                                {icon && <span className="text-[11px]">{icon}</span>}
-                                <span>{name}</span>
-                                {qty > 1 && (
-                                  <span className="text-[8px] font-bold text-[#FF385C]/60 ml-0.5">×{qty}</span>
-                                )}
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); toggleCategoryItemWrap(category, name); }}
-                                  className="ml-0.5 hover:bg-[#FF385C]/10 rounded-full p-0.5"
-                                  aria-label={`Remove ${name}`}
-                                >
-                                  <X size={10} />
-                                </button>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ─── CATEGORIES — collapsible accordions ─── */}
-                    <div className="flex items-center justify-end mb-2">
-                      <button
-                        onClick={() => setShowRegionHints(prev => !prev)}
-                        className={`text-[9px] font-bold px-2 py-1 rounded-full border transition-all ${
-                          showRegionHints
-                            ? 'bg-blue-50 text-blue-600 border-blue-200'
-                            : 'bg-gray-50 text-gray-400 border-gray-200'
-                        }`}
-                      >
-                        🌏 Regions
-                      </button>
-                    </div>
-                    {allCategories.map(cat => {
-                      const options = mergedOptions[cat] ?? [];
-                      const meta = CATEGORY_CONFIG[cat];
-                      const selected = selectedCategories[cat];
-                      const isRecommended = recommendedCats.includes(cat);
-                      const expanded = expandedCategories[cat] ?? false;
-
-                      return (
-                        <div key={cat} className={`rounded-2xl border bg-white ${isRecommended ? 'border-gray-200' : 'border-dashed border-gray-200/70'} overflow-hidden`}>
-                          {/* Accordion Header */}
-                          <button
-                            type="button"
-                            onClick={() => toggleExpanded(cat)}
-                            className="w-full flex items-center justify-between p-4 text-left active:bg-gray-50 transition-colors">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="text-[13px]">{meta.icon}</span>
-                              <span className="text-[11px] font-black uppercase tracking-widest text-gray-600">
-                                {meta.label}
-                                {selected.length > 0 && (
-                                  <span className="ml-1.5 text-[9px] font-bold text-[#FF385C] bg-[#FF385C]/10 px-1.5 py-0.5 rounded-full">
-                                    {selected.length}
-                                  </span>
-                                )}
-                              </span>
-                              {!isRecommended && selected.length === 0 && (
-                                <span className="text-[8px] text-gray-300 italic font-normal lowercase">optional</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {selected.length >= meta.max && !overrideLimit && expanded && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); toggleOverrideLimit(); }}
-                                  className="text-[9px] font-bold text-[#FF385C] underline">
-                                  Add more
-                                </button>
-                              )}
-                              <ChevronDown
-                                size={14}
-                                className={`text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-                              />
-                            </div>
-                          </button>
-
-                          {/* Compact badges (collapsed) */}
-                          {!expanded && selected.length > 0 && (
-                            <div className="px-4 pb-4 flex flex-wrap gap-1.5">
-                              {selected.map(item => {
-                                const icon = ICON_MAP[item.toLowerCase()] ?? '';
-                                return (
-                                  <span
-                                    key={item}
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-[#FF385C]/10 text-[#FF385C] text-[10px] font-bold">
-                                    {icon && <span className="text-[11px]">{icon}</span>}
-                                    <span>{item}</span>
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); toggleCategoryItemWrap(cat, item); }}
-                                      className="ml-0.5 hover:bg-[#FF385C]/20 rounded-full p-0.5"
-                                      aria-label={`Remove ${item}`}>
-                                      <X size={10} />
-                                    </button>
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {/* Expanded full grid */}
-                          {expanded && (
-                            <div className="px-4 pb-4">
-                              {!isRecommended && selected.length === 0 && (
-                                <p className="text-[9px] text-gray-300 italic mb-2">add if needed</p>
-                              )}
-                              <div className="flex flex-wrap gap-2">
-                                {categoryGroups[cat] ? (
-                                  categoryGroups[cat]!.map(group => {
-                                    const groupOptions = group.items.filter(opt => options.includes(opt));
-                                    if (groupOptions.length === 0) return null;
-                                    return (
-                                      <div key={group.label} className="w-full">
-                                        <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mb-1.5 mt-1 first:mt-0">{group.label}</p>
-                                        <div className="flex flex-wrap gap-1.5">
-                                          {groupOptions.map(opt => {
-                                            const active = selected.includes(opt);
-                                            const limitReached = selected.length >= meta.max && !active && !overrideLimit;
-                                            const icon = ICON_MAP[opt.toLowerCase()] ?? '';
-                                            const nutWarning = isNutItem(opt);
-                                            const blocked = allergyMode && nutWarning && !active;
-                                            const itemRegion = getItemRegion(opt);
-                                            const regionMismatch = itemRegion && dishRegion && dishRegion !== itemRegion;
-                                            return (
-                                              <div key={opt} className="relative">
-                                                <button
-                                                  onClick={() => { if (blocked) return; toggleCategoryItemWrap(cat, opt); }}
-                                                  className={`h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 transition-all ${
-                                                    blocked
-                                                      ? 'bg-red-50 text-red-300 border border-red-100 cursor-not-allowed line-through'
-                                                      : active
-                                                        ? 'bg-[#FF385C] text-white shadow-sm scale-[1.02]'
-                                                        : limitReached
-                                                          ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                                                          : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300'
-                                                  }`}
-                                                  disabled={limitReached || blocked}
-                                                  aria-label={`${opt} ${meta.label}`}>
-                                                  {icon && <span className="text-[11px]">{icon}</span>}
-                                                  <span>{opt}</span>
-                                                  {showRegionHints && regionMismatch && (
-                                                    <span className="text-[8px] opacity-60 ml-0.5" title={`${itemRegion} item`}>🌏</span>
-                                                  )}
-                                                </button>
-                                                {blocked && (
-                                                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
-                                                    <span className="text-[6px] text-white font-bold">!</span>
-                                                  </span>
-                                                )}
-                                                {nutWarning && !blocked && !active && (
-                                                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-300 rounded-full flex items-center justify-center" title="Contains nuts">
-                                                    <span className="text-[6px] text-amber-800 font-bold">⚠</span>
-                                                  </span>
-                                                )}
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    );
-                                  })
-                                ) : (
-                                  options.map(opt => {
-                                    const active = selected.includes(opt);
-                                    const limitReached = selected.length >= meta.max && !active && !overrideLimit;
-                                    const icon = ICON_MAP[opt.toLowerCase()] ?? '';
-                                    const nutWarning = isNutItem(opt);
-                                    const blocked = allergyMode && nutWarning && !active;
-                                    const itemRegion = getItemRegion(opt);
-                                    const regionMismatch = itemRegion && dishRegion && dishRegion !== itemRegion;
-
-                                    return (
-                                      <div key={opt} className="relative">
-                                        <button
-                                          onClick={() => { if (blocked) return; toggleCategoryItemWrap(cat, opt); }}
-                                          className={`h-10 px-4 rounded-full text-[13px] font-semibold flex items-center gap-1.5 transition-all ${
-                                            blocked
-                                              ? 'bg-red-50 text-red-300 border border-red-100 cursor-not-allowed line-through'
-                                              : active
-                                                ? 'bg-[#FF385C] text-white shadow-sm scale-[1.02]'
-                                                : limitReached
-                                                  ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                                                  : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300'
-                                          }`}
-                                          disabled={limitReached || blocked}
-                                          aria-label={`${opt} ${meta.label}`}>
-                                          {icon && <span className="text-[11px]">{icon}</span>}
-                                          <span>{opt}</span>
-                                          {showRegionHints && regionMismatch && (
-                                            <span className="text-[8px] opacity-60 ml-0.5" title={`${itemRegion} item`}>🌏</span>
-                                          )}
-                                        </button>
-                                        {blocked && (
-                                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center">
-                                            <span className="text-[6px] text-white font-bold">!</span>
-                                          </span>
-                                        )}
-                                        {nutWarning && !blocked && !active && (
-                                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-300 rounded-full flex items-center justify-center" title="Contains nuts">
-                                            <span className="text-[6px] text-amber-800 font-bold">⚠</span>
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  })
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-2">
-                                <input
-                                  type="text"
-                                  value={customInputs[cat] ?? ''}
-                                  onChange={e => setCustomInputs(prev => ({ ...prev, [cat]: e.target.value }))}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') {
-                                      const val = (customInputs[cat] ?? '').trim();
-                                      if (val) {
-                                        toggleCategoryItemWrap(cat, val);
-                                        setCustomInputs(prev => ({ ...prev, [cat]: '' }));
-                                      }
-                                    }
-                                  }}
-                                  className="flex-1 h-9 px-3 rounded-full border border-gray-200 text-xs font-medium text-gray-700 outline-none focus:border-[#FF385C] placeholder:text-gray-300"
-                                  placeholder="Add custom..."
-                                />
-                                <button
-                                  onClick={() => {
-                                    const val = (customInputs[cat] ?? '').trim();
-                                    if (val) {
-                                      toggleCategoryItemWrap(cat, val);
-                                      setCustomInputs(prev => ({ ...prev, [cat]: '' }));
-                                    }
-                                  }}
-                                  className="w-9 h-9 rounded-full bg-[#FF385C]/10 flex items-center justify-center text-[#FF385C] active:scale-90 transition-all"
-                                  aria-label="Add custom item"
-                                >
-                                  <Plus size={14} />
-                                </button>
-                              </div>
-                              {overrideLimit && selected.length >= meta.max && (
-                                <p className="text-[9px] text-amber-600 mt-2 flex items-center gap-1">
-                                  <AlertTriangle size={9} />
-                                  Limit overridden — tap selected to remove
-                                </p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                  <span className="text-sm font-bold text-gray-700 truncate max-w-[80px] text-center leading-tight">{name}</span>
+                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-1.5 py-0.5">
+                    <button onClick={(e) => { e.stopPropagation(); adjQty(name, -1); }} className="w-5 h-5 rounded flex items-center justify-center text-gray-500 active:scale-90 hover:bg-gray-200"><Minus size={8} /></button>
+                    <span className="text-xs font-bold text-gray-700 min-w-[16px] text-center tabular-nums">{qty[name] || 1}</span>
+                    <button onClick={(e) => { e.stopPropagation(); adjQty(name, 1); }} className="w-5 h-5 rounded flex items-center justify-center text-gray-500 active:scale-90 hover:bg-gray-200"><Plus size={8} /></button>
                   </div>
                 </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-gray-300 p-8 text-center">
-                  <p className="text-sm font-medium text-gray-400">No dish selected</p>
-                  <button
-                    onClick={handleSwapOpen}
-                    className="mt-3 text-xs font-bold text-[#FF385C] underline">
-                    Choose a dish
-                  </button>
-                </div>
-              )}
-
-              {/* ─── GLOBAL ALLERGY TOGGLE ─── */}
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={() => updateProfile({ allergyMode: !allergyMode })}
-                  className={`text-[9px] font-bold px-2.5 py-1 rounded-full border transition-all ${
-                    allergyMode
-                      ? 'bg-red-50 text-red-600 border-red-200'
-                      : 'bg-gray-50 text-gray-400 border-gray-200'
-                  }`}
->
-                  {allergyMode ? '🛡️ Allergy Safe' : 'Allergy mode off'}
-                </button>
-              </div>
+              ))}
             </div>
-            </div>
-          )}
-        </div>
-
-        {/* Footer actions */}
-        {!showSwapSearch && (
-          <div className="shrink-0 px-5 py-4 border-t border-gray-100 bg-white flex gap-3">
-            <button
-              onClick={handleClose}
-              className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm active:scale-[0.98] transition-all">
-              Cancel
-            </button>
-            <button
-              onClick={handleApply}
-              className="flex-1 py-3 rounded-xl bg-[#FF385C] text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/30">
-              <Check size={14} />
-              Apply
-            </button>
           </div>
         )}
 
-        <style>{`
-          @media (prefers-reduced-motion: reduce) {
-            .animate-in { animation: none !important; }
-            .transition-all { transition: none !important; }
-            .active\\:scale-\\[0\\.98\\]:active { transform: none !important; }
-          }
-        `}</style>
+        {/* Alternatives — scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-[200px] relative">
+          {CATS.map(cat => {
+            const selected = pairings[cat.key] || [];
+            const available = getRegionOptions(dishRegion, cat.key);
+            return (
+              <div key={cat.key} className="mb-4" ref={el => { catRefs.current[cat.key] = el; }}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="text-sm">{cat.icon}</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-gray-500">{cat.label}</span>
+                  <input type="text" value={customInput[cat.key] || ''} onChange={e => setCustomInput(prev => ({ ...prev, [cat.key]: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter' && (customInput[cat.key] || '').trim()) { toggle(cat.key, (customInput[cat.key] || '').trim()); setCustomInput(prev => ({ ...prev, [cat.key]: '' })); } }}
+                    placeholder="+ add custom" className="w-24 text-xs font-bold text-gray-500 bg-gray-100 rounded-lg py-1.5 px-2 border border-dashed border-gray-300 outline-none focus:border-[#FF385C]/30 focus:bg-[#FF385C]/5 placeholder:text-gray-400"
+                  />
+                  {cat.max > 1 && <span className="text-xs text-gray-400 ml-auto">{selected.length}/{cat.max}</span>}
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
+                  {[...available].sort((a, b) => {
+                    const aSel = selected.includes(a) ? 0 : 1;
+                    const bSel = selected.includes(b) ? 0 : 1;
+                    return aSel - bSel;
+                  }).map(opt => {
+                    const sel = selected.includes(opt);
+                    return (
+                      <button key={opt} onClick={() => toggle(cat.key, opt)}
+                        className={`flex-shrink-0 flex flex-col items-center gap-1.5 transition-all active:scale-90 ${
+                          sel ? 'opacity-100' : 'opacity-70 hover:opacity-100'
+                        }`}
+                      >
+                        <div className={`relative w-[72px] h-[72px] rounded-2xl overflow-hidden border-2 shadow-sm transition-all ${
+                          sel ? 'border-[#FF385C] shadow-md' : 'border-gray-200 hover:border-gray-300'
+                        }`}>
+                          <DishImage name={opt} size="full" className="w-full h-full object-cover" />
+                          {sel && <div className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-[#FF385C] flex items-center justify-center shadow-sm"><span className="text-white text-xs font-bold">✓</span></div>}
+                        </div>
+                        <span className={`text-sm font-bold truncate max-w-[72px] text-center leading-tight ${sel ? 'text-[#FF385C]' : 'text-gray-600'}`}>{opt}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <div className="h-2" />
+        </div>
+
+        {/* Apply */}
+        <div className="px-6 pb-5 pt-3 border-t border-gray-100 shrink-0" style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom, 16px))' }}>
+          <button onClick={handleApply} className="w-full py-3.5 rounded-2xl bg-[#FF385C] text-white text-xs font-black uppercase tracking-widest active:scale-[0.98] transition-all shadow-lg shadow-[#FF385C]/20">
+            ✓ Apply
+          </button>
+        </div>
       </div>
     </div>
   );
-});
+};
 
-SwapCustomizeModal.displayName = 'SwapCustomizeModal';
+export { SwapCustomizeModal };
 export default SwapCustomizeModal;

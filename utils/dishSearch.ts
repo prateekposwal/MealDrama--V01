@@ -8,6 +8,7 @@ import { Trie } from '../app/utils/Trie';
 import { LRUCache } from '../app/utils/LRUCache';
 import { BloomFilter } from '../app/utils/BloomFilter';
 import { getDishGraph } from '../app/utils/DishGraph';
+import { compareRegion } from './regionPreference';
 import { getPreferenceBoost } from './dishPreferences';
 
 
@@ -312,12 +313,14 @@ export function rankDishes(params: {
   });
 
   // ─── Region relevance filter ─────────────────────────────────────────
-  // Always filter by region — when searching, also show other regions
-  // but score them lower so region-matching dishes appear first
+  // Region is an ORDERING heuristic, never an exclusion. Every dish remains
+  // selectable/searchable (user always free to add anything). The upstream
+  // `filtered` stage already enforced query/slot relevance; region merely
+  // orders. So keep the whole pool: with a query, a strong match from ANY
+  // region must surface; when browsing, the comparator below places
+  // exact → nearest → all-region → far-region.
   const regionRegex = new RegExp('\\b' + regionKey + '\\b');
-  const relevantScored = scored.filter(s =>
-    s.dish.region === 'all' || regionRegex.test(s.dish.region.toLowerCase()) || (q && s.score >= 3)
-  );
+  const relevantScored = scored;
 
   // Apply diversity optimization if we have existing selections
   const existingDishes = allDishes?.filter(d => selectedSet.has(d.id)) ?? [];
@@ -334,8 +337,36 @@ export function rankDishes(params: {
     finalScored = relevantScored;
   }
 
-  // ─── Stable ordering: region match → all-region → other (by score desc) ──
+  // ─── Stable ordering: region first (browse) — search query stays score-dominant ──
+  // Region priority is an ordering heuristic ONLY. It never filters dishes out:
+  // users are always free to search and add any dish from any region. When a free-text
+  // query `q` is present, text relevance governs (score), and region is a tie-break —
+  // a strong match from another region still surfaces. When browsing (no `q`), the
+  // selected region + nearest regions lead, then diet, then score.
+  const userDiet = diet?.toLowerCase() || 'veg';
+  const dietRank = (d: Dish): number => {
+    const dt = d.diet || d.type || '';
+    if (!dt) return 3;
+    if (dt === userDiet) return 0;
+    if (userDiet === 'non-veg' && (dt === 'eggitarian' || dt === 'non-veg')) return 1;
+    if (userDiet === 'veg' && (dt === 'veg' || dt === 'vegan')) return 1;
+    if (userDiet === 'eggitarian' && (dt === 'eggitarian' || dt === 'veg')) return 1;
+    return 2;
+  };
   finalScored.sort((a, b) => {
+    if (q) {
+      // Free search: score (relevance) governs, region breaks ties.
+      if (b.score !== a.score) return b.score - a.score;
+    } else {
+      // Browse: region first (exact → nearest → all → rest), then diet, then score.
+      const rc = compareRegion(regionKey, a.dish.region, b.dish.region);
+      if (rc !== 0) return rc;
+    }
+
+    const aDiet = dietRank(a.dish);
+    const bDiet = dietRank(b.dish);
+    if (aDiet !== bDiet) return aDiet - bDiet;
+
     const aIsRegion = regionRegex.test(a.dish.region.toLowerCase());
     const bIsRegion = regionRegex.test(b.dish.region.toLowerCase());
     const aIsAll = a.dish.region === 'all';
@@ -369,7 +400,87 @@ const SLOT_CONTEXT: Record<string, string> = {
 import type { NormalizedRegion } from '../types/identity';
 
 export function getRegionKey(region?: string): NormalizedRegion {
-  return ((region ?? '').toLowerCase().replace(' india', '') || 'all') as NormalizedRegion;
+  // Bare 'India'/'INDIA' -> 'all' (unknown region); 'North India' -> 'north'.
+  // `.replace(' india', '')` previously left bare 'India' untouched, collapsing
+  // the key to 'india' and hiding every region-specific dish.
+  const normalized = (region ?? '').toLowerCase().trim().replace(/india$/i, '').trim();
+  return (normalized || 'all') as NormalizedRegion;
+}
+
+
+// ─── DishSearchModal compound comparator ─────────────────────────────────────
+
+/** Health filter labels shared with the DishSearchModal chips. */
+export const DISH_HEALTH_FILTERS = ['all', 'low-cal', 'high-protein', 'low-carb', 'balanced'] as const;
+export type DishHealthFilter = (typeof DISH_HEALTH_FILTERS)[number];
+
+/** Score how well a dish matches a health filter (0=none, 1=partial, 2=match). */
+export function dishHealthMatchScore(d: Dish, filter: DishHealthFilter): number {
+  if (filter === 'all') return 1;
+  const cals = d.calories;
+  const prot = d.protein;
+  const nut = d.nutrition || [];
+  const hasCals = cals !== undefined && cals !== null;
+  const hasProt = prot !== undefined && prot !== null;
+  switch (filter) {
+    case 'low-cal':
+      if (hasCals && cals <= 250) return 2;
+      if (hasCals) return 0;
+      return 1;
+    case 'high-protein':
+      if (hasProt && prot >= 15) return 2;
+      if (nut.includes('protein')) return 1;
+      return 0;
+    case 'low-carb':
+      if (hasCals && cals <= 350 && hasProt && prot >= 10) return 2;
+      if (nut.includes('protein') && !nut.includes('carb')) return 1;
+      return 0;
+    case 'balanced':
+      if (hasCals && cals >= 200 && cals <= 500 && hasProt && prot >= 8) return 2;
+      if (nut.includes('protein') && nut.includes('carb')) return 1;
+      return nut.length > 0 ? 1 : 0;
+    default: return 1;
+  }
+}
+
+/** Slot priority: a dish whose category matches the mealType leads. */
+export function dishSlotPriority(d: Dish, mealType?: string): number {
+  if (!mealType) return 0;
+  const slot = mealType.toLowerCase();
+  const cats = (d.category || []).map((c: string) => c.toLowerCase());
+  if (cats.includes(slot)) return 2;
+  if (slot === 'snacks' && cats.includes('snacks')) return 2;
+  if (cats.includes('dinner') || cats.includes('lunch')) return 1;
+  return 0;
+}
+
+/**
+ * Deterministic compound comparator for the dish search modal:
+ * (slotPriority desc) -> (healthMatch desc when a filter is active) ->
+ * (compareRegion tiebreak) -> name. Ordering ONLY — it never filters, so
+ * far-region dishes always stay in the list. `regionKey` should already be
+ * normalized (see getRegionKey).
+ */
+export function dishSortComparator(params: {
+  regionKey: string;
+  mealType?: string;
+  healthFilter?: DishHealthFilter;
+}): (a: Dish, b: Dish) => number {
+  const { regionKey, mealType, healthFilter } = params;
+  const rc = compareRegion.bind(null, regionKey);
+  const hf = healthFilter ?? 'all';
+  const healthActive = hf !== 'all';
+  return (a, b) => {
+    const sp = dishSlotPriority(b, mealType) - dishSlotPriority(a, mealType);
+    if (sp !== 0) return sp;
+    if (healthActive) {
+      const hm = dishHealthMatchScore(b, hf) - dishHealthMatchScore(a, hf);
+      if (hm !== 0) return hm;
+    }
+    const r = rc(a.region, b.region);
+    if (r !== 0) return r;
+    return a.name.localeCompare(b.name);
+  };
 }
 
 /** Get relevant variants for a dish filtered by meal slot */
@@ -381,6 +492,98 @@ export function getDishVariants(dish: Dish, slot: string, diet?: string) {
     if (isVegan) return false;
     return v.mealContext.includes(category) || !v.mealContext;
   }).slice(0, 6);
+}
+
+// ─── Slot-balanced "Try these" sampler ───────────────────────────────────────
+
+const SLOT_SCORE: Record<string, number> = { breakfast: 0, lunch: 1, snacks: 2, dinner: 3 };
+const SLOT_NAMES = ['breakfast', 'lunch', 'snacks', 'dinner'];
+
+/** Primary slot score — lowest-scoring category wins, unknown categories = 4. */
+export function dishSlotScore(d: Dish): number {
+  return Math.min(...(d.category || []).map(c => SLOT_SCORE[c.toLowerCase()] ?? 4));
+}
+
+/**
+ * Slot-balanced "Try these" sampler. Buckets dishes by primary slot, sorts each
+ * bucket region-first then by name, and round-robins across the user's planned
+ * slots (maxPerSlot each, capped at 8; top-up from the full pool). Region and
+ * diet rules mirror the Dashboard fallback — ordering-only, never excludes.
+ * `excludeIds` (dishes already added to the target day) are the ONLY excluded
+ * dishes — anything else is never filtered out. Excluded ids are removed from
+ * the pool before bucketing, so the round-robin + top-up backfill keeps the
+ * count and slot balance.
+ */
+export function selectTryThese(
+  dishes: Dish[],
+  opts: { userDiet?: string; regionKey: string; plannedSlots?: string[]; maxPerSlot?: number; excludeIds?: string[] },
+): Dish[] {
+  const { userDiet, regionKey, plannedSlots, maxPerSlot = 2, excludeIds } = opts;
+  const cap = 8;
+  const ud = (userDiet || '').toLowerCase();
+
+  const passesRegion = (d: Dish): boolean =>
+    !d.region || d.region === 'all' || d.region === regionKey;
+  const passesDiet = (d: Dish): boolean => {
+    const dt = (d.diet || d.type || '').toLowerCase();
+    if (!dt) return true;
+    if (ud === 'veg') return dt === 'veg' || dt === 'vegan';
+    if (ud === 'eggitarian') return dt === 'eggitarian' || dt === 'veg' || dt === 'vegan' || dt === 'egg';
+    if (ud === 'non-veg') return true;
+    return true;
+  };
+
+  // excludeIds = dishes already added to the strip's target day — the ONLY
+  // exclusion. Region/diet stay ordering-AND-filter rules for everything else:
+  // users are always free to add any dish, but a dish already added today
+  // should not be suggested again (the reported bug). The sampler below
+  // backfills from the remaining pool, so slot balance is preserved.
+  const excludeSet = new Set(excludeIds ?? []);
+  const pool = dishes.filter(d => !excludeSet.has(d.id) && passesRegion(d) && passesDiet(d));
+  const byRegionThenName = (a: Dish, b: Dish) =>
+    compareRegion(regionKey, a.region, b.region) || a.name.localeCompare(b.name);
+
+  const slots = [...new Set(
+    (plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner']).map(s => s.toLowerCase()),
+  )].filter(s => SLOT_SCORE[s] !== undefined)
+    .sort((a, b) => (SLOT_SCORE[a] ?? 9) - (SLOT_SCORE[b] ?? 9));
+
+  const buckets: Record<string, Dish[]> = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+  const other: Dish[] = [];
+  for (const d of pool) {
+    const score = dishSlotScore(d);
+    const slot = score <= 3 ? SLOT_NAMES[score] : undefined;
+    if (slot) buckets[slot]!.push(d);
+    else other.push(d);
+  }
+  for (const slot in buckets) buckets[slot]!.sort(byRegionThenName);
+  other.sort(byRegionThenName);
+  const fullPool = [...pool].sort(byRegionThenName);
+
+  const selected: Dish[] = [];
+  const seen = new Set<string>();
+  const perSlot: Record<string, number> = {};
+  let progressed = true;
+  while (selected.length < cap && progressed) {
+    progressed = false;
+    for (const slot of slots) {
+      if (selected.length >= cap) break;
+      if ((perSlot[slot] ?? 0) >= maxPerSlot) continue;
+      const dish = buckets[slot]!.find(d => !seen.has(d.id));
+      if (!dish) continue;
+      seen.add(dish.id);
+      perSlot[slot] = (perSlot[slot] ?? 0) + 1;
+      selected.push(dish);
+      progressed = true;
+    }
+  }
+  for (const d of fullPool) {
+    if (selected.length >= cap) break;
+    if (seen.has(d.id)) continue;
+    seen.add(d.id);
+    selected.push(d);
+  }
+  return selected;
 }
 
 /** DIET_FILTER map exposed for modal compatibility */

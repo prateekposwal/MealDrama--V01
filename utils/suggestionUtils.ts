@@ -4,7 +4,9 @@
 
 import type { Meal } from '../types/tray';
 import type { SuggestionMeal } from '../app/lib/trayApi';
-import { DISH_LIBRARY, type Region } from '../meal/constants/dishLibrary';
+import { DISH_LIBRARY, type Dish, type Region } from '../meal/constants/dishLibrary';
+import { getRegionKey } from './dishSearch';
+import { compareRegion } from './regionPreference';
 
 /**
  * Convert SuggestionMeal (API response) to Meal (defaults engine input).
@@ -42,4 +44,85 @@ export function normalizeRegion(region: string): Region {
   if (lower.includes('central')) return 'central';
   if (lower.includes('north east') || lower.includes('northeast')) return 'northeast';
   return 'north';
+}
+
+// ─── AI-curated suggestion region ordering ────────────────────────────────────
+// The external AI bridge returns suggestions WITHOUT respecting the user region
+// (dialect mismatch + reorder-not-exclude). Every other surface is already
+// region-correct; this orders AI-curated items region-first CLIENT-SIDE.
+// Ordering ONLY — never excludes: the user can still add anything; region is a
+// decisive ordering preference, not a filter.
+
+const CANONICAL_REGION_KEYS = new Set(['north', 'south', 'west', 'east', 'central', 'northeast', 'all']);
+const REGION_KEYWORDS: Array<[RegExp, string]> = [
+  [/south/i, 'south'],
+  [/north\s*east/i, 'northeast'],
+  [/east/i, 'east'],
+  [/west/i, 'west'],
+  [/central/i, 'central'],
+  [/north/i, 'north'],
+];
+
+/** Minimal shape an AI suggestion item needs for region ordering. */
+export interface SuggestionLike {
+  id: string;
+  name: string;
+  region?: string;
+}
+
+/** Translate a free-form region string (incl. bridge dialect forms) to a canonical key. */
+function toCanonicalRegion(raw?: string): string | undefined {
+  const s = (raw ?? '').trim();
+  if (!s) return undefined;
+  const viaKey = getRegionKey(s); // 'North India'→'north' · 'All India'→'all' · 'India'→'all'
+  if (CANONICAL_REGION_KEYS.has(viaKey)) return viaKey;
+  for (const [re, key] of REGION_KEYWORDS) {
+    if (re.test(s)) return key;
+  }
+  return undefined; // untranslatable dialect → region-agnostic tie, never last-forever
+}
+
+/**
+ * Resolve the authoritative region for an AI item: the local library dish (by id,
+ * then by name with the same boundary rules as suggestionToMeal) first, else the
+ * AI-provided region string. Unknown/absent → undefined (region-agnostic).
+ */
+function resolveSuggestionRegion(item: SuggestionLike, library?: readonly Dish[]): string | undefined {
+  const byId = library?.find(d => d.id === item.id);
+  if (byId?.region) return byId.region;
+  if (library && item.name) {
+    const lower = item.name.toLowerCase();
+    const byName = library.find(d => d.name.toLowerCase() === lower)
+      || library.find(d => d.name.toLowerCase().startsWith(lower) && (d.name.length === lower.length || d.name[lower.length] === ' ' || d.name[lower.length] === '('))
+      || library.find(d => lower.startsWith(d.name.toLowerCase()) && (lower.length === d.name.length || lower[d.name.length] === ' ' || lower[d.name.length] === '('));
+    if (byName?.region) return byName.region;
+  }
+  return toCanonicalRegion(item.region);
+}
+
+/**
+ * Region-first ordering for AI-curated suggestion items — exact region → nearest
+ * neighbors → all/region-agnostic → rest. Deterministic (region, then name, then
+ * id) and NEVER drops an item. Pass the local dish library so AI items can be
+ * matched back (by id, then name) to the canonical dish regions every other
+ * surface uses. Unknown/absent regions resolve to the region-agnostic 'all' tier
+ * instead of being dumped last forever.
+ */
+export function orderSuggestionsRegionFirst<T extends SuggestionLike>(
+  items: T[],
+  regionKey: string,
+  library?: readonly Dish[],
+): T[] {
+  const key = getRegionKey(regionKey);
+  const resolved = items.map(item => ({
+    item,
+    region: resolveSuggestionRegion(item, library) ?? 'all',
+  }));
+  return resolved
+    .sort((a, b) =>
+      compareRegion(key, a.region, b.region)
+      || a.item.name.localeCompare(b.item.name)
+      || String(a.item.id).localeCompare(String(b.item.id)),
+    )
+    .map(entry => entry.item);
 }

@@ -7,4 +7,5 @@ export {
   checkPlanEnding,
   startNewUserGuide,
   cancelGuide,
+  checkPantryNeeds,
 } from './notificationTriggers';

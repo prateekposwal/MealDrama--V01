@@ -7,8 +7,8 @@ interface HealthScoreBadgeProps {
 }
 
 const sizeClasses = {
-  sm: 'text-[9px] px-1.5 py-0.5 gap-1',
-  md: 'text-[10px] px-2 py-1 gap-1.5',
+  sm: 'text-sm px-1.5 py-0.5 gap-1',
+  md: 'text-xs px-2 py-1 gap-1.5',
   lg: 'text-xs px-3 py-1.5 gap-2',
 };
 

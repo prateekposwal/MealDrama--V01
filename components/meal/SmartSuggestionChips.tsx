@@ -7,6 +7,8 @@ import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
 import { useAsyncGuard, requestDedupCache } from '../../utils/asyncGuard';
+import { useStore } from '../../app/store/useStore';
+import { fetchAISuggestions } from '../../utils/aiBridge';
 
 interface SmartSuggestionChipsProps {
   date: string;
@@ -70,47 +72,85 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
   useEffect(() => {
     const requestId = asyncGuard.start();
     const cacheKey = `suggestions_${mealType}_${userDiet}_${userRegion}`;
+    const prefs = useStore.getState().user?.preferredRegions || [userRegion];
 
     setLoading(true);
-    requestDedupCache.get(cacheKey, 5000, () =>
-      suggestionCache.getWithFallback({
-        mealType,
-        diet: userDiet,
-        region: userRegion,
-        pantry: pantryStaples.length > 0 ? pantryStaples : undefined,
-      })
-    ).then(result => {
+
+    // Try AI bridge first, fall back to existing cache
+    fetchAISuggestions({}, userDiet, prefs).then(aiSugs => {
       if (!asyncGuard.isCurrent(requestId)) return;
-      setSuggestions(result.suggestions);
-      setSource(result.source);
-      setLoading(false);
+      if (aiSugs && aiSugs[mealType.toLowerCase()]?.length > 0) {
+        const mapped: SuggestionMeal[] = aiSugs[mealType.toLowerCase()].map((d: any) => ({
+          id: d.id,
+          name: d.name,
+          diet: userDiet,
+          region: d.region,
+          category: d.slots,
+          mealType: mealType,
+          image: '',
+          suggestedBy: 'ai',
+        }));
+        setSuggestions(mapped);
+        setSource('api');
+        setLoading(false);
+        return;
+      }
+      // Fallback: existing cache
+      requestDedupCache.get(cacheKey, 5000, () =>
+        suggestionCache.getWithFallback({
+          mealType, diet: userDiet, region: userRegion,
+          pantry: pantryStaples.length > 0 ? pantryStaples : undefined,
+        })
+      ).then(result => {
+        if (!asyncGuard.isCurrent(requestId)) return;
+        setSuggestions(result.suggestions);
+        setSource(result.source);
+        setLoading(false);
+      }).catch(() => {
+        if (!asyncGuard.isCurrent(requestId)) return;
+        setSuggestions([]);
+        setSource('error');
+        setLoading(false);
+      });
     }).catch(() => {
-      if (!asyncGuard.isCurrent(requestId)) return;
-      setSuggestions([]);
-      setSource('error');
-      setLoading(false);
+      // AI bridge down — use existing cache
+      requestDedupCache.get(cacheKey, 5000, () =>
+        suggestionCache.getWithFallback({
+          mealType, diet: userDiet, region: userRegion,
+          pantry: pantryStaples.length > 0 ? pantryStaples : undefined,
+        })
+      ).then(result => {
+        if (!asyncGuard.isCurrent(requestId)) return;
+        setSuggestions(result.suggestions);
+        setSource(result.source);
+        setLoading(false);
+      }).catch(() => {
+        if (!asyncGuard.isCurrent(requestId)) return;
+        setSuggestions([]);
+        setSource('error');
+        setLoading(false);
+      });
     });
 
     return () => asyncGuard.abort();
   }, [mealType, userDiet, userRegion, pantryStaples]);
 
   const scoredSuggestions = useMemo(() => {
+    if (source === 'api') {
+      return suggestions.map(s => ({ suggestion: s, scored: { score: 1, percentage: 90, reasons: ['AI recommended'] } }));
+    }
     return suggestions
       .map(s => {
         const meal = suggestionToMeal(s);
         const ctx = {
-          dish: meal,
-          slotType: mealType,
-          userDiet,
-          pantryStaples,
-          region: userRegion,
-          existingSelections: [],
+          dish: meal, slotType: mealType, userDiet,
+          pantryStaples, region: userRegion, existingSelections: [],
         };
         const scored = scoreItem(s.name, 'bread', ctx);
         return { suggestion: s, scored };
       })
       .sort((a, b) => b.scored.score - a.scored.score);
-  }, [suggestions, mealType, userDiet, userRegion, pantryStaples]);
+  }, [suggestions, mealType, userDiet, userRegion, pantryStaples, source]);
 
   const handleAdd = useCallback((meal: SuggestionMeal) => {
     onAddMeal(meal);
@@ -125,7 +165,7 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <span className="text-lg" aria-hidden="true">{header.emoji}</span>
-        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+        <span className="text-xs font-black uppercase tracking-widest text-gray-400">
           {mealType}
         </span>
         <span className="text-xs ml-auto text-gray-400">
@@ -137,7 +177,7 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
       {source === 'cache' && (
         <div className="flex items-center gap-1 mb-3 px-2 py-1 rounded-lg bg-amber-50 text-amber-600">
           <AlertCircle size={10} />
-          <span className="text-[9px] font-bold">Offline mode — showing cached</span>
+          <span className="text-sm font-bold">Offline mode — showing cached</span>
         </div>
       )}
 
@@ -154,17 +194,19 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
           <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1" role="list" aria-label="Meal suggestions">
             {scoredSuggestions.length === 0 && suggestions.length > 0 && (
               <div className="w-full py-4 text-center">
-                <p className="text-[11px] font-medium text-gray-400">No suitable suggestions</p>
+                <p className="text-sm font-medium text-gray-400">No suitable suggestions</p>
               </div>
             )}
             {scoredSuggestions.length === 0 && suggestions.length === 0 && source !== 'error' && (
               <div className="w-full py-4 text-center">
-                <p className="text-[11px] font-medium text-gray-400">No suggestions available</p>
+                <p className="text-sm font-medium text-gray-400">No suggestions available</p>
               </div>
             )}
             {scoredSuggestions.map(({ suggestion: meal, scored }) => {
               const chipPreview = formatChipPreview(meal);
-              const recommendation = formatRecommendation(meal.name, scored.reasons);
+              const recommendation = formatRecommendation(meal.name, scored.reasons ?? []);
+              const pct = scored.percentage ?? 90;
+              const reason = scored.reasons?.[0] ?? 'recommended';
 
               return (
                 <div key={meal.id} className="shrink-0 w-44">
@@ -179,33 +221,33 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
                       <DishImage name={meal.name} slot={mealType} size="sm" />
                       {/* Score badge */}
                       <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                          scored.percentage >= 80 ? 'bg-green-100 text-green-700'
-                          : scored.percentage >= 60 ? 'bg-amber-100 text-amber-700'
+                        className={`text-sm font-bold px-1.5 py-0.5 rounded-full ${
+                          pct >= 80 ? 'bg-green-100 text-green-700'
+                          : pct >= 60 ? 'bg-amber-100 text-amber-700'
                           : 'bg-gray-100 text-gray-500'
                         }`}
                         title={recommendation}
                       >
-                        {scored.percentage}%
+                        {pct}%
                       </span>
                     </div>
                     <span className="text-xs font-bold block leading-tight truncate mt-1 text-gray-800">
                       {meal.name}
                     </span>
-                    <span className="text-[9px] font-medium capitalize text-gray-400">
+                    <span className="text-sm font-medium capitalize text-gray-400">
                       {meal.region} · {meal.prepMinutes}m
                     </span>
                     {chipPreview && (
                       <div className="flex items-center gap-1 mt-1 text-gray-300">
                         <Sparkles size={8} className="text-[#FF385C]" />
-                        <span className="text-[8px] font-medium truncate">{chipPreview}</span>
+                        <span className="text-xs font-medium truncate">{chipPreview}</span>
                       </div>
                     )}
                     {/* Reason preview */}
                     <div className="flex items-center gap-1 mt-1.5">
                       <Info size={8} className="text-gray-300" />
-                      <span className="text-[7px] text-gray-400 truncate leading-tight">
-                        {scored.reasons[0] ?? 'recommended'}
+                      <span className="text-sm text-gray-400 truncate leading-tight">
+                        {reason}
                       </span>
                     </div>
                   </button>
@@ -221,7 +263,7 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
                 aria-label="Browse more meals"
               >
                 <Plus size={16} className="text-gray-400" />
-                <span className="text-[10px] font-bold text-gray-400">More</span>
+                <span className="text-xs font-bold text-gray-400">More</span>
               </button>
             )}
           </div>

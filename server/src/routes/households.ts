@@ -25,10 +25,8 @@ router.get('/:householdId', async (req: Request, res: Response) => {
       where: { id: householdId },
       include: {
         members: {
-          include: { user: true, healthProfile: true },
+          include: { user: true },
         },
-        slotConfig: true,
-        cook: { select: { id: true, name: true, phone: true } },
       },
     });
 
@@ -41,28 +39,17 @@ router.get('/:householdId', async (req: Request, res: Response) => {
       household_id: household.id,
       name: household.name,
       location_region: household.locationRegion,
-      household_size: household.householdSize,
-      onboarding_progress: household.onboardingProgress,
+      household_size: null,
+      onboarding_progress: null,
       members: household.members.map(m => ({
         member_id: m.id,
         name: m.name,
         role: m.role,
-        persona: m.persona,
-        age_group: m.ageGroup,
-        diet_type: m.dietType,
-        health_profile: m.healthProfile ? {
-          health_goal: m.healthProfile.healthGoal,
-          allergies: m.healthProfile.allergies,
-          intolerances: m.healthProfile.intolerances,
-          medical_conditions: m.healthProfile.medicalConditions,
-          spice_level: m.healthProfile.spiceLevel,
-          oil_preference: m.healthProfile.oilPreference,
-          sweet_tolerance: m.healthProfile.sweetTolerance,
-          food_behavior: m.healthProfile.foodBehavior,
-        } : null,
+        persona: null,
+        age_group: null,
+        diet_type: null,
+        health_profile: null,
       })),
-      slot_config: household.slotConfig?.config || null,
-      cook: household.cook ? { name: household.cook.name, phone: household.cook.phone } : null,
     });
   } catch (error) {
     if (error instanceof APIError) throw error;
@@ -96,7 +83,7 @@ router.get('/', async (req: Request, res: Response) => {
       name: m.household.name,
       role: m.role,
       member_count: m.household._count.members,
-      onboarding_progress: m.household.onboardingProgress,
+      onboarding_progress: null,
     })));
   } catch (error) {
     if (error instanceof APIError) throw error;
@@ -175,7 +162,7 @@ router.post('/join', async (req: Request, res: Response) => {
 
     const household = await prisma.household.findUnique({
       where: { code },
-      include: { members: { include: { user: true } }, slotConfig: true, cook: { select: { id: true, name: true } } },
+      include: { members: { include: { user: true } } },
     });
 
     if (!household) {
@@ -191,7 +178,7 @@ router.post('/join', async (req: Request, res: Response) => {
 
     const updated = await prisma.household.findUnique({
       where: { id: household.id },
-      include: { members: { include: { user: true } }, slotConfig: true, cook: { select: { id: true, name: true } } },
+      include: { members: { include: { user: true } } },
     });
 
     res.json({

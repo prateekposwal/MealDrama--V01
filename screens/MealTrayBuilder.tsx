@@ -461,7 +461,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                             Meal<span className="text-[#FF385C]">Drama</span>
                         </span>
                         <div className="flex items-center gap-2 mt-2">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-[#FF385C] bg-[#FF385C]/10 px-3 py-1 rounded-full">
+                            <span className="text-xs font-black uppercase tracking-widest text-[#FF385C] bg-[#FF385C]/10 px-3 py-1 rounded-full">
                                 {currentSlot.icon} {currentSlot.label}
                             </span>
                         </div>
@@ -524,21 +524,21 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         <div className="px-1 pt-2 pb-3 border-b border-gray-100">
                             <div className="flex items-center gap-2">
                                 <Clock size={12} className="text-gray-400" />
-                                <span className="text-[10px] font-bold text-gray-500 w-14 flex-shrink-0">{currentSlot.label}</span>
+                                <span className="text-xs font-bold text-gray-500 w-14 flex-shrink-0">{currentSlot.label}</span>
                                 <select
                                     value={slotTimes[currentSlot.mealType]?.start || SLOT_TIME_DEFAULTS[currentSlot.mealType].start}
                                     onChange={e => handleSlotTimeChange(currentSlot.mealType, 'start', e.target.value)}
-                                    className="text-[10px] font-bold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-1.5 py-1 appearance-none cursor-pointer text-center w-[62px] focus:outline-none focus:ring-2 focus:ring-[#FF385C]/20 focus:border-[#FF385C]"
+                                    className="text-xs font-bold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-1.5 py-1 appearance-none cursor-pointer text-center w-[62px] focus:outline-none focus:ring-2 focus:ring-[#FF385C]/20 focus:border-[#FF385C]"
                                 >
                                     {Array.from({ length: 24 }, (_, i) =>
                                         `${String(i).padStart(2, '0')}:00`
                                     ).map(h => <option key={h} value={h}>{h}</option>)}
                                 </select>
-                                <span className="text-[8px] font-bold text-gray-400">to</span>
+                                <span className="text-xs font-bold text-gray-400">to</span>
                                 <select
                                     value={slotTimes[currentSlot.mealType]?.end || SLOT_TIME_DEFAULTS[currentSlot.mealType].end}
                                     onChange={e => handleSlotTimeChange(currentSlot.mealType, 'end', e.target.value)}
-                                    className="text-[10px] font-bold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-1.5 py-1 appearance-none cursor-pointer text-center w-[62px] focus:outline-none focus:ring-2 focus:ring-[#FF385C]/20 focus:border-[#FF385C]"
+                                    className="text-xs font-bold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-1.5 py-1 appearance-none cursor-pointer text-center w-[62px] focus:outline-none focus:ring-2 focus:ring-[#FF385C]/20 focus:border-[#FF385C]"
                                 >
                                     {Array.from({ length: 24 }, (_, i) =>
                                         `${String(i).padStart(2, '0')}:00`
@@ -546,7 +546,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                                 </select>
                             </div>
                             {timeValidation && !timeValidation.valid && (
-                                <p className="text-[10px] font-semibold text-red-500 mt-1">{timeValidation.message}</p>
+                                <p className="text-xs font-semibold text-red-500 mt-1">{timeValidation.message}</p>
                             )}
                         </div>
 

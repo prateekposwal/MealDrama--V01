@@ -226,22 +226,69 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
   if (vegFruitScore >= 6) breakdown.push('✅ Good vegetable & fruit variety');
   else if (vegFruitScore >= 3) breakdown.push('⚠️ Add more vegetables & fruits');
   else breakdown.push('❌ Half your plate should be vegetables & fruits');
-  if (vegFruitScore < 6) suggestions.push('Add a vegetable side or salad to increase produce');
 
   if (wholeGrainScore >= 6) breakdown.push('✅ Good whole grain choice');
   else if (wholeGrainScore >= 3) breakdown.push('⚠️ Try swapping refined grains for whole grains');
   else breakdown.push('❌ Choose whole grains over refined grains');
-  if (wholeGrainScore < 6) suggestions.push('Swap white rice for brown rice or choose whole wheat roti');
 
   if (proteinScore >= 6) breakdown.push('✅ Good protein source');
   else if (proteinScore >= 3) breakdown.push('⚠️ Include a healthy protein source');
   else breakdown.push('❌ Add lean protein — dal, paneer, chicken, fish, or legumes');
-  if (proteinScore < 6) suggestions.push('Add a protein-rich dish like dal, paneer, or legumes');
 
-  if (healthyFatScore < 4) suggestions.push('Use healthy oils like mustard, olive, or sunflower');
+  const dayOfWeek = new Date().getDay();
+  const VEG_TIPS = [
+    'Add a vegetable side or salad to increase produce',
+    'Include seasonal fruits for natural sweetness and fiber',
+    'Add a fresh salad or vegetable curry with your meal',
+    'Include sprouts or a fruit bowl for extra nutrients',
+    'Add green vegetables like palak, broccoli, or bhindi',
+    'Start your meal with a salad or vegetable soup',
+    'Add grated carrot, beetroot, or cucumber to your plate',
+  ];
+  const GRAIN_TIPS = [
+    'Swap white rice for brown rice or choose whole wheat roti',
+    'Replace refined flour with whole wheat or millet roti',
+    'Choose brown rice, quinoa, or whole wheat bread',
+    'Try multigrain roti or millet-based dishes',
+    'Swap white bread for whole wheat or multi-grain',
+    'Choose whole wheat pasta or brown rice over refined',
+    'Add millets like jowar, bajra, or ragi to your meals',
+  ];
+  const PROTEIN_TIPS = [
+    'Add a protein-rich dish like dal, paneer, or legumes',
+    'Include soya chunks, tofu, or chicken for protein',
+    'Add chole, rajma, or lentils for plant-based protein',
+    'Include eggs, fish, or paneer for lean protein',
+    'Add sprouts, chickpeas, or black beans to your meal',
+    'Include moong dal, masoor dal, or mixed dal',
+    'Try protein-rich dishes like tandoori paneer or grilled fish',
+  ];
+  const FAT_TIPS = [
+    'Use healthy oils like mustard, olive, or sunflower',
+    'Add dry fruits like almonds and walnuts for healthy fats',
+    'Include seeds like flax, chia, or pumpkin seeds',
+    'Add sprouts or avocado for a healthy fat boost',
+    'Include yogurt, curd, or buttermilk for healthy fats',
+    'Add nuts and seeds like walnuts and sunflower seeds',
+    'Cook with ghee, coconut oil, or mustard oil',
+  ];
+  const DRINK_TIPS = [
+    'Replace sugary drinks with water, chaas, or unsweetened tea',
+    'Cut back on sugary drinks — try green tea or lemon water',
+    'Swap sodas for coconut water or buttermilk',
+    'Choose unsweetened beverages like herbal tea or chaas',
+    'Replace packaged juices with fresh lime water or coconut water',
+    'Cut sugary drinks — try jeera water or green tea instead',
+    'Stay hydrated with water, chaas, or lemon water',
+  ];
+
+  if (vegFruitScore < 6) suggestions.push(VEG_TIPS[dayOfWeek % VEG_TIPS.length]);
+  if (wholeGrainScore < 6) suggestions.push(GRAIN_TIPS[dayOfWeek % GRAIN_TIPS.length]);
+  if (proteinScore < 6) suggestions.push(PROTEIN_TIPS[dayOfWeek % PROTEIN_TIPS.length]);
+  if (healthyFatScore < 4) suggestions.push(FAT_TIPS[dayOfWeek % FAT_TIPS.length]);
   if (sugaryScore < 0) {
     breakdown.push('⚠️ Consider reducing sugary items');
-    suggestions.push('Replace sugary drinks with water, chaas, or unsweetened tea');
+    suggestions.push(DRINK_TIPS[dayOfWeek % DRINK_TIPS.length]);
   }
   if (redMeatScore < 0) {
     breakdown.push('⚠️ Limit red meat consumption');

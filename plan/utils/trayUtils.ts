@@ -43,16 +43,25 @@ export const uid = () => `item_${nanoid(16)}`;
 
 /** Extract unique ingredient names from a dish for pantry auto-add */
 export function getIngredientNamesForMeal(dishId: string, variantId?: string): string[] {
-  const key = `${dishId}::${variantId || ''}`;
-  const generated = GENERATED_INGREDIENTS[key];
-  if (generated) return [...new Set(generated.map(i => i.name))];
   const store = useStore.getState();
   let dishPool = store.dishes;
   if (!dishPool.length) {
     const { DISH_LIBRARY } = require('../constants/dishLibrary');
     dishPool = DISH_LIBRARY;
   }
-  if (!dishPool.length) return [];
+  // Explicit variant ingredients are canonical — authoritative first.
+  const dish = dishPool.find(d => d.id === dishId);
+  const variant = dish?.variants?.find(v => v.id === variantId);
+  if (variant?.ingredients?.length) {
+    return [...new Set(variant.ingredients.map(i => i.name))];
+  }
+  // Live inference second.
   const ingredients = getIngredientsForMealOption(dishId, variantId || '', dishPool);
-  return [...new Set(ingredients.map(i => i.name))];
+  if (ingredients.length) {
+    return [...new Set(ingredients.map(i => i.name))];
+  }
+  // Generated map as last resort only (never overrides canonical/inferred data).
+  const key = `${dishId}::${variantId || ''}`;
+  const generated = GENERATED_INGREDIENTS[key];
+  return generated ? [...new Set(generated.map(i => i.name))] : [];
 }

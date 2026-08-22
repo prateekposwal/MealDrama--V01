@@ -17,6 +17,8 @@ const SLOT_TIMES: Record<string, { start: number; end: number }> = {
   dinner: { start: 19, end: 22 },
 };
 
+const SLOT_REMINDER_OFFSET = 1; // hours before slot to send reminder
+
 const SLOT_LABELS: Record<string, string> = {
   breakfast: '☀️ Breakfast', lunch: '🌤️ Lunch', snacks: '🍪 Snacks', dinner: '🌙 Dinner',
 };
@@ -39,8 +41,9 @@ export function checkMealReminder(
     const slotTimes = SLOT_TIMES[slot];
     if (!slotTimes) continue;
     const { start, end } = slotTimes;
-    // Fire reminder at start of the window (start to start+1)
-    if (hour < start || hour >= start + 1) continue;
+    // Fire reminder 1 hour before the slot starts
+    const remindAt = start - SLOT_REMINDER_OFFSET;
+    if (hour < remindAt || hour >= remindAt + 1) continue;
 
     const meals = getMeals(today, slot);
     if (meals.length === 0) continue;
@@ -117,8 +120,11 @@ export function startNewUserGuide() {
   const store = useNotificationStore.getState();
   if (!store.enabled) return;
 
+  // Mark as seen immediately so it doesn't repeat
+  store.lastSeenGuide = Date.now();
+
   // Don't re-show if user has seen guides recently (within 7 days)
-  if (Date.now() - store.lastSeenGuide < 7 * 86400000) return;
+  if (Date.now() - store.lastSeenGuide < 7 * 86400000 && store.lastSeenGuide > 0) return;
 
   _guideIndex = 0;
   scheduleNextGuide();
@@ -208,5 +214,32 @@ export function fireCookShare(cookName: string) {
     type: 'cook_share',
     title: '📤 Plan Shared',
     message: `Your meal plan was sent to ${cookName} on WhatsApp.`,
+  });
+}
+
+// ─── End-of-Day Grocery Reminder ─────────────────────────────────────────────
+
+/**
+ * Check after dinner time if there are unchecked pantry items for tomorrow.
+ * Fires once per day (avoids duplicate within 12 hours).
+ */
+export function checkPantryNeeds(uncheckedCount: number) {
+  const store = useNotificationStore.getState();
+  if (!store.enabled) return;
+  if (uncheckedCount === 0) return;
+
+  const hour = new Date().getHours();
+  // Fire after dinner (22:00 = 10 PM) up until midnight
+  if (hour < 22 || hour >= 24) return;
+
+  // Avoid duplicate — check if already fired in last 12 hours
+  const recent = store.recentByType('pantry_reminder', 12 * 3600000);
+  if (recent.length > 0) return;
+
+  store.addNotification({
+    type: 'pantry_reminder',
+    title: '🥦 Groceries Needed Tomorrow',
+    message: `You have ${uncheckedCount} item${uncheckedCount !== 1 ? 's' : ''} on your shopping list. Add them before tomorrow's cook.`,
+    action: { label: 'View Pantry' },
   });
 }

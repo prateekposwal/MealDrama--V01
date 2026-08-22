@@ -1,6 +1,6 @@
 import { useStore } from '../app/store/useStore';
 
-const BASE_URL = import.meta.env.VITE_ENV === 'production' ? import.meta.env.VITE_API_URL : '/api/v1';
+const BASE_URL = 'http://192.168.29.211:3001/api/v1';
 
 // ─── Auth readiness guard ─────────────────────────────────────────────────
 let _authReady = false;
@@ -148,7 +148,6 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
   const doFetch = async (): Promise<T> => {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       ...fetchOptions,
-      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),

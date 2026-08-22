@@ -21,18 +21,29 @@ export function generateMealTitle(
   // Normalize assigned carb if present
   const normalizedAssignedCarb = assignedCarb ? normalizeCategory(assignedCarb) : null;
 
-  // Skip assigned carb if dish already has the same carb embedded
-  const effectiveCarb = (normalizedAssignedCarb && normalizedAssignedCarb !== dishCarb) ? normalizedAssignedCarb : null;
+  // Use assigned carb if provided and different from embedded carb (user swapped)
+  const effectiveCarb = normalizedAssignedCarb && normalizedAssignedCarb !== dishCarb
+    ? normalizedAssignedCarb
+    : dishCarb ? null : normalizedAssignedCarb;
 
-  // Build sides list — exclude carbs that match effective carb, dish carb, or are general carb-like when carb is assigned
+  // When the user swapped the carb, strip the old embedded carb from the dish name
+  let cleanName = mainDish;
+  if (effectiveCarb && dishCarb && effectiveCarb !== dishCarb) {
+    // Remove "with X" or "+ X" patterns matching the old embedded carb
+    const oldCarb = dishCarb.toLowerCase();
+    cleanName = mainDish.replace(new RegExp(`\\s+with\\s+${oldCarb}`, 'i'), '');
+    cleanName = cleanName.replace(new RegExp(`\\s+\\+\\s+${oldCarb}`, 'i'), '');
+  }
+
+  // Build sides list — exclude carbs, especially when dish name already has a carb
   const sideParts = normalizedSides.filter(s => {
     if (s === effectiveCarb || s === dishCarb) return false;
-    if (effectiveCarb && isCarb(s)) return false;
+    if ((effectiveCarb || dishCarb) && isCarb(s)) return false;
     return true;
   });
 
   // Format: Main (Side1, Side2) + Carb + Beverage
-  const parts: string[] = [mainDish];
+  const parts: string[] = [cleanName];
 
   if (sideParts.length > 0) {
     parts.push(`(${sideParts.join(', ')})`);

@@ -502,6 +502,15 @@ export function aggregateSlotItems(items: TrayItem[]): {
   const mapTo = (m: Map<string, number>, unit: string): AggregatedCategory[] =>
     Array.from(m.entries()).map(([name, totalQty]) => ({ name, totalQty, unit }));
 
+  // Deduplicate sides: remove any item already present in roti or rice
+  const rotiNames = new Set(acc.roti.keys().map(k => k.toLowerCase()));
+  const riceNames = new Set(acc.rice.keys().map(k => k.toLowerCase()));
+  for (const key of acc.sides.keys()) {
+    if (rotiNames.has(key.toLowerCase()) || riceNames.has(key.toLowerCase())) {
+      acc.sides.delete(key);
+    }
+  }
+
   return {
     gravy: mapTo(acc.gravy, 'servings'),
     roti: mapTo(acc.roti, 'pcs'),

@@ -3,15 +3,16 @@ import { X } from 'lucide-react';
 
 export interface ToastMessage {
   message: string;
-  type: 'error' | 'success' | 'info';
+  type: 'error' | 'success' | 'info' | 'warning';
   action?: { label: string; onClick: () => void };
 }
 
 export const Toast: React.FC<{ message: string; type: ToastMessage['type']; action?: ToastMessage['action']; onClose: () => void }> = ({ message, type, action, onClose }) => {
-  const colors = {
-    error: 'bg-red-500',
-    success: 'bg-green-500',
-    info: 'bg-gray-800',
+  const colors: Record<string, string> = {
+    error: 'bg-[#ef4444]',
+    success: 'bg-[#22c55e]',
+    info: 'bg-[#1f2937]',
+    warning: 'bg-[#d97706]',
   };
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -22,7 +23,7 @@ export const Toast: React.FC<{ message: string; type: ToastMessage['type']; acti
   }, []);
 
   return (
-    <div className={`fixed top-4 left-4 right-4 max-w-lg mx-auto ${colors[type]} text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-2 z-[100] animate-in slide-in-from-top-2`}>
+    <div className={`fixed top-4 left-4 right-4 max-w-lg mx-auto ${colors[type]} text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-2 z-50`}>
       <span className="font-medium text-sm flex-1">{message}</span>
       {action && (
         <button
