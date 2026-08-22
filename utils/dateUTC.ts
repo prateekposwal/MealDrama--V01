@@ -45,6 +45,16 @@ export function daysBetweenISO(a: string, b: string): number {
 }
 
 /**
+ * Whole days from today until `dateISO` (IST calendar days) — the shared
+ * "expires in N d" countdown. Negative when the date is already past.
+ * Delegates to daysBetweenISO (the canonical IST whole-day delta) so every
+ * countdown in the app shares one math path.
+ */
+export function daysUntil(dateISO: string, todayISO: string): number {
+  return daysBetweenISO(todayISO, dateISO);
+}
+
+/**
  * Get the day of week (0=Sunday, 6=Saturday) for an ISO date in IST.
  * Uses IST timezone — NOT the device's local timezone.
  * Avoids the bug where `new Date(isoString).getDay()` returns local-TZ day.
@@ -68,14 +78,14 @@ export function addDaysISO(iso: string, days: number): string {
  * C3: Fixed — uses Intl.DateTimeFormat parts to extract IST hours/minutes
  * without locale string parsing ambiguity.
  */
-export function getISTTime(): { hours: number; minutes: number } {
+export function getISTTime(d: Date = new Date()): { hours: number; minutes: number } {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: IST_TIMEZONE,
     hour: 'numeric',
     minute: 'numeric',
     hour12: false,
   });
-  const parts = formatter.formatToParts(new Date());
+  const parts = formatter.formatToParts(d);
   const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
   const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
   return { hours: hour, minutes: minute };
