@@ -165,11 +165,11 @@ export function applySmartDefaults(
   let roti: string | null = null;
   let rice: string | null = null;
 
-  // SOUP & SNACKS: skip carbs entirely
+  // SOUPS: skip carbs entirely. SNACKS: heavy carbs are filtered in the snacks
+  // branch below — light carbs and light_carb-tagged dishes keep a carb (product rule).
   const isSoupStyle_check = (style === 'soup') || meal.name.toLowerCase().includes('soup') || ['rasam', 'shorba'].some(s => meal.name.toLowerCase().includes(s));
-  const isSnacksSlot = _slotType === 'snacks';
 
-  if (!standalone && !dishHasCarb && !isSoupStyle_check && !isSnacksSlot) {
+  if (!standalone && !dishHasCarb && !isSoupStyle_check) {
     // Only infer carbs for dishes that need them
     const explicitRoti = (meal.rotiOptions?.length ?? 0) > 0;
     const explicitRice = (meal.riceOptions?.length ?? 0) > 0;
