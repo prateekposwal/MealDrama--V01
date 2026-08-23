@@ -354,7 +354,9 @@ describe('buildPantryGroups', () => {
     const groups = buildPantryGroups(input);
     const produce = groups.find(g => g.category === 'produce');
     const onions = produce!.items.find(i => i.name === 'Onions');
-    expect(onions!.totalQuantity).toBe(5);
+    // 5 pcs onion → 500g (buy-friendly grams)
+    expect(onions!.totalQuantity).toBe(500);
+    expect(onions!.unit).toBe('g');
     expect(onions!.sources).toContain('Dish A');
     expect(onions!.sources).toContain('Dish B');
   });

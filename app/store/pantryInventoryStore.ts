@@ -54,6 +54,10 @@ interface PantryInventoryState {
   purchaseEvents: PurchaseEvent[];
   logPurchase: (name: string, purchase: NewPurchase) => void;
   removeEntry: (name: string) => void;
+  /** Remove one purchase event by its unique instant. Aggregate untouched. */
+  removePurchaseEvent: (purchasedAt: string, name: string) => void;
+  /** Remove all events + the aggregate for a name ("clear my mistake"). */
+  removePurchaseByName: (name: string) => void;
   setEntry: (name: string, patch: Partial<InventoryEntry>) => void;
   clearEntries: () => void;
   clearPurchases: () => void;
@@ -134,6 +138,23 @@ export const usePantryInventoryStore = create<PantryInventoryState>()(
         set(s => ({ entries: s.entries.filter(e => e.name.toLowerCase() !== clean) }));
       },
 
+      removePurchaseEvent: (purchasedAt, name) => {
+        const clean = (name || '').trim().toLowerCase();
+        set(s => ({
+          purchaseEvents: (s.purchaseEvents ?? []).filter(
+            ev => !(ev.purchasedAt === purchasedAt && ev.name.toLowerCase() === clean),
+          ),
+        }));
+      },
+
+      removePurchaseByName: (name) => {
+        const clean = (name || '').trim().toLowerCase();
+        set(s => ({
+          entries: s.entries.filter(e => e.name.toLowerCase() !== clean),
+          purchaseEvents: (s.purchaseEvents ?? []).filter(e => e.name.toLowerCase() !== clean),
+        }));
+      },
+
       setEntry: (name, patch) => {
         const clean = (name || '').trim().toLowerCase();
         set(s => ({
@@ -155,6 +176,52 @@ export const usePantryInventoryStore = create<PantryInventoryState>()(
 export interface PurchaseDayGroup {
   boughtOn: string;
   events: PurchaseEvent[];
+}
+
+/** Display-row for a consolidated purchase line (same item+unit, summed qty). */
+export interface ConsolidatedPurchaseLine {
+  key: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  /** First event's instant is the row's identity for delete-one. */
+  purchasedAt: string;
+  requestedBy?: string;
+  /** How many raw events this row represents. */
+  count: number;
+}
+
+/**
+ * Collapse same-name+same-unit events within a day into ONE display line with
+ * summed quantity (so a mistaken triple "Cauliflower 1.33pc ×3" reads as a
+ * single "Cauliflower 4pc"). Raw ledger events are untouched — history stays
+ * exact; only the presentation is consolidated. Pure, deterministic.
+ */
+export function consolidateEventsForDisplay(events: PurchaseEvent[]): ConsolidatedPurchaseLine[] {
+  const byKey = new Map<string, ConsolidatedPurchaseLine>();
+  for (const ev of events) {
+    const key = `${ev.name.toLowerCase()}::${ev.unit.toLowerCase()}`;
+    const row = byKey.get(key);
+    if (row) {
+      // earliest instant remains the row identity (cheapest true deletion anchor)
+      row.quantity = Math.round((row.quantity + ev.quantity) * 100) / 100;
+      row.count += 1;
+      if (ev.purchasedAt! < row.purchasedAt!) row.purchasedAt = ev.purchasedAt;
+      if (ev.requestedBy) row.requestedBy = ev.requestedBy;
+    } else {
+      byKey.set(key, {
+        key,
+        name: ev.name,
+        quantity: ev.quantity,
+        unit: ev.unit,
+        purchasedAt: ev.purchasedAt!,
+        requestedBy: ev.requestedBy,
+        count: 1,
+      });
+    }
+  }
+  return Array.from(byKey.values()).sort((a, b) =>
+    a.purchasedAt < b.purchasedAt ? 1 : a.purchasedAt > b.purchasedAt ? -1 : 0);
 }
 
 /**

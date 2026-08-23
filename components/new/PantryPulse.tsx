@@ -586,7 +586,7 @@ const PantryPulse: React.FC = () => {
                         <NotificationCenter defaultTab="pantry" />
                     </div>
                 </div>
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-bold text-emerald-600">✅ {checkedCount} in kitchen</span>
                     <span className="text-gray-300">·</span>
                     <span className="text-sm font-bold text-orange-600">❌ {uncheckedCount} to buy</span>
@@ -594,10 +594,10 @@ const PantryPulse: React.FC = () => {
 
                 {/* ─── Recent purchases (P2) ─── */}
                 {recentPurchaseGroups.length > 0 && (
-                    <div className="px-0 mb-4">
+                    <div className="px-0 mb-1">
                         <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-3">
                             <p className="text-xs font-black uppercase tracking-widest text-amber-700 mb-2">🛒 Recent purchases</p>
-                            <div className="space-y-1.5">
+                            <div className="space-y-0.5">
                                 {recentPurchaseGroups.map(g => (
                                     <div key={g.boughtOn} className="text-xs">
                                         <p className="font-black text-gray-500 mb-0.5">{g.boughtOn} · {g.events.length} item{g.events.length === 1 ? '' : 's'}</p>
@@ -629,7 +629,7 @@ const PantryPulse: React.FC = () => {
 
                 {/* ─── Leftover radar (P0) ─── */}
                 {forecastResults.length > 0 && (
-                    <div className="px-0 mb-4">
+                    <div className="px-0 mb-1">
                         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
                             <p className="text-xs font-black uppercase tracking-widest text-amber-700 mb-2">🧊 Leftover radar</p>
                             <div className="space-y-3">
@@ -776,7 +776,7 @@ const PantryPulse: React.FC = () => {
             )}
 
             {mergedGroups.map(group => (
-                <div key={group.category} className="mb-4">
+                <div key={group.category} className="mb-1">
                     <div className="sticky top-0 z-10 bg-white px-4 pt-3 pb-2">
                         <div className="flex items-center gap-2">
                             <span className="text-base">{group.emoji}</span>
@@ -830,7 +830,7 @@ const PantryPulse: React.FC = () => {
             ))}
 
             {unmatchedManual.length > 0 && (
-                <div className="px-4 mb-4">
+                <div className="px-4 mb-1">
                     <div className="flex items-center gap-2 mt-4 mb-2">
                         <span className="text-xs font-black uppercase tracking-widest text-gray-300">Other Items</span>
                         <span className="text-xs font-black text-gray-200">{unmatchedManual.length} items</span>
@@ -900,7 +900,7 @@ const PantryPulse: React.FC = () => {
                         onClick={e => e.stopPropagation()}
                     >
                         <h3 className="text-lg font-black text-gray-900 mb-1">Need something?</h3>
-                        <p className="text-xs text-gray-500 mb-4">Add an ingredient to your shopping list</p>
+                        <p className="text-xs text-gray-500 mb-1">Add an ingredient to your shopping list</p>
                         <div className="flex gap-3 mb-3">
                             <input
                                 type="text"

@@ -95,7 +95,9 @@ describe('buildPantryGroups', () => {
 
     const produce = groups.find(g => g.category === 'produce');
     expect(produce).toBeDefined();
-    expect(produce!.items[0].totalQuantity).toBe(3);
+    // 3 pcs onion → 300g (buy-friendly grams)
+    expect(produce!.items[0].totalQuantity).toBe(300);
+    expect(produce!.items[0].unit).toBe('g');
     expect(produce!.items[0].sources).toContain('Rajma Chawal');
     expect(produce!.items[0].sources).toContain('Dal Tadka');
   });

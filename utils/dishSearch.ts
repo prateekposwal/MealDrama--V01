@@ -518,7 +518,7 @@ export function selectTryThese(
   dishes: Dish[],
   opts: { userDiet?: string; regionKey: string; plannedSlots?: string[]; maxPerSlot?: number; excludeIds?: string[] },
 ): Dish[] {
-  const { userDiet, regionKey, plannedSlots, maxPerSlot = 2, excludeIds } = opts;
+  const { userDiet, regionKey, plannedSlots, maxPerSlot = 5, excludeIds } = opts;
   const cap = 8;
   const ud = (userDiet || '').toLowerCase();
 

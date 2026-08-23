@@ -3,7 +3,7 @@
  * Every function first tries the AI bridge (port 5002 proxied via /api/v1/ai/)
  * and falls back gracefully if unavailable.
  */
-const AI_BASE = 'http://192.168.29.211:3001/api/v1/ai';
+const AI_BASE = 'http://localhost:5002/api/v1/ai';
 
 async function post<T>(path: string, body: any): Promise<T | null> {
   try {

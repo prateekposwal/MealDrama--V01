@@ -105,16 +105,6 @@ export function orderSuggestionsRegionFirst<T extends SuggestionLike>(
       })
     : items;
   // Step 2: region-first ordering (same as before)
-  // Step 1: optional diet filtering
-  const dietFiltered = diet
-    ? items.filter((item) => {
-        const dishDiet = inferDietFromName(item.name);
-        if (diet === 'non-veg') return true; // include all
-        if (diet === 'eggitarian') return true; // include all
-        if (diet === 'veg') return dishDiet !== 'non-veg'; // exclude non-veg
-        return true;
-      })
-    : items;  // Step 2: region-first ordering (same as before)
   const key = getRegionKey(regionKey);
   const resolved = filtered.map(item => ({
     item,

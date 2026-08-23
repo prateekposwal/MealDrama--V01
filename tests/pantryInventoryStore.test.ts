@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { usePantryInventoryStore, groupPurchasesByDay } from '../app/store/pantryInventoryStore';
+import { usePantryInventoryStore, groupPurchasesByDay, consolidateEventsForDisplay } from '../app/store/pantryInventoryStore';
 import type { PurchaseEvent } from '../app/store/pantryInventoryStore';
 import { defaultExpiry } from '../utils/pantryForecast';
 
@@ -222,4 +222,88 @@ describe('groupPurchasesByDay — P2 history grouping', () => {
   it('handles an empty ledger', () => {
     expect(groupPurchasesByDay([])).toEqual([]);
   });
+
+describe('pantryInventoryStore — delete/remove (fill the mistake-gap)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(LATE_IST);
+    usePantryInventoryStore.setState({ entries: [], purchaseEvents: [] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    usePantryInventoryStore.setState({ entries: [], purchaseEvents: [] });
+  });
+
+  it('removePurchaseEvent deletes ONE event without touching the aggregate', () => {
+    vi.setSystemTime(new Date('2026-08-21T20:00:00Z'));
+    usePantryInventoryStore.getState().logPurchase('Cauliflower', { quantity: 1.33, unit: 'pc' });
+    vi.setSystemTime(new Date('2026-08-21T20:00:01Z'));
+    usePantryInventoryStore.getState().logPurchase('Cauliflower', { quantity: 1.33, unit: 'pc' });
+    expect(usePantryInventoryStore.getState().purchaseEvents).toHaveLength(2);
+    // aggregate sums to 2.66, rounded to 1 decimal = 2.7
+    expect(usePantryInventoryStore.getState().entries[0]!.quantity).toBe(2.7);
+    const first = usePantryInventoryStore.getState().purchaseEvents[0]!;
+    usePantryInventoryStore.getState().removePurchaseEvent(first.purchasedAt, 'Cauliflower');
+    expect(usePantryInventoryStore.getState().purchaseEvents).toHaveLength(1);
+    // aggregate stock unchanged by a single-event delete
+    expect(usePantryInventoryStore.getState().entries[0]!.quantity).toBe(2.7);
+  });
+
+  it('removePurchaseByName clears the item entirely (aggregate + all events)', () => {
+    usePantryInventoryStore.getState().logPurchase('Cauliflower', { quantity: 1.33, unit: 'pc' });
+    usePantryInventoryStore.getState().logPurchase('Cauliflower', { quantity: 1.33, unit: 'pc' });
+    usePantryInventoryStore.getState().removePurchaseByName('Cauliflower');
+    expect(usePantryInventoryStore.getState().entries).toHaveLength(0);
+    expect(usePantryInventoryStore.getState().purchaseEvents).toHaveLength(0);
+  });
+
+  it('removePurchaseByName is case/whitespace insensitive and leaves other items', () => {
+    usePantryInventoryStore.getState().logPurchase('Cauliflower', { quantity: 1.33, unit: 'pc' });
+    usePantryInventoryStore.getState().logPurchase('   coriander leaves ', { quantity: 0.5, unit: 'cup' });
+    usePantryInventoryStore.getState().removePurchaseByName(' CAULIFLOWER ');
+    expect(usePantryInventoryStore.getState().entries).toHaveLength(1);
+    expect(usePantryInventoryStore.getState().entries[0]!.name.toLowerCase()).toBe('coriander leaves');
+  });
+});
+
+describe('consolidateEventsForDisplay — collpase the mistaken triple', () => {
+  it('3× 1.33pc same name+unit → one line with summed quantity and count 3', () => {
+    const mk = (at: string): PurchaseEvent => ({
+      name: 'Cauliflower', quantity: 1.33, unit: 'pc', purchasedAt: at, boughtOn: '2026-08-22', source: 'bought',
+    });
+    const events: PurchaseEvent[] = [
+      mk('2026-08-22T01:00:00.000Z'),
+      mk('2026-08-22T02:00:00.000Z'),
+      mk('2026-08-22T03:00:00.000Z'),
+    ];
+    const lines = consolidateEventsForDisplay(events);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.quantity).toBeCloseTo(3.99, 2);
+    expect(lines[0]!.count).toBe(3);
+    expect(lines[0]!.purchasedAt).toBe('2026-08-22T01:00:00.000Z'); // earliest = row identity
+  });
+
+  it('mixed units stay separate lines', () => {
+    const events: PurchaseEvent[] = [
+      ev('Milk', '2026-08-22', '2026-08-22T01:00:00.000Z'),
+      { ...ev('Milk', '2026-08-22', '2026-08-22T02:00:00.000Z'), unit: 'liter' },
+    ];
+    const lines = consolidateEventsForDisplay(events);
+    expect(lines).toHaveLength(2);
+  });
+
+  it('different items on the same day do not merge; newest-first', () => {
+    const events: PurchaseEvent[] = [
+      ev('Cauliflower', '2026-08-22', '2026-08-22T02:00:00.000Z'),
+      ev('Coriander Leaves', '2026-08-22', '2026-08-22T01:00:00.000Z'),
+    ];
+    const lines = consolidateEventsForDisplay(events);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]!.name).toBe('Cauliflower'); // newest first
+  });
+
+  it('empty events → empty lines', () => {
+    expect(consolidateEventsForDisplay([])).toEqual([]);
+  });
+});
 });

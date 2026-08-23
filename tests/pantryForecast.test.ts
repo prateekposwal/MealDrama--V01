@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Dish, Ingredient } from '../meal/constants/dishLibrary';
+import { canonicalName } from '../utils/ingredientUtils';
 import {
-  canonicalName,
   computeForecast,
   forecastSurplus,
   forecastForEntry,

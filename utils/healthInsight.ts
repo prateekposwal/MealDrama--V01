@@ -28,6 +28,14 @@ export interface CalorieTally {
   approximate: boolean;
   /** True when meals exist but NO dish has calorie data — honest "no data". */
   unknown: boolean;
+  /** Number of estimated calorie entries. */
+  estimatedCount: number;
+  /** Sum of today's per-dish protein (× servings) where protein data exists. */
+  totalProtein: number;
+  /** Number of today's tray items whose dish had a real protein value. */
+  proteinCountedItems: number;
+  /** Number of today's tray items whose protein relied on a fallback estimate. */
+  proteinEstimatedCount: number;
 }
 
 /** Sum today's REAL dish calories, × servings. Never invents a value. */
@@ -36,6 +44,9 @@ export function computeTodaysCalories(trayItems: TrayItem[], dishes: Dish[]): Ca
   let totalKcal = 0;
   let countedItems = 0;
   let estimatedItems = 0;
+  let totalProtein = 0;
+  let proteinCountedItems = 0;
+  let proteinEstimatedItems = 0;
   for (const item of items) {
     const dish = (dishes || []).find(d => d.id === item.meal_id);
     const info = dish ? getDishCalorieInfo(dish) : undefined;
@@ -43,6 +54,13 @@ export function computeTodaysCalories(trayItems: TrayItem[], dishes: Dish[]): Ca
       totalKcal += info.kcal * Math.max(1, item.quantity || 1);
       countedItems += 1;
       if (info.estimated) estimatedItems += 1;
+    }
+    // Protein info (per-dish)
+    const proteinInfo = dish?.protein;
+    if (proteinInfo && proteinInfo > 0) {
+      totalProtein += Math.round(proteinInfo * Math.max(1, item.quantity || 1));
+      proteinCountedItems += 1;
+      if (!info || info.estimated) proteinEstimatedItems += 1;
     }
   }
   return {
@@ -53,6 +71,9 @@ export function computeTodaysCalories(trayItems: TrayItem[], dishes: Dish[]): Ca
     approximate: countedItems > 0 && (countedItems < items.length || estimatedItems > 0),
     unknown: items.length > 0 && countedItems === 0,
     estimatedCount: estimatedItems,
+    totalProtein: Math.round(totalProtein),
+    proteinCountedItems,
+    proteinEstimatedCount: proteinEstimatedItems,
   };
 }
 
@@ -68,7 +89,7 @@ export function pantryHasItem(pantryStaples: string[], item: string): boolean {
   if (!target) return false;
   return (pantryStaples || []).some(s => {
     const staple = normalize(s);
-    return staple === target || staple.includes(target);
+    return staple === target || (staple.length > target.length && staple.includes(target));
   });
 }
 
@@ -85,9 +106,54 @@ export function missingPantryItems(items: string[], pantryStaples: string[]): st
   return out;
 }
 
+/**
+ * Diet-based dish filtering:
+ * - 'veg': exclude dishes with meat/poultry in name
+ * - 'eggitarian': include all (egg + veg)
+ * - 'non-veg': include all dishes
+ */
+export function filterDishesByDiet(dishes: string[], diet: string): string[] {
+  const normalize = (s: string) => (s || '').trim().toLowerCase();
+  const hasMeatKeyword = (name: string) => {
+    const lower = normalize(name);
+    // Check for meat/poultry keywords in the dish name
+    const meatKeywords = ['chicken', 'mutton', 'beef', 'pork', 'fish', 'prawn', 'seafood', 'meat', 'bird'];
+    return meatKeywords.some(kw => lower.includes(kw));
+  };
+
+  if (diet === 'non-veg') {
+    // Include all dishes
+    return [...dishes];
+  }
+
+  if (diet === 'eggitarian') {
+    // Include all (egg + veg) — no filtering
+    return [...dishes];
+  }
+
+  if (diet === 'veg') {
+    // Exclude dishes with meat/poultry in name
+    return dishes.filter(d => !hasMeatKeyword(d));
+  }
+
+  // Unknown diet type — return all dishes unchanged
+  return [...dishes];
+}
+
 /** Region-first ordering: exact → nearest → all → rest. Deterministic. NEVER excludes. */
-export function orderDishesRegionFirst(dishes: Dish[], regionKey: string): Dish[] {
-  return [...dishes].sort((a, b) =>
+export function orderDishesRegionFirst(dishes: Dish[], regionKey: string, diet?: string): Dish[] {
+  let filtered = dishes;
+
+  // If diet provided, first filter dishes by diet using filterDishesByDiet
+  if (diet) {
+    const dishNames = dishes.map(d => d.name);
+    const filteredNames = filterDishesByDiet(dishNames, diet);
+    // Create a Set of allowed names for O(1) lookup
+    const allowed = new Set(filteredNames);
+    filtered = dishes.filter(d => allowed.has(d.name));
+  }
+
+  return [...filtered].sort((a, b) =>
     compareRegion(regionKey, a.region, b.region) || a.name.localeCompare(b.name),
   );
 }

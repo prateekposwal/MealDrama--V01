@@ -12,6 +12,7 @@
 
 import type { Ingredient, IngredientCategory } from '../meal/constants/dishLibrary';
 import type { Dish } from '../meal/constants/dishLibrary';
+import { toBuyGrams, canonicalName } from './ingredientUtils';
 
 export type InventoryStorage = 'fridge' | 'freezer' | 'pantry';
 
@@ -86,13 +87,6 @@ export const UNIT_CONVERSIONS: Record<string, number> = {
   scoops: 30,
 };
 
-/** Normalize an ingredient name for matching (lowercase, trimmed, merged dairy aliases). */
-export function canonicalName(name: string): string {
-  const n = (name || '').toLowerCase().trim();
-  if (['curd', 'dahi', 'yogurt', 'yoghurt'].includes(n)) return 'yogurt';
-  return n;
-}
-
 /**
  * Sum per-day forecast quantities for an entry's canonical ingredient across
  * the horizon, scaled to the entry's native unit. Returns [] when the entry is
@@ -113,9 +107,12 @@ export function computeForecast(
     const names: string[] = [];
     for (const item of items) {
       const ings = resolver(item.mealId, workspace.dishes);
-      for (const ing of ings) {
+      for (const raw of ings) {
+        // Normalize produce/herb units to buy-friendly grams so a user's pack
+        // ("Coriander 200 g") reconciles with the forecast row ("coriander").
+        const ing = toBuyGrams(raw);
         if (canonicalName(ing.name) !== target) continue;
-        const ingUnit = UNIT_CONVERSIONS[(ing.unit || '').toLowerCase()] ?? 1;
+        const ingUnit = UNIT_CONVERSIONS[ing.unit.toLowerCase()] ?? 1;
         const inEntryUnits = (ing.quantity * ingUnit) / entryToUnit;
         const scaled = inEntryUnits * Math.max(1, item.quantity || 1);
         dayQty += scaled;

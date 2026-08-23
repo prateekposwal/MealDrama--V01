@@ -346,6 +346,7 @@ interface StoreState {
   isLoggedIn: boolean;
   authReady: boolean;
   user: User | null;
+  diet: string;
   token: string | null;
   deviceId: string;
   setToken: (token: string) => void;
@@ -418,6 +419,7 @@ export const useStore = create<StoreState>()(
       token: null,
       deviceId: generateDeviceId(),
       user: initialAuth.user as User | null,
+      diet: initialAuth.user?.diet ?? "veg",
       trayLibrary: { breakfast: [], lunch: [], dinner: [], snacks: [] },
       swaps: {},
       notifications: [],
@@ -476,6 +478,10 @@ export const useStore = create<StoreState>()(
       },
 
       setUser: (user: User) => set({ user, isLoggedIn: true }),
+
+      setDiet: (diet: string) => set({ diet }),
+
+      getDiet: () => get().diet,
 
       setToken: (token: string) => set({ token }),
 
@@ -954,6 +960,7 @@ export const useStore = create<StoreState>()(
         isLoggedIn: state.isLoggedIn,
         authReady: state.authReady,
         user: state.user,
+        diet: state.diet,
         token: state.token,
         deviceId: state.deviceId,
         trayLibrary: state.trayLibrary,

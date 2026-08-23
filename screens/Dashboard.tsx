@@ -1686,6 +1686,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                 ) : (
                                     <span className="text-xs font-bold text-gray-800">{todayCalories.approximate ? '~' : ''}{todayCalories.totalKcal.toLocaleString('en-IN')} kcal{todayCalories.approximate ? ' *' : ''}</span>
                                 )}
+                                {todayCalories.totalProtein > 0 && (
+                                    <span className="text-xs text-gray-500 ml-2">· {todayCalories.totalProtein}g protein</span>
+                                )}
                             </div>
                             {todayCalories.approximate && (
                                 <p className="text-[10px] text-gray-400 -mt-2 text-right">*approx — {todayCalories.countedItems} of {todayCalories.totalItems} dishes have calorie data</p>
@@ -1733,7 +1736,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                                     <Lightbulb className="w-4 h-4 text-[#FF385C] mt-0.5 flex-shrink-0" />
                                                     <p className="text-xs text-gray-700 leading-relaxed flex-1">{s}</p>
                                                 </div>
-                                                {isPantry && cls.pantryItems && (
+                                                {isPantry && cls.pantryItems && cls.pantryItems.length > 0 && (
                                                     <div className="flex flex-wrap gap-1.5 pl-6">
                                                         {cls.pantryItems.map(item => {
                                                             const inPantry = pantryHasItem(pantryStaples, item);
@@ -1753,6 +1756,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                                     <p className="pl-6 text-[11px] text-gray-500 leading-relaxed">
                                                         <span className="font-semibold text-gray-600">Add to pantry:</span>{' '}
                                                         {tipGapItems.slice(0, 6).join(', ')}{tipGapItems.length > 6 ? '…' : ''}
+                                                    </p>
+                                                )}
+                                                {isPantry && cls.pantryItems && cls.pantryItems.length > 0 && (
+                                                    <p className="pl-6 text-[11px] text-gray-500 leading-relaxed">
+                                                        <span className="font-semibold text-gray-600">{tipGapItems.length} of {cls.pantryItems.length} items needed</span>
+                                                        <button
+                                                            onClick={() => {
+                                                              const allMissing = missingPantryItems(cls.pantryItems, pantryStaples);
+                                                              allMissing.forEach(item => {
+                                                                useStore.getState().addToPantry([item]);
+                                                              });
+                                                              useStore.getState().setToast({
+                                                                message: `✅ ${allMissing.length} items added to pantry`,
+                                                                type: 'success',
+                                                              });
+                                                            }}
+                                                            className="text-[10px] font-medium text-[#FF385C] hover:underline underline-offset-2"
+                                                        >
+                                                            Add All
+                                                        </button>
                                                     </p>
                                                 )}
                                                 {!isPantry && matchedDishes.length > 0 && (
@@ -1778,7 +1801,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                 </div>
                             )}
                             {aiSuggestions && (() => {
-                                const items = orderSuggestionsRegionFirst(Object.entries(aiSuggestions).flatMap(([slot, ds]) => (ds || []).slice(0, 1).map((d: any) => ({ slot, ...d }))), regionKey, dishes).slice(0, 4);
+                                const items = orderSuggestionsRegionFirst(userDiet, Object.entries(aiSuggestions).flatMap(([slot, ds]) => (ds || []).slice(0, 1).map((d: any) => ({ slot, ...d }))), regionKey, dishes).slice(0, 4);
                                 if (items.length === 0) return null;
                                 return (
                                     <div className="space-y-1.5">

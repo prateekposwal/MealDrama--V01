@@ -5,6 +5,30 @@ import { cachedIngredients } from './cache';
 import { resolveDisplayName } from './resolveDisplayName';
 import { getISODate, addDaysISO } from './dateUTC';
 
+/**
+ * Normalize an ingredient name for matching (lowercase, trimmed).
+ * Merges dairy aliases (curd/dahi/yogurt) and buy-variant names so a user's
+ * pack "Coriander 200 g" reconciles with the forecast row "Coriander Leaves".
+ */
+export function canonicalName(name: string): string {
+  const n = (name || '').toLowerCase().trim();
+  if (['curd', 'dahi', 'yogurt', 'yoghurt'].includes(n)) return 'yogurt';
+  // Buy-name aliases: leading "coriander"/"coriander leaves" → "coriander"
+  if (/^coriander/.test(n)) return 'coriander';
+  if (/^ginger/.test(n)) return 'ginger';
+  if (/^garlic/.test(n)) return 'garlic';
+  if (/^onion/.test(n)) return 'onion';
+  if (/^potato|^potatoes|^aloo/.test(n)) return 'potato';
+  if (/^tomato/.test(n)) return 'tomato';
+  if (/^mint|^pudina/.test(n)) return 'mint';
+  if (/^curry leaves/.test(n)) return 'curry leaves';
+  if (/^capsicum|^bell pepper|^shimla/.test(n)) return 'capsicum';
+  if (/^carrot|^gajar/.test(n)) return 'carrot';
+  if (/^lemon|^nimbu/.test(n)) return 'lemon';
+  if (/^green chilli|^mirch/.test(n)) return 'green chilli';
+  return n;
+}
+
 const ing = (name: string, qty: number, unit: string, category: IngredientCategory): Ingredient =>
   ({ name, quantity: qty, unit, category, inStock: false });
 
@@ -364,6 +388,74 @@ export interface AggregatedIngredient {
     id: string;
 }
 
+/**
+ * Per-piece / per-cup gram estimates for buy-unfriendly units (produce/herbs).
+ * Used by buildPantryGroups so the pantry shows buy-friendly grams instead of
+ * "0.5 cup" / "2.5 pc". Standard per-item approximations, not lab measurements.
+ * Matched name-first (longest match wins).
+ */
+const GRAMS_PER_PC: Array<[RegExp, number]> = [
+    [/coriander|dhania/i, 30],      // 1 cup chopped coriander ≈ 30 g
+    [/mint|pudina/i, 25],
+    [/curry leaves/i, 12],
+    [/parsley/i, 25],
+    [/ginger|adrak/i, 10],
+    [/garlic/i, 4],
+    [/onion|pyaaz/i, 100],
+    [/potato|aloo/i, 120],
+    [/tomato/i, 80],
+    [/capsicum|bell pepper/i, 120],
+    [/carrot|gajar/i, 80],
+    [/cucumber|kheera/i, 120],
+    [/brinjal|eggplant|baingan/i, 120],
+    [/lady(r)?finger|bhindi|okra/i, 8],
+    [/green chilli|mirch/i, 3],
+    [/lemon|nimbu/i, 60],
+    [/mango/i, 150],
+    [/banana/i, 100],
+    [/apple/i, 150],
+    [/coconut/i, 90],
+];
+
+/** True when this ingredient should be normalized to grams in the pantry. */
+export function shouldConvertToGrams(ing: { name: string; unit: string; category: IngredientCategory }): boolean {
+    if (ing.category === 'produce' || ing.category === 'breads') return true;
+    if (ing.category === 'spices' && (ing.unit === 'pc' || ing.unit === 'pcs')) return true;
+    return false;
+}
+
+/** Grams per current piece for a produce/herb/spice ingredient name, or null. */
+export function gramsPerUnitOf(name: string): number | null {
+    const lower = name.toLowerCase();
+    for (const [re, grams] of GRAMS_PER_PC) {
+        if (re.test(lower)) return grams;
+    }
+    return null;
+}
+
+/**
+ * Convert a raw ingredient to buy-friendly grams (pc/pcs/cup/bunch → g), or
+ * return the ingredient unchanged when it is already buy-friendly. Used both by
+ * buildPantryGroups and the pantry surplus forecast so purchase packs ("Coriander
+ * 200 g") reconcile with forecast rows. Pure, deterministic.
+ */
+export function toBuyGrams(
+    ing: { name: string; quantity: number; unit: string; category: IngredientCategory },
+): { name: string; quantity: number; unit: string; category: IngredientCategory } {
+    const qty = ing.quantity;
+    if (!shouldConvertToGrams(ing)) return { ...ing, quantity: qty };
+    if (ing.unit === 'g' || ing.unit === 'kg') return { ...ing, quantity: qty };
+    const gPerU = gramsPerUnitOf(ing.name);
+    if (gPerU == null) return { ...ing, quantity: qty };
+    let out = Math.max(1, Math.round(qty * gPerU));
+    let unit: string = 'g';
+    if (out >= 1000) {
+        out = Number((out / 1000).toFixed(1));
+        unit = 'kg';
+    }
+    return { name: ing.name, quantity: out, unit, category: ing.category };
+}
+
 export interface PantryGroup {
     category: IngredientCategory;
     label: string;
@@ -416,7 +508,10 @@ function aggregateIngredients(
     };
 
     for (const { ing, source } of allIngredients) {
-        const normalizedName = singularize(ing.name);
+        // Use canonicalName for alias matching (coriander/coriander leaves, etc.)
+        // then singularize for any remaining plurals
+        const canonical = canonicalName(ing.name);
+        const normalizedName = singularize(canonical);
         const key = toStableId(normalizedName, ing.category);
         const existing = map.get(key);
 
@@ -1677,6 +1772,19 @@ export function buildPantryGroups(
                 item.totalQuantity = Number((item.totalQuantity / 1000).toFixed(1));
                 item.unit = 'kg';
             }
+        }
+
+        // NEW: buy-friendly grams for produce/herbs/bread-units (pc/pcs/cup/bunch)
+        // so "0.5 cup coriander" / "2.5 pc potato" become readable gram weights.
+        const converted = toBuyGrams({
+            name: item.name,
+            quantity: item.totalQuantity,
+            unit: item.unit,
+            category: item.category,
+        });
+        if (converted.unit !== item.unit) {
+            item.unit = converted.unit;
+            item.totalQuantity = converted.quantity;
         }
         
         const existing = groups.get(item.category) || [];
