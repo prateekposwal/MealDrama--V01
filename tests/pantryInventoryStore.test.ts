@@ -305,7 +305,8 @@ describe('pantryInventoryStore — delete/remove (fill the mistake-gap)', () => 
   it('removePurchaseEvent deletes ONE event without touching the aggregate', () => {
     vi.setSystemTime(new Date('2026-08-21T20:00:00Z'));
     usePantryInventoryStore.getState().logPurchase('Cauliflower', { quantity: 1.33, unit: 'pc' });
-    vi.setSystemTime(new Date('2026-08-21T20:00:01Z'));
+    // 2s apart so the intentional double-tap guard (1.5s identical-ignore) does NOT merge them
+    vi.setSystemTime(new Date('2026-08-21T20:00:02Z'));
     usePantryInventoryStore.getState().logPurchase('Cauliflower', { quantity: 1.33, unit: 'pc' });
     expect(usePantryInventoryStore.getState().purchaseEvents).toHaveLength(2);
     // aggregate sums to 2.66, rounded to 1 decimal = 2.7

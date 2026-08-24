@@ -221,7 +221,7 @@ describe('selectTryThese', () => {
       makeDish({ id: 'd1', name: 'Paneer', region: 'north', category: ['dinner'] }),
       makeDish({ id: 'd2', name: 'Roti', region: 'north', category: ['dinner'] }),
     ];
-    const ids = selectTryThese(fruitPool, { userDiet: 'non-veg', regionKey: 'north' }).map(d => d.id);
+    const ids = selectTryThese(fruitPool, { userDiet: 'non-veg', regionKey: 'north', maxPerSlot: 2 }).map(d => d.id);
     expect(ids).toContain('fruit');
     expect(ids.indexOf('bread')).toBeLessThan(ids.indexOf('fruit')); // bucket region order intact
   });
@@ -249,7 +249,7 @@ describe('selectTryThese', () => {
       makeDish({ id: 'd-a2', name: 'Salad', region: 'all', category: ['dinner'], type: 'veg' }),
     ];
     const added = ['b-n1', 'l-a1', 's-n1', 'd-a1']; // one already added per slot
-    const result = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north', excludeIds: added });
+    const result = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north', excludeIds: added, maxPerSlot: 2 });
     const ids = result.map(d => d.id);
 
     // (a) never returns an excluded id
@@ -270,9 +270,9 @@ describe('selectTryThese', () => {
     expect(perSlot[3]).toBe(2); // dinner
 
     // (d) deterministic — and stable regardless of excludeIds ordering (Set-based)
-    const again = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north', excludeIds: added }).map(d => d.id);
+    const again = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north', excludeIds: added, maxPerSlot: 2 }).map(d => d.id);
     expect(ids).toEqual(again);
-    const reversed = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north', excludeIds: [...added].reverse() }).map(d => d.id);
+    const reversed = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north', excludeIds: [...added].reverse(), maxPerSlot: 2 }).map(d => d.id);
     expect(ids).toEqual(reversed);
   });
 
