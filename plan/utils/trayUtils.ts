@@ -6,6 +6,7 @@ import type { MealType, TrayItem, DayMeals } from '../../types/tray';
 import { useStore } from '../../app/store/useStore';
 import { getIngredientsForMealOption } from '../../utils/ingredientUtils';
 import { GENERATED_INGREDIENTS } from '../../meal/constants/generatedIngredients';
+import { DISH_LIBRARY } from '../../meal/constants/dishLibrary';
 import type { PlanIndex } from './planIndex';
 
 /** Shallow-copy plan days with a single slot updated */
@@ -44,11 +45,12 @@ export const uid = () => `item_${nanoid(16)}`;
 /** Extract unique ingredient names from a dish for pantry auto-add */
 export function getIngredientNamesForMeal(dishId: string, variantId?: string): string[] {
   const store = useStore.getState();
-  let dishPool = store.dishes;
-  if (!dishPool.length) {
-    const { DISH_LIBRARY } = require('../constants/dishLibrary');
-    dishPool = DISH_LIBRARY;
-  }
+  // Fix: the lazy fallback `require('../constants/dishLibrary')` pointed at a
+  // NONEXISTENT path (plan/constants/) — it only ever worked because Vite
+  // rewrote the require at build time. Any cold-start path (store.dishes
+  // empty) using addMealToSlot threw "Cannot find module". Use the real
+  // library directly; the fallback is only for sessions that prefetch dishes.
+  const dishPool = store.dishes.length ? store.dishes : DISH_LIBRARY;
   // Explicit variant ingredients are canonical — authoritative first.
   const dish = dishPool.find(d => d.id === dishId);
   const variant = dish?.variants?.find(v => v.id === variantId);

@@ -11,10 +11,27 @@ import {
   isBreadLike,
   detectEmbeddedCarb,
 } from '../../../utils/normalizeMealComponents';
+import { normalizeRegion, regionDefaultCarb, regionDefaultRice, regionDefaultSalad, regionDefaultBeverage, isRejectedSide } from '../../../meal/constants/pairingCatalog';
 
 const CARB_DISH_TAGS = new Set(['paratha', 'bread', 'puri', 'naan', 'roti', 'dosa', 'idli', 'rice', 'pulao', 'biryani', 'khichdi', 'pasta', 'noodles', 'appam', 'puttu', 'upma']);
-const ROTI_REGIONS = new Set(['north', 'central']);
-const RICE_REGIONS = new Set(['south', 'east', 'west', 'northeast']);
+
+/**
+ * The region's baseline side pairing — its signature salad leads, then a
+ * culturally-typical companion. This is the "perfect matching" default.
+ */
+function regionSideBaseline(region?: string): string[] {
+  const r = normalizeRegion(region);
+  const salad = regionDefaultSalad(region);
+  const second: Record<string, string> = {
+    north: 'Raita',
+    south: 'Papad',
+    east: 'Pickle',
+    west: 'Sambharo',
+    central: 'Raita',
+    northeast: 'Pickle',
+  };
+  return deduplicateSides([salad, second[r] ?? 'Papad'].filter(Boolean));
+}
 
 export function applySmartDefaults(
   meal: Meal,
@@ -42,10 +59,22 @@ export function applySmartDefaults(
     let sides = dp.sides ?? [];
     let beverages = dp.beverages ?? [];
     const dessert = dp.dessert ?? [];
+    const isSelfCarb = dishImpliesCarb(meal.name);
 
     // ─── DEDUPLICATE: Collapse aliases within each category ──
     sides = deduplicateSides(sides);
     beverages = deduplicateSides(beverages);
+
+    // ─── CARB / DISH-SIDE CLEANUP ──
+    // A roti/rice side next to a dish that IS bread (Malabar Parota) or in a
+    // breakfast slot is wrong. Even at lunch/dinner, carb sides duplicate the
+    // roti/rice fields — and dish-mains leaked as templated "Dal" sides on 30+
+    // mains must never render as pairable chips ("why is dal in matching?").
+    const isCarbSide = (s: string): boolean => {
+      const n = normalizeCategory(s);
+      return isRotiLike(n) || isBreadLike(n) || n === 'Rice';
+    };
+    sides = sides.filter(s => !isCarbSide(s) && !isRejectedSide(s));
 
     // ─── CROSS-CATEGORY: If a side normalizes to the same as a beverage (e.g. Chaas→Buttermilk), remove from sides ──
     const bevNormals = new Set(beverages.map(normalizeCategory));
@@ -55,10 +84,12 @@ export function applySmartDefaults(
     // 1. Only for lunch/dinner dishes (meal.rotiOptions/riceOptions are set)
     // 2. Never override explicitly set dp.roti/dp.rice (including explicit null = no carb)
     // 3. Self-bread/self-rice dishes have options undefined → skipped automatically
+    // 4. Breakfast NEVER gets an inferred carb (fixes "Wheat Roti" on oatmeal)
     const explicitRotiNull = dp && 'roti' in dp && dp.roti === null;
     const explicitRiceNull = dp && 'rice' in dp && dp.rice === null;
-    const seededRoti = explicitRotiNull ? null : (dp.roti ?? (meal.rotiOptions?.length ? normalizeCategory(meal.rotiOptions[0]!) : null));
-    const seededRice = explicitRiceNull ? null : (dp.rice ?? (!seededRoti && meal.riceOptions?.length ? normalizeCategory(meal.riceOptions[0]!) : null));
+    const canInferCarb = (_slotType === 'lunch' || _slotType === 'dinner') && !isSelfCarb;
+    const seededRoti = explicitRotiNull || !canInferCarb ? null : (dp.roti ?? (meal.rotiOptions?.length ? normalizeCategory(meal.rotiOptions[0]!) : null));
+    const seededRice = explicitRiceNull ? null : (!seededRoti && canInferCarb && meal.riceOptions?.length ? normalizeCategory(meal.riceOptions[0]!) : null);
 
     const itemQtys: Record<string, number> = {};
     for (const item of [seededRoti, seededRice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {
@@ -123,34 +154,21 @@ export function applySmartDefaults(
       sides = availableSides.length > 0 ? deduplicateSides(availableSides) : southSides;
       const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
       let bestBev = pickBestBeverage(allBevs);
-      if (!bestBev) bestBev = 'Coffee';
+      if (!bestBev) bestBev = regionDefaultBeverage(meal.region, 'breakfast');
       beverages = [bestBev];
     } else if (!isStyleStandalone) {
       const allSides = [...new Set([...(meal.sideOptions ?? []), ...(meal.suggestedPairings?.sides ?? [])])];
       sides = deduplicateSides(allSides);
       if (sides.length === 0) {
         const region = meal.region || 'north';
-        const regionSides: Record<string, string[]> = {
-          north: ['Raita', 'Salad'],
-          south: ['Papad', 'Pickle'],
-          east: ['Salad', 'Pickle'],
-          west: ['Salad', 'Pickle'],
-          central: ['Salad', 'Pickle'],
-          northeast: ['Salad', 'Pickle'],
-        };
-        sides = (regionSides[region] ?? regionSides.north!).slice(0, 2);
+        // "Perfect matching" baseline: the region's signature salad leads, then
+        // its classic sides. No more generic "Salad" for everyone.
+        const base = regionSideBaseline(region);
+        sides = base.slice(0, 2);
       }
       const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
       let bestBev = pickBestBeverage(allBevs);
-      if (!bestBev) {
-        const slotBevs: Record<string, string> = {
-          breakfast: 'Coffee',
-          lunch: 'Buttermilk',
-          snacks: 'Buttermilk',
-          dinner: 'Buttermilk',
-        };
-        bestBev = slotBevs[_slotType] ?? 'Buttermilk';
-      }
+      if (!bestBev) bestBev = regionDefaultBeverage(meal.region, _slotType);
       beverages = [bestBev];
     }
 
@@ -216,15 +234,11 @@ export function applySmartDefaults(
             rice = bestLight;
           }
         } else {
-          // Fallback to region logic
-          const bestCarb = pickBestCarb(allCarbs, region);
-          if (bestCarb) {
-            if (isRotiLike(bestCarb) || isBreadLike(bestCarb)) {
-              roti = bestCarb;
-            } else {
-              rice = bestCarb;
-            }
-          }
+          // No light breakfast carb available → DO NOT fall back to a heavy
+          // lunch/dinner roti on a breakfast card (a "Wheat Roti" on oatmeal
+          // reads like a pairing bug). Zero carbs instead.
+          roti = null;
+          rice = null;
         }
       } else {
         // Normal logic: pick best carb based on region
@@ -235,11 +249,20 @@ export function applySmartDefaults(
           } else {
             rice = bestCarb;
           }
-        } else if (ROTI_REGIONS.has(region)) {
-          // Fallback: North gets roti, others get rice
-          roti = explicitRoti ? normalizeCategory(meal.rotiOptions![0]!) : 'Wheat Roti';
-        } else {
-          rice = explicitRice ? normalizeCategory(meal.riceOptions![0]!) : 'Rice';
+        } else if (_slotType !== 'breakfast') {
+          // Fallback: the region's culturally-expected default carb
+          // (north → Wheat Roti · west → Bhakri · central → Roti ·
+          //  south/east/northeast → Steamed Rice). Never on breakfast.
+          const dc = regionDefaultCarb(region);
+          if (explicitRoti && meal.rotiOptions?.length) {
+            roti = normalizeCategory(meal.rotiOptions[0]!);
+          } else if (!explicitRice && (isRotiLike(dc) || isBreadLike(dc))) {
+            roti = dc;
+          } else if (explicitRice && meal.riceOptions?.length) {
+            rice = normalizeCategory(meal.riceOptions[0]!);
+} else if (!explicitRoti && !isRotiLike(dc) && !isBreadLike(dc)) {
+          rice = regionDefaultRice(region);
+        }
         }
       }
     }
@@ -285,7 +308,7 @@ export function applySmartDefaults(
     // Filter coffee for South breakfast
     const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
     let bestBev = pickBestBeverage(allBevs);
-    if (!bestBev) bestBev = 'Coffee';
+    if (!bestBev) bestBev = regionDefaultBeverage(meal.region, 'breakfast');
     beverages = [bestBev];
   } else if (isBiryani) {
     // ─── BIRYANI — raita is essential ──
@@ -294,7 +317,7 @@ export function applySmartDefaults(
     sides = availableSides.length > 0 ? deduplicateSides(availableSides) : biryaniSides;
     const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
     let bestBev = pickBestBeverage(allBevs);
-    if (!bestBev) bestBev = 'Buttermilk';
+    if (!bestBev) bestBev = regionDefaultBeverage(meal.region, _slotType);
     beverages = [bestBev];
   } else if (isStreetFood) {
     // ─── STREET FOOD — chutney trio ──
@@ -319,7 +342,7 @@ export function applySmartDefaults(
     }
     const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
     let bestBev = pickBestBeverage(allBevs);
-    if (!bestBev) bestBev = 'Buttermilk';
+    if (!bestBev) bestBev = regionDefaultBeverage(meal.region, _slotType);
     beverages = [bestBev];
   } else if (isBreadStyle) {
     // ─── BREAD STYLE (paratha, puri, bhatura) — sides + beverage ──
@@ -328,15 +351,7 @@ export function applySmartDefaults(
     sides = availableSides.length > 0 ? deduplicateSides(availableSides) : breadSides;
     const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
     let bestBev = pickBestBeverage(allBevs);
-    if (!bestBev) {
-      const slotBevs: Record<string, string> = {
-        breakfast: 'Chai',
-        lunch: 'Buttermilk',
-        snacks: 'Chai',
-        dinner: 'Buttermilk',
-      };
-      bestBev = slotBevs[_slotType] ?? 'Buttermilk';
-    }
+    if (!bestBev) bestBev = regionDefaultBeverage(meal.region, _slotType);
     beverages = [bestBev];
   } else if (!isStyleStandalone) {
     // Deduplicate sides by category, cap at 2
@@ -345,32 +360,15 @@ export function applySmartDefaults(
 
     // Fallback: infer region-appropriate sides if none found
     if (sides.length === 0) {
-      const region = meal.region || 'north';
-      const regionSides: Record<string, string[]> = {
-        north: ['Raita', 'Salad'],
-        south: ['Papad', 'Pickle'],
-        east: ['Salad', 'Pickle'],
-        west: ['Salad', 'Pickle'],
-        central: ['Salad', 'Pickle'],
-        northeast: ['Salad', 'Pickle'],
-      };
-      sides = (regionSides[region] ?? regionSides.north!).slice(0, 2);
+      sides = regionSideBaseline(meal.region).slice(0, 2);
     }
 
     // Pick best beverage, normalize
     const allBevs = [...new Set([...(meal.beverageOptions ?? []), ...(meal.suggestedPairings?.beverages ?? [])])];
     let bestBev = pickBestBeverage(allBevs);
 
-    // Fallback: infer slot-appropriate beverage if none found
-    if (!bestBev) {
-      const slotBevs: Record<string, string> = {
-        breakfast: 'Coffee',
-        lunch: 'Buttermilk',
-        snacks: 'Buttermilk',
-        dinner: 'Buttermilk',
-      };
-      bestBev = slotBevs[_slotType] ?? 'Buttermilk';
-    }
+    // Fallback: infer slot- AND region-appropriate beverage if none found
+    if (!bestBev) bestBev = regionDefaultBeverage(meal.region, _slotType);
     beverages = [bestBev];
   }
 

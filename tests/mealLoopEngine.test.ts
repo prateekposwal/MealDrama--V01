@@ -43,6 +43,9 @@ const SOUTH_DISHES: Dish[] = [
   makeDish('s1', 'Idli'),
   makeDish('s2', 'Dosa'),
   makeDish('s3', 'Vada'),
+  makeDish('s4', 'Nandu Rasam'),
+  makeDish('s5', 'Naatu Kozhi Rasam'),
+  makeDish('s6', 'Paya Shorba'),
 ];
 
 const BASE_CONFIG: MealLoopConfig = {
@@ -128,7 +131,7 @@ describe('buildRotationQueue', () => {
     expect(result).toEqual([]);
   });
 
-  it('interleaves dishes by slot type across full cycles', () => {
+  it('interleaves dishes by slot type without wrapping small pools', () => {
     const pool = {
       breakfast: [POLISH_DISHES[0]!],
       lunch: [POLISH_DISHES[1]!, POLISH_DISHES[2]!],
@@ -136,13 +139,26 @@ describe('buildRotationQueue', () => {
       dinner: [SOUTH_DISHES[0]!],
     };
     const result = buildRotationQueue(pool);
-    expect(result.length).toBe(6);
+    // Each UNIQUE dish exactly once — small pools are never modulo-wrapped
+    expect(result.length).toBe(4);
     expect(result[0]!.mealType).toBe('breakfast');
     expect(result[1]!.mealType).toBe('lunch');
     expect(result[2]!.mealType).toBe('dinner');
-    expect(result[3]!.mealType).toBe('breakfast');
-    expect(result[4]!.mealType).toBe('lunch');
-    expect(result[5]!.mealType).toBe('dinner');
+    expect(result[3]!.mealType).toBe('lunch');
+  });
+
+  it('never duplicates a dish within one cycle (uneven soup-heavy pools)', () => {
+    // Mirrors the field bug: tiny pools wrapped by i % q.length injected the
+    // same rasam/shorba multiple times into a single rotation cycle.
+    const pool = {
+      breakfast: [SOUTH_DISHES[0]!],
+      lunch: [SOUTH_DISHES[1]!, SOUTH_DISHES[2]!, SOUTH_DISHES[3]!],
+      snacks: [],
+      dinner: [SOUTH_DISHES[4]!, SOUTH_DISHES[5]!],
+    };
+    const result = buildRotationQueue(pool);
+    const names = result.map(i => i.dishName.trim().toLowerCase());
+    expect(new Set(names).size).toBe(names.length); // zero duplicate names
   });
 
   it('cycles lunch queue when longer than breakfast', () => {
@@ -205,6 +221,61 @@ describe('assignFromQueue', () => {
     const queue = buildRotationQueue(makeSourcePool());
     const result = assignFromQueue(queue, config, 0, []);
     expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('never assigns the same dish to two slots on the same day', () => {
+    // Bhindi-Masala case: dish belongs to BOTH lunch and dinner pools.
+    // Regression: independent per-slot heaps used to serve it at lunch AND
+    // dinner on the same date (cross-slot same-day duplicate). Random mode
+    // shuffles pop order, so we run many cycles to catch it deterministically.
+    const shared = makeDish('shared1', 'Bhindi Masala');
+    const pool = {
+      breakfast: [makeDish('b1', 'Poha')],
+      lunch: [shared, makeDish('l2', 'Dal Chawal')],
+      snacks: [],
+      dinner: [shared, makeDish('d2', 'Paneer Sabzi')],
+    };
+    const queue = buildRotationQueue(pool);
+    for (let run = 0; run < 50; run++) {
+      const result = assignFromQueue(queue, BASE_CONFIG, 0, []);
+      const byDate = new Map<string, Set<string>>();
+      for (const a of result) {
+        if (!byDate.has(a.date)) byDate.set(a.date, new Set());
+        byDate.get(a.date)!.add(a.dishId);
+      }
+      for (const [date, dishes] of byDate) {
+        expect(dishes.size, `run ${run}: duplicate dish on ${date}`).toBe(
+          result.filter(a => a.date === date).length,
+        );
+      }
+    }
+  });
+
+  it('never assigns same-NAME variants (different ids) to two slots on the same day', () => {
+    // Nandu-Rasam case: cooking-style expansion clones a base dish under
+    // different ids. Id-only dedup used to serve both clones on one day.
+    const cloneA = makeDish('nandu-rasam', 'Nandu Rasam');
+    const cloneB = makeDish('nandu-rasam-pepper', 'Nandu Rasam');
+    const pool = {
+      breakfast: [makeDish('b1', 'Poha')],
+      lunch: [cloneA],
+      snacks: [],
+      dinner: [cloneB, makeDish('d2', 'Paneer Sabzi')],
+    };
+    const queue = buildRotationQueue(pool);
+    for (let run = 0; run < 50; run++) {
+      const result = assignFromQueue(queue, BASE_CONFIG, 0, []);
+      const byDate = new Map<string, Set<string>>();
+      for (const a of result) {
+        if (!byDate.has(a.date)) byDate.set(a.date, new Set());
+        byDate.get(a.date)!.add(a.dishName.trim().toLowerCase());
+      }
+      for (const [date, names] of byDate) {
+        expect(names.size, `run ${run}: duplicate NAME on ${date}`).toBe(
+          result.filter(a => a.date === date).length,
+        );
+      }
+    }
   });
 });
 
@@ -653,6 +724,44 @@ describe('autoFillLoop (new feature)', () => {
     // No assignments on 2026-05-20 (Wednesday)
     const wedAssignments = result.assignments.filter(a => a.date === '2026-05-20');
     expect(wedAssignments).toEqual([]);
+  });
+
+  it('never assigns the same dish or same-NAME variant twice on one day', () => {
+    // Karela-Masala case: shared pools ('lunch'+'dinner' dishes) plus variant
+    // clones under different ids used to land the same food at lunch AND dinner.
+    const config: MealLoopConfig = {
+      cycleLength: 3,
+      startDate: '2026-05-20',
+      skipDays: [],
+      repeatPattern: 'random',
+    };
+    const { queue: rotationQueue, pointer: rotationPointer } = buildRotationState({
+      breakfast: [makeDish('b1', 'Poha')],
+      lunch: [
+        makeDish('karela', 'Karela Masala'),
+        makeDish('karela-bajra-roti', 'Karela Masala'), // name clone, diff id
+        makeDish('l2', 'Dal'),
+      ],
+      snacks: [],
+      dinner: [
+        makeDish('karela-phulka', 'Karela Masala'), // third clone in dinner pool
+        makeDish('d2', 'Paneer Sabzi'),
+        makeDish('d3', 'Rajma'),
+      ],
+    });
+    for (let run = 0; run < 30; run++) {
+      const result = autoFillLoop(config, rotationQueue, rotationPointer, []);
+      const byDate = new Map<string, Set<string>>();
+      for (const a of result.assignments) {
+        if (!byDate.has(a.date)) byDate.set(a.date, new Set());
+        byDate.get(a.date)!.add(a.dishName.trim().toLowerCase());
+      }
+      for (const [date, names] of byDate) {
+        expect(names.size, `run ${run}: duplicate NAME on ${date}`).toBe(
+          result.assignments.filter(a => a.date === date).length,
+        );
+      }
+    }
   });
 });
 

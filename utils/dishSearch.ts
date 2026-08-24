@@ -1,4 +1,5 @@
 import type { Dish } from '../meal/constants/dishLibrary';
+import { isPureSweetDish } from '../meal/constants/pairingCatalog';
 import { scoreDish } from './nutritionScore';
 import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from './healthSortFilter';
 import type { HealthSortKey, HealthFilterPreset } from './healthSortFilter';
@@ -44,10 +45,12 @@ function fuzzyMatch(query: string, target: string): boolean {
   const maxDist = query.length <= 4 ? 1 : 2;
   return levenshtein(query.toLowerCase(), target.toLowerCase()) <= maxDist;
 }
+// Canonical diet ladder (single source of truth — mirrors App.tsx seed +
+// Profile rebuild): eggitarian = vegetarian + eggs, NEVER non-veg.
 const DIET_FILTER: Record<string, string[]> = {
   veg: ['veg', 'vegan'],
-  'non-veg': ['veg', 'non-veg', 'eggitarian'],
-  eggitarian: ['veg', 'eggitarian', 'non-veg'],
+  eggitarian: ['veg', 'vegan', 'eggitarian'],
+  'non-veg': ['veg', 'vegan', 'eggitarian', 'non-veg'],
   vegan: ['vegan'],
 };
 
@@ -251,7 +254,6 @@ export function rankDishes(params: {
 
   const q = query.toLowerCase();
   const category = slot.toLowerCase();
-  const isVegan = diet?.toLowerCase() === 'vegan';
   const allowedTypes = DIET_FILTER[diet?.toLowerCase() || 'veg'] || ['veg'];
   const excludeSet = excludeIds ? new Set(excludeIds) : new Set<string>();
   const selectedSet = selectedDishIds
@@ -273,8 +275,7 @@ export function rankDishes(params: {
       if (!q) return false;
       // Dish doesn't match slot category but has a query match — score penalty will push it down
     }
-    if (isVegan && d.type !== 'veg' && d.type !== 'vegan') return false;
-    if (!isVegan && !allowedTypes.includes(d.type)) return false;
+    if (!allowedTypes.includes(d.type)) return false;
     if (q) {
       if (trieMatchIds?.has(d.id)) return true;
       const matchTags = d.tags.some(t => t.toLowerCase().includes(q));
@@ -414,6 +415,19 @@ export function getRegionKey(region?: string): NormalizedRegion {
 export const DISH_HEALTH_FILTERS = ['all', 'low-cal', 'high-protein', 'low-carb', 'balanced'] as const;
 export type DishHealthFilter = (typeof DISH_HEALTH_FILTERS)[number];
 
+/** Map a user health-goal string to a dish health filter (ordering tiebreak). */
+export function goalToDishHealthFilter(goal?: string): DishHealthFilter | null {
+  const g = ((goal || '').toLowerCase().replace(/[ _]/g, '-')).trim();
+  if (!g) return null;
+  if (g.includes('protein') || g.includes('muscle')) return 'high-protein';
+  if (g.includes('calor') || g.includes('weight') || g === 'diet' || g.includes('lose')) return 'low-cal';
+  if (g.includes('low-fat') || g.includes('heart') || g.includes('cholest')) return 'low-cal';
+  if (g.includes('low-carb') || g.includes('sugar') || g.includes('diabet')) return 'low-carb';
+  if (g.includes('fiber')) return 'balanced';
+  if (g.includes('balance') || g === 'balanced') return 'balanced';
+  return null;
+}
+
 /** Score how well a dish matches a health filter (0=none, 1=partial, 2=match). */
 export function dishHealthMatchScore(d: Dish, filter: DishHealthFilter): number {
   if (filter === 'all') return 1;
@@ -516,32 +530,57 @@ export function dishSlotScore(d: Dish): number {
  */
 export function selectTryThese(
   dishes: Dish[],
-  opts: { userDiet?: string; regionKey: string; plannedSlots?: string[]; maxPerSlot?: number; excludeIds?: string[] },
+  opts: { userDiet?: string; regionKey: string; plannedSlots?: string[]; maxPerSlot?: number; excludeIds?: string[]; healthGoal?: string },
 ): Dish[] {
-  const { userDiet, regionKey, plannedSlots, maxPerSlot = 5, excludeIds } = opts;
+const { userDiet, regionKey, plannedSlots, maxPerSlot = 5, excludeIds, healthGoal } = opts;
   const cap = 8;
   const ud = (userDiet || '').toLowerCase();
+  const allowedDietTypes = new Set(DIET_FILTER[ud] || DIET_FILTER.veg);
 
-  const passesRegion = (d: Dish): boolean =>
-    !d.region || d.region === 'all' || d.region === regionKey;
   const passesDiet = (d: Dish): boolean => {
     const dt = (d.diet || d.type || '').toLowerCase();
     if (!dt) return true;
-    if (ud === 'veg') return dt === 'veg' || dt === 'vegan';
-    if (ud === 'eggitarian') return dt === 'eggitarian' || dt === 'veg' || dt === 'vegan' || dt === 'egg';
-    if (ud === 'non-veg') return true;
-    return true;
+    return allowedDietTypes.has(dt);
   };
 
-  // excludeIds = dishes already added to the strip's target day — the ONLY
-  // exclusion. Region/diet stay ordering-AND-filter rules for everything else:
-  // users are always free to add any dish, but a dish already added today
-  // should not be suggested again (the reported bug). The sampler below
-  // backfills from the remaining pool, so slot balance is preserved.
+  // Distinctive-diet-first: an eggitarian chose eggs for a reason — those
+  // dishes must LEAD the suggestions instead of drowning alphabetically
+  // behind 300 veg dishes (the reported "no egg dishes" bug).
+  const distinctiveType: Record<string, string> = { eggitarian: 'eggitarian', vegan: 'vegan' };
+  const distType = distinctiveType[ud];
+  const dietTier = (d: Dish): number => {
+    if (!distType) return 0;
+    const dt = (d.diet || d.type || '').toLowerCase();
+    return dt === distType ? -1 : 0;
+  };
+
+  // Region relevance FIRST, distinctive-diet as the tiebreak within a tier.
+  // Uses a strict region tier — exact → regional-generic ('all') → elsewhere.
+  // Neighborhood proximity (compareRegion) is kept for open BROWSE
+  // (rankDishes); a strip TITLED with the user's region ("north · Non-Veg")
+  // must not lead with a neighbor-region dish — Mutton Xacuti (Goan/west)
+  // ranked #1 for a north user because west is north's adjacent region.
+  const strictTier = (d: Dish): number => {
+    const r = (d.region || '').toLowerCase();
+    if (r === regionKey.toLowerCase()) return 0;
+    if (r === 'all' || !r) return 1;
+    return 2;
+  };
   const excludeSet = new Set(excludeIds ?? []);
-  const pool = dishes.filter(d => !excludeSet.has(d.id) && passesRegion(d) && passesDiet(d));
+  const normName = (s: string) => (s || '').trim().toLowerCase();
+  // Pure sweets (Barfi, Kulfi…) belong as dessert pairings, never as suggested
+  // MEAL cards in a "Try These" strip.
+  const pool = dishes.filter(d => !excludeSet.has(d.id) && passesDiet(d) && !isPureSweetDish(d));
+  // Health tiebreak: the user's stated health focus steers WHAT surfaces first
+  // (ordering only). E.g. "High Protein" lifts protein dishes above their
+  // region tier-mates; "Weight Loss" lifts light/low-cal ones.
+  const healthFilter = healthGoal ? goalToDishHealthFilter(healthGoal) : null;
+  const healthMatch = (d: Dish): number => (healthFilter ? dishHealthMatchScore(d, healthFilter) : 1);
   const byRegionThenName = (a: Dish, b: Dish) =>
-    compareRegion(regionKey, a.region, b.region) || a.name.localeCompare(b.name);
+    strictTier(a) - strictTier(b)
+    || dietTier(a) - dietTier(b)
+    || healthMatch(b) - healthMatch(a)
+    || a.name.localeCompare(b.name);
 
   const slots = [...new Set(
     (plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner']).map(s => s.toLowerCase()),
@@ -561,26 +600,44 @@ export function selectTryThese(
   const fullPool = [...pool].sort(byRegionThenName);
 
   const selected: Dish[] = [];
-  const seen = new Set<string>();
+  const seen = new Set<string>(); // ids AND names — custom dishes can clone library names under new ids
+  const seenNames = new Set<string>();
   const perSlot: Record<string, number> = {};
+  const slotRank = Object.fromEntries(slots.map((s, i) => [s, i]));
+  const findPick = (): { dish: Dish; slot: string } | null => {
+    let best: { dish: Dish; slot: string } | null = null;
+    for (const slot of slots) {
+      if ((perSlot[slot] ?? 0) >= maxPerSlot) continue;
+      const dish = buckets[slot]!.find(d => !seen.has(d.id) && !seenNames.has(normName(d.name)));
+      if (!dish) continue;
+      // Lead choice: the most region-relevant dish ANYWHERE — a far-region
+      // bucket must never surface before a local dish in another slot
+      // (Mutton Xacuti earning top billing over Butter Chicken). Slot
+      // round-robin only ties within the same region tier.
+      if (!best
+        || strictTier(dish) < strictTier(best!.dish)
+        || (strictTier(dish) === strictTier(best!.dish) && (slotRank[slot] ?? 9) < (slotRank[best!.slot] ?? 9))) {
+        best = { dish, slot };
+      }
+    }
+    return best;
+  };
   let progressed = true;
   while (selected.length < cap && progressed) {
-    progressed = false;
-    for (const slot of slots) {
-      if (selected.length >= cap) break;
-      if ((perSlot[slot] ?? 0) >= maxPerSlot) continue;
-      const dish = buckets[slot]!.find(d => !seen.has(d.id));
-      if (!dish) continue;
-      seen.add(dish.id);
-      perSlot[slot] = (perSlot[slot] ?? 0) + 1;
-      selected.push(dish);
-      progressed = true;
-    }
+    const pick = findPick();
+    if (!pick) break;
+    seen.add(pick.dish.id);
+    seenNames.add(normName(pick.dish.name));
+    perSlot[pick.slot] = (perSlot[pick.slot] ?? 0) + 1;
+    selected.push(pick.dish);
+    progressed = true;
   }
   for (const d of fullPool) {
     if (selected.length >= cap) break;
     if (seen.has(d.id)) continue;
+    if (seenNames.has(normName(d.name))) continue;
     seen.add(d.id);
+    seenNames.add(normName(d.name));
     selected.push(d);
   }
   return selected;

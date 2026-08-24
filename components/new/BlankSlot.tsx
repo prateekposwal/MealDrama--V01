@@ -38,13 +38,11 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
   // Smart suggestions: max 3, based on mealType + region + diet + pantry staples
   const suggestions = useMemo(() => {
     const category = slot.toLowerCase();
-    const isVegan = userDiet?.toLowerCase() === 'vegan';
     const allowedTypes = DIET_FILTER[userDiet?.toLowerCase() || 'veg'] || ['veg'];
 
     let filtered = dishes.filter(d => {
       if (!d.category.some(c => c.includes(category))) return false;
-      if (isVegan && d.type !== 'veg' && d.type !== 'vegan') return false;
-      if (!isVegan && !allowedTypes.includes(d.type)) return false;
+      if (!allowedTypes.includes(d.type)) return false;
       return true;
     });
 

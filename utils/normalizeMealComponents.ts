@@ -5,6 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { memoize } from './memoize';
+import { allBreads as catalogAllBreads } from '../meal/constants/pairingCatalog';
 
 // ─── 6-FAMILY GRAIN MAPS ─────────────────────────────────────────────────────
 
@@ -14,15 +15,16 @@ const WHEAT_ALIASES = new Set([
   'missi roti', 'plain roti', 'tandoori',
   'naan', 'butter naan', 'garlic naan', 'tandoori naan', 'special naan',
   'paratha', 'aloo paratha', 'gobi paratha', 'paneer paratha',
-  'masala paratha', 'plain paratha', 'lacha paratha',
+  'masala paratha', 'plain paratha', 'lacha paratha', 'mooli paratha',
   'wheat roti', 'wheat chapati', 'atta roti', 'atta chapati',
   'phulka', 'phulka roti',
+  'amritsari kulcha', 'stuffed paratha', 'parotta', 'parota', 'malabar parotta',
 ]);
 
 // Family 2: Millet (bajra, jowar, ragi, kodo, makka, etc.)
 const MILLET_ALIASES = new Set([
-  'bajra roti', 'bajra', 'pearl millet',
-  'jowar roti', 'jowar', 'sorghum',
+  'bajra roti', 'bajra', 'pearl millet', 'bajra bhakri',
+  'jowar roti', 'jowar', 'sorghum', 'jolada rotti', 'jolada roti',
   'ragi roti', 'ragi', 'finger millet', 'nachni', 'nachni roti',
   'kodo roti', 'kodo', 'kodo ko roti', 'kodo millet',
   'barnyard millet', 'sanwa', 'jhona',
@@ -38,13 +40,14 @@ const RICE_ALIASES = new Set([
   'pulao', 'pilaf', 'biryani', 'fried rice', 'lemon rice', 'curd rice',
   'coconut rice', 'tamarind rice', 'sambar rice', 'rice-biryani',
   'idli', 'idli rice', 'pongal', 'pongal rice', 'dosa', 'appam',
-  'rice roti', 'akki roti',
+  'rice roti', 'akki roti', 'pathiri', 'chawal ki roti', 'chawal roti',
+  'jolada rotti',
 ]);
 
 // Family 4: Corn/Maize (makki, corn, etc.)
 const CORN_ALIASES = new Set([
   'makki di roti', 'makki', 'makai', 'corn roti', 'corn',
-  'maize roti', 'maize', 'makai di roti',
+  'maize roti', 'maize', 'makai di roti', 'makki ki roti',
 ]);
 
 // Family 5: Oats/Other Grains (oats, quinoa, amaranth, etc.)
@@ -60,13 +63,16 @@ const OTHER_GRAIN_ALIASES = new Set([
 const BREAD_ALIASES = new Set([
   'bread', 'pav', 'pao', 'bun', 'roll', 'plain bread',
   'thepla', 'methi thepla',
-  'bhakri', 'thalipeeth',
+  'bhakri', 'thalipeeth', 'bajra bhakri',
   'rotla', 'dhebra',
-  'kulcha', 'batura', 'bhatura', 'bhature',
+  'kulcha', 'batura', 'bhatura', 'bhature', 'amritsari kulcha',
   'roomali', 'rumal',
-  'puri', 'poori',
+  'puri', 'poori', 'bedmi puri',
   'luchi',
   'baati', 'bafla', 'bati',
+  'khakhra', 'puran poli',
+  'tingmo', 'phaley', 'dhuska', 'chilka roti',
+  'malabar parotta', 'parotta', 'parota',
 ]);
 
 // Non-carb categories
@@ -197,7 +203,9 @@ export function normalizeCategory(item: string): string {
 
 export function isCarb(item: string): boolean {
   const lower = item.toLowerCase().trim();
-  return detectGrainFamily(lower) !== null;
+  if (detectGrainFamily(lower) !== null) return true;
+  // The pairing catalog owns every bread we can pair — anything there is a carb.
+  return catalogBreadNames().has(lower);
 }
 
 export function isBeverage(item: string): boolean {
@@ -260,13 +268,27 @@ export function isRotiLike(normalized: string): boolean {
     'Rajgira Roti', 'Kuttu Roti', 'Singhara Roti', 'Other Grain Roti',
     'Phulka', 'Missi Roti', 'Tandoori Roti', 'Rumali Roti', 'Plain Roti', 'Tawa Roti',
     'Chapati', 'Atta Roti', 'Tandoori',
+    'Makki ki Roti', 'Makki di Roti', 'Jowar Roti', 'Bajra Roti', 'Ragi Roti',
     'Naan', 'Butter Naan', 'Garlic Naan', 'Tandoori Naan',
-    'Paratha', 'Aloo Paratha', 'Gobi Paratha', 'Paneer Paratha', 'Masala Paratha', 'Lacha Paratha', 'Plain Paratha'].includes(normalized);
+    'Paratha', 'Aloo Paratha', 'Gobi Paratha', 'Mooli Paratha', 'Paneer Paratha', 'Masala Paratha', 'Lacha Paratha', 'Plain Paratha',
+    'Amritsari Kulcha'].includes(normalized);
 }
 
 // Check if a normalized carb is bread-like
 export function isBreadLike(normalized: string): boolean {
-  return ['Bread', 'Thepla', 'Bhakri', 'Kulcha', 'Bhatura', 'Pav', 'Puri', 'Luchi', 'Baati'].includes(normalized);
+  return ['Bread', 'Thepla', 'Bhakri', 'Kulcha', 'Bhatura', 'Pav', 'Puri', 'Luchi', 'Baati',
+    'Bajra Bhakri', 'Khakhra', 'Puran Poli', 'Bedmi Puri', 'Tingmo', 'Phaley', 'Dhuska', 'Chilka Roti',
+    'Malabar Parotta', 'Parotta', 'Akki Roti', 'Jolada Rotti', 'Pathiri', 'Chawal ki Roti'].includes(normalized);
+}
+
+// Lazy lowercase membership set of every bread in the pairing catalog — used by
+// isCarb so catalog additions automatically gate the "bread into sides" guard.
+let _catalogBreadNames: Set<string> | null = null;
+function catalogBreadNames(): Set<string> {
+  if (!_catalogBreadNames) {
+    _catalogBreadNames = new Set(catalogAllBreads().map(b => b.toLowerCase()));
+  }
+  return _catalogBreadNames;
 }
 
 // Check if dish name implies it already has carbs
@@ -274,7 +296,7 @@ export function dishImpliesCarb(dishName: string): boolean {
   const lower = dishName.toLowerCase();
   const carbKeywords = [
     'chawal', 'rice', 'pulao', 'biryani', 'khichdi', 'dosa', 'idli',
-    'paratha', 'appam', 'puttu', 'upma', 'poha', 'noodles', 'pasta',
+    'paratha', 'parota', 'parotta', 'appam', 'puttu', 'upma', 'poha', 'noodles', 'pasta',
     'thukpa', 'chow mein', 'fried rice', 'steamed rice', 'jeera rice',
     'basmati', 'sambar rice', 'lemon rice', 'curd rice',
     // Roti/naan variants

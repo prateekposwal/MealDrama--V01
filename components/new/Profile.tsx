@@ -7,6 +7,9 @@ import type { SourcePool } from '../../plan/utils/mealLoopEngine';
 import type { Dish, DishVariant, Weight } from '../../meal/constants/dishLibrary';
 import type { Category, Region } from '../../meal/constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
+import { getRegionKey } from '../../utils/dishSearch';
+import { pickDietRepresentatives, distinctiveTypeFor, enrichSourcePool } from '../../utils/dietQuota';
+import { isPureSweetDish } from '../../meal/constants/pairingCatalog';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import SwapCustomizeModal from '../meal/SwapCustomizeModal';
 import DishSearchModal from '../meal/DishSearchModal';
@@ -555,12 +558,64 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                                                     };
                                                     const types = allowed[d] || ['veg'];
                                                     const filtered = library.filter((x:any) => types.includes(x.type));
+                                                    const regionKey = getRegionKey(user?.region) || 'north';
+                                                    // Region-aware + cross-slot diverse: lunch must not
+                                                    // mirror dinner, and other-region dishes stay out.
+                                                    const usedNames = new Set<string>();
+                                                    const norm = (s: string) => (s || '').trim().toLowerCase();
                                                     const pool: any = {breakfast:[],lunch:[],snacks:[],dinner:[]};
                                                     for (const slot of ['breakfast','lunch','dinner','snacks'] as const) {
-                                                        pool[slot] = filtered.filter((x:any) => x.category?.includes(slot)).slice(0,3);
+const eligible = filtered.filter((x:any) =>
+                                                            x.category?.includes(slot) &&
+                                                            (x.region === regionKey || x.region === 'all') &&
+                                                            !isPureSweetDish(x)
+                                                        );
+                                                        const fresh = eligible.filter((x:any) => !usedNames.has(norm(x.name)));
+                                                        const ranked = [...(fresh.length >= 5 ? fresh : [...fresh, ...eligible.filter((x:any) => !fresh.includes(x))])].slice(0,5);
+                                                        for (const x of ranked) usedNames.add(norm(x.name));
+                                                        pool[slot] = ranked;
+                                                    }
+                                                    // Diet representation quota (ALL diets): regional pools
+                                                    // may hold zero distinctive-diet dishes — fill the
+                                                    // deficit so rotation pools reflect the diet.
+                                                    const distType = distinctiveTypeFor(d);
+                                                    // Rotation VARIETY: a pool capped at 5 repeats the same
+                                                    // dishes daily. Enrich each slot to the pool target with
+                                                    // diet-allowed regional candidates (the tray-lead pool
+                                                    // keeps priority via enrichSourcePool).
+                                                    const enriched = enrichSourcePool(pool, library, {
+                                                        allowedTypes: types,
+                                                        regionKey,
+                                                        target: 12,
+                                                        priority: (x:any) => ((x.diet||x.type||'')+'').toLowerCase() === distType ? 0 : 1,
+                                                    });
+                                                    for (const s of ['breakfast','lunch','dinner','snacks'] as const) pool[s] = enriched[s];
+                                                    const have = (['breakfast','lunch','dinner','snacks'] as const)
+                                                        .reduce((n, s) => n + pool[s].filter((x:any) => ((x.diet||x.type||'')+'').toLowerCase() === distType).length, 0);
+                                                    const reps = pickDietRepresentatives(library, {
+                                                        distType,
+                                                        regionKey,
+                                                        minCount: Math.max(0, 3 - have),
+                                                        excludeNames: usedNames,
+                                                    });
+                                                    const takenBuckets = new Set<string>();
+                                                    for (const rep of reps) {
+                                                        // Spread across DISTINCT buckets — lunch-first
+                                                        // dumped every egg into one slot's rotation.
+                                                        const cats = ((rep.category || []) as any).map((c:any) => c.toLowerCase());
+                                                        const bucket = (['breakfast', 'lunch', 'dinner', 'snacks'] as const)
+                                                            .find(s => !takenBuckets.has(s) && cats.some((c:string) => c.includes(s)) )
+                                                            ?? (['lunch','dinner','breakfast','snacks'] as const)
+                                                                .find(s => cats.some((c:string) => c.includes(s)))
+                                                            ?? 'lunch';
+                                                        takenBuckets.add(bucket);
+                                                        if (!pool[bucket].some((x:any) => x.id === rep.id)) pool[bucket].push(rep);
                                                     }
                                                     store.applyLoopConfig({...current.config, startDate: new Date().toISOString().split('T')[0]}, pool, library);
                                                     window.dispatchEvent(new CustomEvent('loop_updated', {detail:{config:current.config}}));
+                                                    // Tray must reflect the new diet too — the loop
+                                                    // rebuild alone leaves egg-free slots in place.
+                                                    import('../../utils/dietHeal').then(m => m.healTrayDietGaps(true));
                                                 });
                                             });
                                         }

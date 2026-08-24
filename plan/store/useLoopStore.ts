@@ -83,7 +83,6 @@ export function reconcileLoopStateWithTray(hydratedState?: { mealLoop: MealLoopS
   const trayLibrary = trayState.trayLibrary;
   const ml = hydratedState?.mealLoop ?? useLoopStore.getState().mealLoop;
 
-  const { invalidateOnChange } = require('../utils/dpCache');
   invalidateOnChange(trayLibrary, ml.config);
 
   if (!trayLibrary?.breakfast) return;

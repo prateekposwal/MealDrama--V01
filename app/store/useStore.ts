@@ -9,6 +9,7 @@ import { householdApi } from '../utils/householdApi';
 import { registerUser, logoutUser } from '../utils/authApi';
 import { createCustomDish, updateCustomDish as updateCustomDishApi, deleteCustomDish as deleteCustomDishApi } from '../utils/customDishApi';
 import type { Household } from '../../types/household';
+import { DISH_LIBRARY } from '../../meal/constants/dishLibrary';
 import type { Dish } from '../../meal/constants/dishLibrary';
 
 interface SwapNotification {
@@ -545,7 +546,10 @@ export const useStore = create<StoreState>()(
         set((state) => {
           const key = slot.toLowerCase() as keyof TrayLibrary;
           const tray = state.trayLibrary[key] || [];
-          const existing = tray.find(m => m.id === meal.id);
+          const normName = (s: string) => (s || '').trim().toLowerCase();
+          // Dedupe by id AND normalized name — expanded variants share a base
+          // name under different ids and must never appear twice in a tray.
+          const existing = tray.find(m => m.id === meal.id || normName(m.name) === normName(meal.name));
           if (existing) {
             if (existing.name === meal.name && existing.icon === meal.icon) return state;
             const updated = tray.map(m => m.id === meal.id ? { ...m, name: meal.name, icon: meal.icon, sourceRegion: meal.sourceRegion ?? m.sourceRegion } : m);
@@ -1046,7 +1050,6 @@ export const useStore = create<StoreState>()(
         }
         if (fromVersion < 9) {
           // v8 → v9: dishes no longer persisted — load fresh from DISH_LIBRARY
-          const { DISH_LIBRARY } = require('../constants/dishLibrary');
           state.dishes = (Array.isArray(DISH_LIBRARY) ? DISH_LIBRARY : []) as unknown;
           const dishArr = state.dishes as unknown[];
           console.log('[Store] v9 migration: loaded dishes from DISH_LIBRARY, count=', dishArr.length);

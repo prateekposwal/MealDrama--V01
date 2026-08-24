@@ -32,10 +32,13 @@ export function useBackendDishes() {
             const storeDishes = useStore.getState().dishes;
             const custom = useStore.getState().customDishes || [];
             let best = local.length >= (storeDishes?.length || 0) ? local : storeDishes;
-            // Merge custom dishes into the list
+            // Merge custom dishes into the list — dedupe by id AND normalized
+            // name (a custom dish cloning a library name must not render twice).
             if (custom.length > 0) {
+                const norm = (s: string) => (s || '').trim().toLowerCase();
                 const existingIds = new Set(best.map(d => d.id));
-                const newCustom = custom.filter(d => !existingIds.has(d.id));
+                const existingNames = new Set(best.map(d => norm(d.name)));
+                const newCustom = custom.filter(d => !existingIds.has(d.id) && !existingNames.has(norm(d.name)));
                 best = [...newCustom, ...best];
             }
             if (cancelled) return;

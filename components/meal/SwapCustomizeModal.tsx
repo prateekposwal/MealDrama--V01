@@ -4,6 +4,7 @@ import DishImage from '../new/DishImage';
 import { isCarb } from '../../utils/normalizeMealComponents';
 import { generateMealTitle } from '../../utils/generateMealTitle';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
+import { pairingOptionsFor, isRejectedSide } from '../../meal/constants/pairingCatalog';
 import type { MealType, TrayItem } from '../../plan/store/useTrayStore';
 import type { Dish, DishVariant } from '../../meal/constants/dishLibrary';
 
@@ -15,57 +16,6 @@ const CATS: CatMeta[] = [
   { icon: '🍚', label: 'Rice', key: 'rice', max: 1 },
   { icon: '🍨', label: 'Dessert', key: 'dessert', max: 2 },
 ];
-
-const REGION_OPTIONS: Record<string, Record<string, string[]>> = {
-  north: {
-    sides: ['Salad', 'Papad', 'Raita', 'Pickle', 'Chutney', 'Curd', 'Kachumber', 'Onion Salad', 'Lemon Wedge', 'Mint Chutney', 'Tamarind Chutney'],
-    beverages: ['Chai', 'Buttermilk', 'Lassi', 'Chaas', 'Masala Chai', 'Jaljeera', 'Water'],
-    bread: ['Tandoori Roti', 'Naan', 'Phulka', 'Paratha', 'Puri', 'Bhatura', 'Missi Roti', 'Rumali Roti'],
-    rice: ['Jeera Rice', 'Pulao', 'Biryani', 'Steamed Rice', 'Fried Rice'],
-    dessert: ['Gulab Jamun', 'Kheer', 'Gajar Halwa', 'Jalebi', 'Ice Cream', 'Rasmalai'],
-  },
-  south: {
-    sides: ['Sambar', 'Coconut Chutney', 'Papad', 'Pickle', 'Raita', 'Curd', 'Tamarind Chutney', 'Green Chutney', 'Onion Salad'],
-    beverages: ['Filter Coffee', 'Chai', 'Buttermilk', 'Lassi', 'Chaas', 'Water', 'Nimbu Pani'],
-    bread: ['Dosa', 'Appam', 'Idli', 'Uttapam', 'Plain Dosa', 'Masala Dosa'],
-    rice: ['Steamed Rice', 'Lemon Rice', 'Coconut Rice', 'Curd Rice', 'Sambar Rice', 'Biryani', 'Pulao'],
-    dessert: ['Payasam', 'Kheer', 'Ice Cream', 'Rasmalai', 'Fruit Salad', 'Phirni'],
-  },
-  west: {
-    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Raita', 'Curd', 'Kachumber', 'Sambharo', 'Mint Chutney'],
-    beverages: ['Chai', 'Buttermilk', 'Chaas', 'Jaljeera', 'Lassi', 'Nimbu Pani', 'Water', 'Masala Chai'],
-    bread: ['Bhakri', 'Thepla', 'Puri', 'Paratha', 'Naan', 'Phulka', 'Roti'],
-    rice: ['Steamed Rice', 'Pulao', 'Biryani', 'Jeera Rice', 'Fried Rice'],
-    dessert: ['Shrikhand', 'Gulab Jamun', 'Kheer', 'Ice Cream', 'Gajar Halwa', 'Jalebi'],
-  },
-  east: {
-    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Curd', 'Raita', 'Lemon Wedge', 'Green Salad'],
-    beverages: ['Chai', 'Buttermilk', 'Chaas', 'Lassi', 'Water', 'Aam Panna', 'Nimbu Pani'],
-    bread: ['Luchi', 'Puri', 'Paratha', 'Roti', 'Phulka'],
-    rice: ['Steamed Rice', 'Pulao', 'Biryani', 'Fried Rice', 'Jeera Rice', 'Lemon Rice'],
-    dessert: ['Rasmalai', 'Kheer', 'Ice Cream', 'Gulab Jamun', 'Fruit Salad', 'Payasam'],
-  },
-  central: {
-    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Raita', 'Curd', 'Kachumber', 'Onion Salad'],
-    beverages: ['Chai', 'Buttermilk', 'Chaas', 'Lassi', 'Jaljeera', 'Water', 'Nimbu Pani'],
-    bread: ['Roti', 'Paratha', 'Puri', 'Bhatura', 'Naan', 'Phulka'],
-    rice: ['Steamed Rice', 'Jeera Rice', 'Pulao', 'Biryani', 'Fried Rice'],
-    dessert: ['Gulab Jamun', 'Kheer', 'Ice Cream', 'Jalebi', 'Gajar Halwa', 'Rasmalai'],
-  },
-  northeast: {
-    sides: ['Salad', 'Papad', 'Pickle', 'Chutney', 'Curd', 'Lemon Wedge', 'Green Salad', 'Bamboo Shoot'],
-    beverages: ['Chai', 'Buttermilk', 'Lassi', 'Water', 'Nimbu Pani', 'Green Tea'],
-    bread: ['Roti', 'Puri', 'Paratha', 'Phulka'],
-    rice: ['Steamed Rice', 'Pulao', 'Fried Rice', 'Jeera Rice'],
-    dessert: ['Kheer', 'Ice Cream', 'Gulab Jamun', 'Fruit Salad', 'Payasam'],
-  },
-};
-
-function getRegionOptions(region: string, category: string): string[] {
-  const r = region?.toLowerCase() || '';
-  const regionData = REGION_OPTIONS[r] || REGION_OPTIONS['north'];
-  return regionData[category] || REGION_OPTIONS['north'][category] || [];
-}
 
 const STYLES = ['Gravy', 'Dry', 'Fried', 'Roasted', 'Boiled', 'Steamed'];
 
@@ -99,11 +49,11 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
     const riceVal = item.rice || (def?.rice ?? '');
     if (breadVal) { result.bread = [breadVal]; allNames.add(breadVal.toLowerCase()); }
     if (riceVal) { result.rice = [riceVal]; allNames.add(riceVal.toLowerCase()); }
-    // Helper to add items, filtering out carbs from non-carb categories
+    // Helper to add items, filtering out carbs AND dish-mains from side categories
   const addIfNew = (items: string[] | undefined, defItems: string[] | undefined, key: string, isCarbCategory: boolean) => {
       (items?.length ? items : (defItems || [])).forEach(s => {
         if (allNames.has(s.toLowerCase())) return;
-        if (!isCarbCategory && isCarb(s)) return;
+        if (!isCarbCategory && (isCarb(s) || isRejectedSide(s))) return;
         (result as any)[key].push(s); allNames.add(s.toLowerCase());
       });
     };
@@ -124,7 +74,7 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
     const addQ = (items: string[] | undefined, defItems: string[] | undefined) => {
       (items?.length ? items : (defItems || [])).forEach(s => {
         if (allNames.has(s.toLowerCase())) return;
-        if (isCarb(s)) return;
+        if (isCarb(s) || isRejectedSide(s)) return;
         q[s] = 1; allNames.add(s.toLowerCase());
       });
     };
@@ -175,7 +125,7 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
     const addIfNew = (items: string[] | undefined, defItems: string[] | undefined, key: string) => {
       (items?.length ? items : (defItems || [])).forEach(s => {
         if (allNames.has(s.toLowerCase())) return;
-        if (isCarb(s)) return;
+        if (isCarb(s) || isRejectedSide(s)) return;
         (result as any)[key].push(s); allNames.add(s.toLowerCase());
       });
     };
@@ -191,7 +141,7 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
     const addQ = (items: string[] | undefined, defItems: string[] | undefined) => {
       (items?.length ? items : (defItems || [])).forEach(s => {
         if (allQ.has(s.toLowerCase())) return;
-        if (isCarb(s)) return;
+        if (isCarb(s) || isRejectedSide(s)) return;
         newQ[s] = 1; allQ.add(s.toLowerCase());
       });
     };
@@ -316,7 +266,7 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
         <div className="flex-1 overflow-y-auto px-6 py-4 min-h-[200px] relative">
           {CATS.map(cat => {
             const selected = pairings[cat.key] || [];
-            const available = getRegionOptions(dishRegion, cat.key);
+            const available = pairingOptionsFor(dishRegion, cat.key, selected);
             return (
               <div key={cat.key} className="mb-4" ref={el => { catRefs.current[cat.key] = el; }}>
                 <div className="flex items-center gap-1.5 mb-2">

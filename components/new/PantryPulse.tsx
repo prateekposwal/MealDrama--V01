@@ -607,17 +607,29 @@ const PantryPulse: React.FC = () => {
                                                     {ev.name} {ev.quantity}{ev.unit}
                                                     {ev.requestedBy ? <span className="text-gray-400 font-medium"> · {ev.requestedBy}</span> : null}
                                                 </span>
-                                                <button
-                                                    onClick={() => usePantryInventoryStore.getState().logPurchase(ev.name, {
-                                                        quantity: ev.quantity,
-                                                        unit: ev.unit,
-                                                        source: 'bought',
-                                                    })}
-                                                    className="shrink-0 w-6 h-6 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center active:scale-90"
-                                                    aria-label={`Re-buy ${ev.name}`}
-                                                >
-                                                    <Plus size={12} />
-                                                </button>
+                                                <span className="shrink-0 flex items-center gap-1">
+                                                    <button
+                                                        onClick={() => usePantryInventoryStore.getState().logPurchase(ev.name, {
+                                                            quantity: ev.quantity,
+                                                            unit: ev.unit,
+                                                            source: 'bought',
+                                                        })}
+                                                        className="w-6 h-6 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center active:scale-90"
+                                                        aria-label={`Re-buy ${ev.name}`}
+                                                    >
+                                                        <Plus size={12} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            usePantryInventoryStore.getState().removePurchase(ev.name, ev.purchasedAt);
+                                                            useStore.getState().setToast({ message: `Removed ${ev.name} ${ev.quantity}${ev.unit}`, type: 'info' });
+                                                        }}
+                                                        className="w-6 h-6 rounded-lg border border-red-100 bg-red-50 text-red-500 flex items-center justify-center active:scale-90"
+                                                        aria-label={`Remove mistaken purchase ${ev.name}`}
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </span>
                                             </div>
                                         ))}
                                     </div>

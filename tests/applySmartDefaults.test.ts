@@ -88,14 +88,14 @@ describe('applySmartDefaults — Roti/Rice (Breakfast Light Carb)', () => {
     expect(defaults.rice).toBe('Rice');
   });
 
-  it('falls back to region logic when no light carb found (normalized)', () => {
+  it('breakfast does NOT inherit a heavy lunch/dinner roti (Naan-on-breakfast bug)', () => {
     const meal = makeMeal({
       region: 'north',
       rotiOptions: ['naan'],
       riceOptions: ['biryani'],
     });
     const defaults = applySmartDefaults(meal, 'breakfast');
-    expect(defaults.roti).toBe('Naan');
+    expect(defaults.roti).toBeNull();
     expect(defaults.rice).toBeNull();
   });
 });
@@ -224,11 +224,14 @@ describe('applySmartDefaults — Beverages', () => {
     expect(defaults.beverages).toEqual(['Buttermilk']);
   });
 
-  it('infers slot-appropriate beverages when no explicit options (normalized)', () => {
+  it('infers region- and slot-appropriate beverages when no explicit options', () => {
     const meal = makeMeal({ suggestedPairings: { sides: [] } });
     const defaults = applySmartDefaults(meal, 'lunch');
     expect(defaults.beverages.length).toBeGreaterThanOrEqual(1);
-    expect(defaults.beverages[0]).toBe('Buttermilk');
+    expect(defaults.beverages[0]).toBe('Lassi'); // North India lunch → Punjabi lassi
+    expect(applySmartDefaults({ ...meal, region: 'south' }, 'lunch').beverages[0]).toBe('Filter Coffee');
+    expect(applySmartDefaults({ ...meal, region: 'west' }, 'dinner').beverages[0]).toBe('Chaas');
+    expect(applySmartDefaults({ ...meal, region: 'central' }, 'dinner').beverages[0]).toBe('Mattha');
   });
 });
 
@@ -307,7 +310,7 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
     expect(defaults.beverages.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('South + lunch → infers rice as primary carb (normalized)', () => {
+  it('South + lunch → infers the region rice (Curd Rice) as primary (perfect matching)', () => {
     const meal = makeMeal({
       id: 'south-veg-curry',
       name: 'South Veg Curry',
@@ -316,7 +319,7 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
     });
     const defaults = applySmartDefaults(meal, 'lunch');
     expect(defaults.roti).toBeNull();
-    expect(defaults.rice).toBe('Rice');
+    expect(defaults.rice).toBe('Curd Rice');
   });
 
   it('Self-carb dish (paratha) → skips bread and rice inference', () => {
@@ -355,7 +358,7 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
     expect(defaults.rice).toBeNull();
   });
 
-  it('Unknown region → falls back to north defaults (normalized)', () => {
+  it('Unknown region → falls back to north defaults (Wheat Roti, the north carb)', () => {
     const meal = makeMeal({
       id: 'unknown-dish',
       name: 'Unknown Dish',
@@ -363,9 +366,9 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
       tags: ['gravy'],
     });
     const defaults = applySmartDefaults(meal, 'lunch');
-    // Unknown region falls through to else branch which sets rice
-    expect(defaults.rice).toBe('Rice');
-    expect(defaults.roti).toBeNull();
+    // normalizeRegion('unknown') → north → region-default carb is Wheat Roti
+    expect(defaults.roti).toBe('Wheat Roti');
+    expect(defaults.rice).toBeNull();
   });
 
   it('Chai/beverage dish → infers appropriate sides', () => {
@@ -418,7 +421,7 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
     expect(defaults.sides.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('Dish with empty tags → uses region defaults (normalized)', () => {
+  it('Dish with empty tags → uses region defaults (Kosambari salad, Curd Rice)', () => {
     const meal = makeMeal({
       id: 'simple-dish',
       name: 'Simple Dish',
@@ -427,8 +430,9 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
     });
     const defaults = applySmartDefaults(meal, 'lunch');
     expect(defaults.roti).toBeNull();
-    expect(defaults.rice).toBe('Rice');
+    expect(defaults.rice).toBe('Curd Rice');
     expect(defaults.sides.length).toBeGreaterThanOrEqual(1);
+    expect(defaults.sides).toContain('Kosambari');
     expect(defaults.beverages.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -444,7 +448,7 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
     expect(defaults.rice).toBeNull();
   });
 
-  it('South + west region + dinner → infers rice (normalized)', () => {
+  it('West + dinner → infers the region carb Bhakri (perfect matching)', () => {
     const meal = makeMeal({
       id: 'west-fish-curry',
       name: 'Fish Curry',
@@ -452,8 +456,8 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
       tags: ['fish', 'gravy', 'coastal'],
     });
     const defaults = applySmartDefaults(meal, 'dinner');
-    expect(defaults.roti).toBeNull();
-    expect(defaults.rice).toBe('Rice');
+    expect(defaults.roti).toBe('Bhakri');
+    expect(defaults.rice).toBeNull();
   });
 
   it('Explicit options take precedence over inference (normalized)', () => {
@@ -480,5 +484,65 @@ describe('applySmartDefaults — Knowledge Inference (no explicit options)', () 
     const defaults = applySmartDefaults(meal, 'dinner');
     expect(defaults.roti).toBe('Wheat Roti');
     expect(defaults.sides.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('applySmartDefaults — breakfast / self-carb pairing sanity (the roti-on-breakfast bug)', () => {
+  it('breakfast NEVER gets an inferred carb, even with rotiOptions present', () => {
+    const meal = makeMeal({
+      name: 'Spicy Egg Bhurji',
+      region: 'north',
+      rotiOptions: ['wheat roti'],
+      riceOptions: ['steamed rice'],
+      suggestedPairings: { sides: [], beverages: [] },
+    });
+    const defaults = applySmartDefaults(meal, 'breakfast');
+    expect(defaults.roti).toBeNull();
+    expect(defaults.rice).toBeNull();
+  });
+
+  it('breakfast slots strip Roti/Rice from explicit defaultPairings sides', () => {
+    const meal = makeMeal({
+      name: 'Kheema per Eeda',
+      region: 'north',
+      defaultPairings: { sides: ['Roti', 'Rice', 'Salad'], beverages: ['Masala Chai'] } as any,
+    });
+    const defaults = applySmartDefaults(meal, 'breakfast');
+    expect(defaults.sides).not.toContain('Roti');
+    expect(defaults.sides).not.toContain('Rice');
+    expect(defaults.roti).toBeNull();
+  });
+
+  it('SELF-BREAD dishes (Kodo Ko Roti) never pair Roti/Rice even at dinner', () => {
+    const meal = makeMeal({
+      name: 'Kodo Ko Roti (Finger Millet Roti)',
+      region: 'northeast',
+      defaultPairings: { sides: ['Roti', 'Rice', 'Salad'], beverages: ['Butter Tea'] } as any,
+    });
+    const defaults = applySmartDefaults(meal, 'dinner');
+    expect(defaults.sides).not.toContain('Roti');
+    expect(defaults.sides).not.toContain('Rice');
+    expect(defaults.roti).toBeNull();
+  });
+
+  it('Malabar Parota is recognized as a self-carb dish (parota keyword)', () => {
+    const meal = makeMeal({
+      name: 'Malabar Parota',
+      region: 'south',
+      defaultPairings: { sides: ['Roti', 'Rice', 'Salad'], beverages: ['Coffee'] } as any,
+    });
+    const defaults = applySmartDefaults(meal, 'dinner');
+    expect(defaults.sides).not.toContain('Roti');
+    expect(defaults.roti).toBeNull();
+  });
+
+  it('lunch at north still infers its carb normally (unchanged behavior outside breakfast)', () => {
+    const meal = makeMeal({
+      id: 'kadai-paneer',
+      name: 'Kadai Paneer',
+      region: 'north',
+      tags: ['paneer', 'gravy'],
+    });
+    expect(applySmartDefaults(meal, 'dinner').roti).toBe('Wheat Roti');
   });
 });

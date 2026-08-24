@@ -121,13 +121,17 @@ export function seedTodayFromTray() {
   const loopAssignedSlots = new Set(todayLoopAssignments.map((a: { mealType: string }) => a.mealType));
   const trayStore = useTrayStore.getState();
   const newDays: Record<string, any> = {};
+  const usedTodayIds = new Set<string>(); // same-day cross-slot dedup (ids AND names — variants share base names)
+  const normName = (s: string) => (s || '').trim().toLowerCase();
   for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
     const items = trayLibrary[slot] || [];
     if (items.length === 0 || loopAssignedSlots.has(slot)) continue;
     if ((trayStore.plan.days[_today]?.[slot]?.length ?? 0) > 0) continue;
     const td = getTimeDef(slot);
     newDays[_today] = newDays[_today] || emptyDayMeals();
-    const item = items[0]!;
+    const item = items.find(i => !usedTodayIds.has(i.dishId || i.id) && !usedTodayIds.has(normName(i.name))) ?? items[0]!;
+    usedTodayIds.add(item.dishId || item.id);
+    usedTodayIds.add(normName(item.name));
     newDays[_today][slot].push({
       id: uid(), meal_id: item.dishId || item.id, name: item.name, title: item.name,
       icon: item.icon, quantity: 1, servings: 1, smartVersion: 1,

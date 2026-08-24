@@ -53,6 +53,9 @@ interface PantryInventoryState {
   entries: InventoryEntry[];
   purchaseEvents: PurchaseEvent[];
   logPurchase: (name: string, purchase: NewPurchase) => void;
+  /** Undo a mistaken log: removes the ledger event AND subtracts its
+   *  quantity from the matching stock entry (entry dropped at ≤0). */
+  removePurchase: (name: string, purchasedAt: string) => void;
   removeEntry: (name: string) => void;
   /** Remove one purchase event by its unique instant. Aggregate untouched. */
   removePurchaseEvent: (purchasedAt: string, name: string) => void;
@@ -63,15 +66,34 @@ interface PantryInventoryState {
   clearPurchases: () => void;
 }
 
+/** Double-fire guard window (ms): an identical pack logged within this span
+ *  of the previous event is treated as an accidental double-tap and ignored
+ *  — protects stock totals AND the purchases history from duplicates. */
+const DUPLICATE_WINDOW_MS = 1500;
+
 export const usePantryInventoryStore = create<PantryInventoryState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       entries: [],
       purchaseEvents: [],
 
       logPurchase: (name, purchase) => {
         const clean = (name || '').trim();
         if (!clean || !(purchase.quantity > 0)) return;
+        // Idempotency: drop accidental double-fires of the SAME pack
+        // (same name+quantity+unit) within DUPLICATE_WINDOW_MS of the last
+        // logged event — before touching stock or the ledger.
+        const events = get().purchaseEvents ?? [];
+        const last = events[events.length - 1];
+        if (
+          last &&
+          last.name.toLowerCase() === clean.toLowerCase() &&
+          last.quantity === purchase.quantity &&
+          last.unit === purchase.unit &&
+          Date.now() - Date.parse(last.purchasedAt) < DUPLICATE_WINDOW_MS
+        ) {
+          return;
+        }
         set((s) => {
           const existing = s.entries.find(e => e.name.toLowerCase() === clean.toLowerCase());
           let next: InventoryEntry[];
@@ -130,6 +152,32 @@ export const usePantryInventoryStore = create<PantryInventoryState>()(
             purchaseEvents.splice(0, purchaseEvents.length - PURCHASE_EVENT_CAP);
           }
           return { entries: next, purchaseEvents };
+        });
+      },
+
+      removePurchase: (name, purchasedAt) => {
+        const clean = (name || '').trim().toLowerCase();
+        set((s) => {
+          const events = s.purchaseEvents ?? [];
+          const idx = events.findIndex(
+            ev => ev.name.toLowerCase() === clean && ev.purchasedAt === purchasedAt,
+          );
+          if (idx === -1) return {};
+          const ev = events[idx]!;
+          // Subtract the mistaken pack from stock (same-unit entries only —
+          // a different-unit row can't be converted safely, stock untouched).
+          let nextEntries = s.entries;
+          const entry = s.entries.find(e => e.name.toLowerCase() === clean);
+          if (entry && entry.unit === ev.unit) {
+            const remaining = Math.round((entry.quantity - ev.quantity) * 10) / 10;
+            nextEntries = remaining > 0
+              ? s.entries.map(e => (e.name.toLowerCase() === clean ? { ...e, quantity: remaining } : e))
+              : s.entries.filter(e => e.name.toLowerCase() !== clean);
+          }
+          return {
+            entries: nextEntries,
+            purchaseEvents: events.filter((_, i) => i !== idx),
+          };
         });
       },
 

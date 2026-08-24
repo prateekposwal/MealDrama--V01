@@ -28,6 +28,7 @@ import { PlateBalanceVisualizer } from '../components/health/PlateBalanceVisuali
 import { scorePlateBalance } from '../utils/nutritionScore';
 import { DISH_HEALTH_MAP, COMPONENT_HEALTH_MAP } from '../app/constants/healthGuidelines';
 import { getRegionKey, selectTryThese } from '../utils/dishSearch';
+import { nextSuggestionBatch, recordSuggestions } from '../plan/utils/suggestionRotation';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
@@ -804,13 +805,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const tryTheseDate = tryTheseTomorrowView ? getISODate(new Date(new Date(today).getTime() + 86400000)) : today;
     const tryTheseDayMeals = useTrayStore(s => s.plan.days[tryTheseDate]);
     const addedDishIds = useMemo(() => {
-        if (!tryTheseDayMeals) return [];
+        // Exclude EVERY plan-day's dishes (not just the target day) + the
+        // user's tray, so suggestions are genuinely NEW to the plan.
         const ids = new Set<string>();
+        const days = useTrayStore.getState().plan.days;
+        for (const date of Object.keys(days)) {
+            for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+                for (const item of days[date]?.[slot] || []) ids.add(item.meal_id);
+            }
+        }
+        const tray = useStore.getState().trayLibrary;
         for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
-            for (const item of tryTheseDayMeals[slot] || []) ids.add(item.meal_id);
+            for (const item of tray[slot] || []) ids.add(item.dishId || item.id);
         }
         return [...ids];
-    }, [tryTheseDayMeals]);
+    }, [tryTheseDayMeals, useTrayStore.getState().plan.days, useStore.getState().trayLibrary]);
 
     const [healthExpanded, setHealthExpanded] = useState(false);
     useBackButtonClose(healthExpanded, () => setHealthExpanded(false));
@@ -1100,7 +1109,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             {(() => {
               const hasAiContent = aiSuggestions && Object.values(aiSuggestions).some(arr => arr.length > 0);
               if (!aiLoading && !hasAiContent && dishes.length === 0) return null;
-              const tryThese = selectTryThese(dishes, { userDiet, regionKey, plannedSlots, excludeIds: addedDishIds });
+              const tryThese = nextSuggestionBatch(dishes, { userDiet, regionKey, plannedSlots, excludeIds: addedDishIds, healthGoal: user?.healthGoals?.[0] });
               return (
                 <div className="px-4 mt-4">
                     <div className="flex items-center gap-2 mb-3">
@@ -1129,6 +1138,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         items.push({id:d.id,name:d.name,region:d.region,slotLabel:AI_SLOT_LABEL[slotKey]??slotKey});
                                     }
                                 }
+                                // Record AI-curated ids too, so the rotating
+                                // region strip never re-offers them.
+                                recordSuggestions(items.map(i => i.id));
                                 return orderSuggestionsRegionFirst(items, regionKey, dishes).map(d => (
                                     <button key={`ai-${d.id}`} onClick={() => {
                                         const dish = dishes.find(dh => dh.id === d.id);

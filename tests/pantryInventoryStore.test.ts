@@ -56,6 +56,7 @@ describe('pantryInventoryStore.logPurchase — P2 auto defaults', () => {
   it('re-stock of the same item refreshes expiry from today', () => {
     usePantryInventoryStore.getState().logPurchase('Milk', { quantity: 500, unit: 'ml' });
     const first = usePantryInventoryStore.getState().entries[0]!;
+    vi.advanceTimersByTime(2000); // deliberate re-stock, past the double-fire window
     usePantryInventoryStore.getState().logPurchase('Milk', { quantity: 500, unit: 'ml' });
     const second = usePantryInventoryStore.getState().entries[0]!;
     expect(second.quantity).toBe(1000);
@@ -90,6 +91,9 @@ describe('pantryInventoryStore.purchase ledger — P0 IST + append-only', () => 
   it('ledger: two purchases of the same item+unit → 2 events, aggregate summed', () => {
     vi.setSystemTime(LATE_IST);
     usePantryInventoryStore.getState().logPurchase('Milk', { quantity: 500, unit: 'ml' });
+    // Advance past the double-fire guard window — two DELIBERATE buys, not a
+    // accidental duplicate tap.
+    vi.advanceTimersByTime(2000);
     usePantryInventoryStore.getState().logPurchase('Milk', { quantity: 500, unit: 'ml' });
     const s = usePantryInventoryStore.getState();
     expect(s.purchaseEvents).toHaveLength(2);
@@ -99,6 +103,26 @@ describe('pantryInventoryStore.purchase ledger — P0 IST + append-only', () => 
     expect(s.entries[0]!.quantity).toBe(1000);
     // add-sheet path (no source passed) defaults to 'manual'
     expect(s.purchaseEvents.every(ev => ev.source === 'manual')).toBe(true);
+  });
+
+  it('double-tap guard: identical pack within 1.5s is ignored (Eggplant 300g ×2 regression)', () => {
+    vi.setSystemTime(LATE_IST);
+    const store = usePantryInventoryStore.getState();
+    store.logPurchase('Eggplant', { quantity: 300, unit: 'g', source: 'bought' });
+    store.logPurchase('Eggplant', { quantity: 300, unit: 'g', source: 'bought' }); // accidental double-fire
+    const s = usePantryInventoryStore.getState();
+    expect(s.purchaseEvents).toHaveLength(1);
+    expect(s.entries.find(e => e.name === 'Eggplant')!.quantity).toBe(300); // NOT 600
+  });
+
+  it('double-tap guard passes different packs through (same item, different qty/unit)', () => {
+    vi.setSystemTime(LATE_IST);
+    const store = usePantryInventoryStore.getState();
+    store.logPurchase('Rice', { quantity: 500, unit: 'g' });
+    store.logPurchase('Rice', { quantity: 1000, unit: 'g' }); // deliberate second pack
+    store.logPurchase('Rice', { quantity: 500, unit: 'ml' }); // different unit row
+    const s = usePantryInventoryStore.getState();
+    expect(s.purchaseEvents).toHaveLength(3);
   });
 
   it('ledger: bought gesture tags its event with source=bought', () => {
@@ -124,6 +148,7 @@ describe('pantryInventoryStore.purchase ledger — P0 IST + append-only', () => 
     const s = usePantryInventoryStore.getState();
     s.logPurchase('A', { quantity: 1, unit: 'g' }); // oldest — will be evicted
     for (let i = 0; i < 205; i++) {
+      vi.advanceTimersByTime(1600); // distinct deliberate buys — past the double-fire window
       s.logPurchase('B', { quantity: 1, unit: 'g' });
     }
     const st = usePantryInventoryStore.getState();
@@ -167,11 +192,54 @@ describe('pantryInventoryStore — P2 requestedBy attribution', () => {
 
   it('one-tap re-buy path: re-stock sums the aggregate + appends a new ledger event', () => {
     usePantryInventoryStore.getState().logPurchase('Milk', { quantity: 500, unit: 'ml', source: 'bought' });
+    vi.advanceTimersByTime(2000); // deliberate re-buy, past the double-fire window
     usePantryInventoryStore.getState().logPurchase('Milk', { quantity: 500, unit: 'ml', source: 'bought' });
     const s = usePantryInventoryStore.getState();
     expect(s.purchaseEvents).toHaveLength(2);
     expect(s.entries.find(e => e.name === 'Milk')!.quantity).toBe(1000);
     expect(s.purchaseEvents.every(ev => ev.source === 'bought')).toBe(true);
+  });
+});
+
+describe('removePurchase — undo a mistaken log', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(LATE_IST);
+    usePantryInventoryStore.getState().clearEntries();
+    usePantryInventoryStore.getState().clearPurchases();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('removes the ledger event AND subtracts the pack from stock', () => {
+    usePantryInventoryStore.getState().logPurchase('Eggplant', { quantity: 300, unit: 'g' });
+    const ev = usePantryInventoryStore.getState().purchaseEvents[0]!;
+    // The misclick duplicate (guard swallows identical packs, so simulate two
+    // distinct logs by advancing past the double-fire window).
+    vi.advanceTimersByTime(2000);
+    usePantryInventoryStore.getState().logPurchase('Eggplant', { quantity: 300, unit: 'g' });
+    expect(usePantryInventoryStore.getState().entries[0]!.quantity).toBe(600);
+
+    usePantryInventoryStore.getState().removePurchase('Eggplant', ev.purchasedAt);
+    const s = usePantryInventoryStore.getState();
+    expect(s.purchaseEvents).toHaveLength(1);
+    expect(s.entries[0]!.quantity).toBe(300); // surplus inflation corrected
+  });
+
+  it('drops the stock entry entirely when quantity reaches zero', () => {
+    usePantryInventoryStore.getState().logPurchase('Eggplant', { quantity: 300, unit: 'g' });
+    const ev = usePantryInventoryStore.getState().purchaseEvents[0]!;
+    usePantryInventoryStore.getState().removePurchase('eggplant', ev.purchasedAt); // case-insensitive
+    const s = usePantryInventoryStore.getState();
+    expect(s.purchaseEvents).toHaveLength(0);
+    expect(s.entries.find(e => e.name === 'Eggplant')).toBeUndefined();
+  });
+
+  it('is a safe no-op for an unknown event', () => {
+    usePantryInventoryStore.getState().logPurchase('Eggplant', { quantity: 300, unit: 'g' });
+    usePantryInventoryStore.getState().removePurchase('Eggplant', '2026-01-01T00:00:00.000Z');
+    const s = usePantryInventoryStore.getState();
+    expect(s.purchaseEvents).toHaveLength(1);
+    expect(s.entries[0]!.quantity).toBe(300);
   });
 });
 

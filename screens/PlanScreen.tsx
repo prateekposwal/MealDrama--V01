@@ -1027,7 +1027,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                             const meals = getMeals(date, mealType);
                                             return (
                                                 <div key={key} className="flex items-center gap-1.5">
-                                                    {filled ? meals.slice(0, 3).map((m, i) => (
+                                                    {filled ? meals.slice(0, 5).map((m, i) => (
                                                         <DishImage key={m.meal_id || i} name={m.name} size="xs" />
                                                     )) : (
                                                         <div className="w-8 h-8 rounded-xl bg-gray-100 border border-dashed border-gray-200 flex items-center justify-center">

@@ -16,3 +16,8 @@ coverage/
 ios/Pods/
 ios/DerivedData/
 mealdrama-release-key.keystore
+
+# Android signing secrets (never commit)
+android/key.properties
+android/mealdrama-release.jks
+android/key_password.txt

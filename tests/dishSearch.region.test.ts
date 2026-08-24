@@ -4,7 +4,7 @@ import {
   compareRegion,
   REGION_PROXIMITY,
 } from '../utils/regionPreference';
-import { rankDishes, selectTryThese, dishSlotScore, getRegionKey, dishSortComparator } from '../utils/dishSearch';
+import { rankDishes, selectTryThese, dishSlotScore, getRegionKey, dishSortComparator, goalToDishHealthFilter } from '../utils/dishSearch';
 import type { Dish } from '../meal/constants/dishLibrary';
 import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
 
@@ -281,6 +281,94 @@ describe('selectTryThese', () => {
     const result = selectTryThese(balancedPool, { userDiet: 'non-veg', regionKey: 'north', excludeIds: all });
     expect(result).toEqual([]);
   });
+
+  it('Try These region-titled strip: NEVER leads with a neighbor-region dish (Mutton Xacuti bug)', () => {
+    // REGION_PROXIMITY puts west one hop from north — Mutton Xacuti (Goan/west)
+    // led a "north · Non-Veg" strip. A region-TITLED strip must order
+    // exact → all → elsewhere, and the first pick must be north or all.
+    const pool = [
+      makeDish({ id: 'xacuti', name: 'Mutton Xacuti', region: 'west', category: ['dinner'], type: 'non-veg' }),
+      makeDish({ id: 'butter-chicken', name: 'Butter Chicken', region: 'north', category: ['dinner'], type: 'non-veg' }),
+      makeDish({ id: 'roll', name: 'Chicken Kathi Roll', region: 'all', category: ['snacks'], type: 'non-veg' }),
+    ];
+    const ids = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north' }).map(d => d.id);
+    expect(ids.indexOf('butter-chicken')).toBeLessThan(ids.indexOf('xacuti'));
+    expect(ids[0]).toBe('butter-chicken'); // exact-region dish leads, not the Goan neighbor
+  });
+
+  it('Try These NEVER suggests pure sweets as meal cards (the Barfi-in-north-Veg bug)', () => {
+    const pool = [
+      makeDish({ id: 'barfi', name: 'Barfi', region: 'north', category: ['snacks'], type: 'veg', tags: ['dessert', 'sweet'] }),
+      makeDish({ id: 'rajma', name: 'Rajma', region: 'north', category: ['lunch'], type: 'veg' }),
+      makeDish({ id: 'aloo-paratha', name: 'Aloo Paratha', region: 'north', category: ['breakfast'], type: 'veg' }),
+    ];
+    const ids = selectTryThese(pool, { userDiet: 'veg', regionKey: 'north' }).map(d => d.id);
+    expect(ids).not.toContain('barfi');
+    expect(ids).toContain('rajma'); // real meals still suggested
+  });
+
+  it('HEALTH FOCUS steers suggestions (ordering only): High Protein lifts protein dishes within a tier', () => {
+    const pool = [
+      makeDish({ id: 'hp', name: 'Paneer Paratha', region: 'north', category: ['breakfast'], type: 'veg', protein: 18, calories: 260 }),
+      makeDish({ id: 'lp', name: 'Milk Oats', region: 'north', category: ['breakfast'], type: 'veg', calories: 320, nutrition: ['carb'] }),
+    ];
+    const result = selectTryThese(pool, { userDiet: 'eggitarian', regionKey: 'north', healthGoal: 'High Protein' });
+    expect(result[0]!.id).toBe('hp');      // protein dish leads within the same region+diet tier
+    expect(pool.every(d => result.some(r => r.id === d.id))).toBe(true); // nothing excluded
+    // Registered under the same (region+diet) tiebreak: goal mapping is sane
+    expect(goalToDishHealthFilter('High Protein')).toBe('high-protein');
+    expect(goalToDishHealthFilter('Weight Loss')).toBe('low-cal');
+    expect(goalToDishHealthFilter('Fiber-Loving')).toBe('balanced');
+    expect(goalToDishHealthFilter(undefined)).toBeNull();
+  });
+
+  it('eggitarian: region leads, diet breaks ties — local eggs never buried, far eggs backfill', () => {
+    // Doctrine v2 (user feedback): diet-leading ranked far-region dishes
+    // above everything ("Try These shows other regions"). Region proximity
+    // orders first; within a tier the distinctive diet wins; far-region
+    // eggs still appear via round-robin + top-up backfill.
+    const pool = [
+      makeDish({ id: 'egg-b1', name: 'Egg Appam', region: 'south', category: ['breakfast'], type: 'eggitarian' }),
+      makeDish({ id: 'veg-b1', name: 'Aloo Paratha', region: 'north', category: ['breakfast'], type: 'veg' }),
+      makeDish({ id: 'egg-l1', name: 'Egg Curry', region: 'north', category: ['lunch'], type: 'eggitarian' }),
+      makeDish({ id: 'veg-l1', name: 'Rajma', region: 'north', category: ['lunch'], type: 'veg' }),
+    ];
+    const result = selectTryThese(pool, { userDiet: 'eggitarian', regionKey: 'north' });
+    expect(result.some(d => d.type === 'eggitarian')).toBe(true);
+    // Region-first: the north veg dish leads the breakfast bucket, NOT the
+    // far-region south egg.
+    expect(result[0]!.id).toBe('veg-b1');
+    // Within the same region tier, the egg dish beats its veg neighbor
+    const lunchIdx = result.findIndex(d => d.id === 'egg-l1');
+    const rajmaIdx = result.findIndex(d => d.id === 'veg-l1');
+    expect(lunchIdx).toBeGreaterThan(-1);
+    expect(lunchIdx).toBeLessThan(rajmaIdx);
+    // Far-region egg still surfaces (ordering-only doctrine, never filtered)
+    expect(result.some(d => d.id === 'egg-b1')).toBe(true);
+  });
+
+  it('eggitarian NEVER receives non-veg-typed dishes (canonical diet ladder)', () => {
+    const pool = [
+      makeDish({ id: 'chicken', name: 'Butter Chicken', region: 'north', category: ['dinner'], type: 'non-veg' }),
+      makeDish({ id: 'egg-curry', name: 'Egg Curry', region: 'north', category: ['dinner'], type: 'eggitarian' }),
+    ];
+    const ids = selectTryThese(pool, { userDiet: 'eggitarian', regionKey: 'north' }).map(d => d.id);
+    expect(ids).toContain('egg-curry');
+    expect(ids).not.toContain('chicken');
+  });
+
+  it('drops same-NAME clones (different ids) — no duplicate rows in Try These', () => {
+    // Reported: "Baked Penne with Roasted Vegetables" rendered twice because
+    // a custom dish cloned a library dish under a new id; dedup was id-only.
+    const pool = [
+      makeDish({ id: 'penne-lib', name: 'Baked Penne with Roasted Vegetables', region: 'all', category: ['dinner'] }),
+      makeDish({ id: 'penne-custom', name: 'Baked Penne with Roasted Vegetables ', region: 'all', category: ['dinner'] }),
+      makeDish({ id: 'rajma', name: 'Rajma', region: 'north', category: ['lunch'] }),
+    ];
+    const result = selectTryThese(pool, { userDiet: 'veg', regionKey: 'north' });
+    const names = result.map(d => d.name.trim().toLowerCase());
+    expect(new Set(names).size).toBe(names.length);
+  });
 });
 
 
@@ -323,22 +411,26 @@ describe('selectTryThese exact-region matching', () => {
     makeDish({ id: 'e-dish', name: 'Mishti', region: 'east', category: ['lunch'] }),
   ];
 
-  it("regionKey 'northeast' does NOT admit a 'north' dish (exact match, not substring)", () => {
-    const ids = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'northeast' }).map(d => d.id);
-    expect(ids).not.toContain('n-dish');
-    expect(ids).not.toContain('e-dish');
-  });
-
-  it("regionKey 'northeast' admits its own region and all-region dishes", () => {
+  it("region is ordering, never exclusion: a northeast user sees every dish", () => {
+    // Region-as-filter starved north eggitarians of all egg curries (all
+    // tagged south/east/west). Region now only orders; diet stays the filter.
     const ids = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'northeast' }).map(d => d.id);
     expect(ids).toContain('ne-dish');
     expect(ids).toContain('all-dish');
+    expect(ids).toContain('n-dish');
+    expect(ids).toContain('e-dish');
   });
 
-  it("regionKey 'north' is symmetric: does not admit 'northeast' dishes", () => {
+  it("own region + all-region dishes rank ahead of far regions", () => {
+    const ids = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'northeast' }).map(d => d.id);
+    expect(ids.indexOf('ne-dish')).toBeLessThan(ids.indexOf('n-dish'));
+    expect(ids.indexOf('ne-dish')).toBeLessThan(ids.indexOf('e-dish'));
+  });
+
+  it("regionKey 'north' is symmetric: own dishes lead, far dishes still present", () => {
     const ids = selectTryThese(pool, { userDiet: 'non-veg', regionKey: 'north' }).map(d => d.id);
-    expect(ids).not.toContain('ne-dish');
-    expect(ids).toContain('n-dish');
+    expect(ids.indexOf('n-dish')).toBeLessThan(ids.indexOf('ne-dish'));
+    expect(ids).toContain('ne-dish');
     expect(ids).toContain('all-dish');
   });
 });
@@ -468,14 +560,97 @@ describe('dishLibrary region-consistency data', () => {
     expect(south.map(d => d.id)).toContain('payasam');
   });
 
-  it('library integrity: 637 dishes (638 pre-merge − 1 falooda dup), unique ids, no broken entries', () => {
-    expect(DISH_LIBRARY).toHaveLength(637);
+  it('library integrity: 679 dishes (662 + 17 bread-based mains/snacks/sweets), unique ids, no broken entries', () => {
+    expect(DISH_LIBRARY).toHaveLength(679);
     const seen = new Set<string>();
     for (const d of DISH_LIBRARY) {
       expect(seen.has(d.id)).toBe(false);
       seen.add(d.id);
       expect(d.id && d.name && d.region && d.states.length > 0 && d.category.length > 0 && d.type).toBeTruthy();
     }
+  });
+
+  it('north eggitarians have LOCAL egg dishes (the empty-breakfast bug)', () => {
+    const northEggs = DISH_LIBRARY.filter(
+      d => d.region === 'north' && (d.diet || d.type) === 'eggitarian',
+    );
+    expect(northEggs.length).toBeGreaterThanOrEqual(3);
+    // At least one is breakfast-capable — bhurji/omelette/paratha territory
+    expect(northEggs.some(d => (d.category ?? []).includes('breakfast'))).toBe(true);
+  });
+
+  it('BREAD coverage: every region has bread dishes in breakfast AND snacks', () => {
+    const breadTags = ['paratha', 'bread', 'pav', 'toast', 'sandwich', 'puri', 'bhature', 'naan', 'kulcha', 'kachori', 'roti'];
+    const regions = ['north', 'south', 'east', 'west', 'central', 'northeast'];
+    for (const region of regions) {
+      for (const slot of ['breakfast', 'snacks']) {
+        const n = DISH_LIBRARY.filter(
+          d => (d.region === region || d.region === 'all')
+            && ((d.category ?? []) as any[]).includes(slot)
+            && breadTags.some(t => ((d.tags ?? []) as string[]).includes(t)),
+        ).length;
+        expect(n, `${region}/${slot}`).toBeGreaterThanOrEqual(1);
+      }
+    }
+  });
+
+  it('every bread-based dish carries full pantry-resolvable ingredients', () => {
+    // Pantry guarantee: adding any of these meals must feed ingredient names
+    // into the pantry (via getIngredientNamesForMeal → variant.ingredients).
+    const breadDishIds = [
+      'seyal-double-roti', 'bread-upma', 'mumbai-masala-toast', 'bread-roll', 'bread-manchurian',
+      'chilli-cheese-toast', 'aloo-masala-sandwich', 'paneer-bhurji-sandwich', 'dahi-veg-sandwich',
+      'bread-chaat', 'dim-pauruti', 'bread-bhurji', 'double-ka-meetha', 'podi-bread-toast',
+      'tomato-garlic-bread', 'ghugni-bread', 'kolkata-egg-roll',
+    ];
+    for (const id of breadDishIds) {
+      const dish = DISH_LIBRARY.find(d => d.id === id);
+      expect(dish, id).toBeDefined();
+      const variant = dish!.variants?.[0];
+      expect(variant, `${id}/variant`).toBeDefined();
+      expect((variant!.ingredients ?? []).length, `${id}/ingredients`).toBeGreaterThan(0);
+      for (const ing of variant!.ingredients ?? []) {
+        expect(ing.name && ing.quantity && ing.unit && ing.category, `${id}/${ing.name}`).toBeTruthy();
+      }
+    }
+  });
+
+  it('region×diet coverage: every region has breakfast AND dinner dishes for eggitarian/non-veg/vegan', () => {
+    // The whack-a-mole killer: the reported gaps were dinner eggs = 0 (north),
+    // breakfast non-veg = 0 (north/east/central/northeast). A regional pool
+    // must be able to seed each distinctive diet into each daily anchor slot.
+    const regions = ['north', 'south', 'east', 'west', 'central', 'northeast'];
+    const slots = ['breakfast', 'dinner'];
+    for (const region of regions) {
+      for (const type of ['eggitarian', 'non-veg', 'vegan'] as const) {
+        for (const slot of slots) {
+          const n = DISH_LIBRARY.filter(
+            d => (d.diet || d.type) === type
+              && ((d.category ?? []) as any).includes(slot)
+              && (d.region === region || d.region === 'all'),
+          ).length;
+          expect(n, `${region}/${type}/${slot}`).toBeGreaterThanOrEqual(1);
+        }
+      }
+    }
+  });
+
+  it('Try These: region proximity leads; diet only breaks ties within a tier', () => {
+    const picks = selectTryThese(DISH_LIBRARY, {
+      userDiet: 'eggitarian', regionKey: 'north',
+      plannedSlots: ['Breakfast', 'Lunch', 'Snacks', 'Dinner'], maxPerSlot: 2,
+    });
+    expect(picks.length).toBeGreaterThan(0);
+    // No far-region dish may lead a same-tier dish: the first pick must be
+    // north or all-region (previously far-region eggs led everything).
+    const tier = (r?: string) => (r === 'north' ? 0 : (!r || r === 'all') ? 1 : 2);
+    let best = 3;
+    for (const p of picks) {
+      best = Math.min(best, tier(p.region));
+    }
+    expect(tier(picks[0]!.region)).toBe(best);
+    // And the distinctive diet is still represented in the suggestions
+    expect(picks.some(p => (p.diet || p.type) === 'eggitarian')).toBe(true);
   });
 
   it('the stripped sweets now pair Masala Chai', () => {

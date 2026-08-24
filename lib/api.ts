@@ -14,22 +14,20 @@ export function isAuthReady(): boolean {
 }
 // ───────────────────────────────────────────────────────────────────────────
 
-// ─── 401 Abort Controller ─────────────────────────────────────────────────
-let _authAbortController: AbortController | null = null;
-let tokenCleared = false;
+// ─── 401 Handling ─────────────────────────────────────────────────────────
+let _sessionExpiredFired = false;
 
-function getAuthAbortController(): AbortController {
-  if (!_authAbortController || _authAbortController.signal.aborted) {
-    _authAbortController = new AbortController();
-  }
-  return _authAbortController;
+/** Signal a session-expiry ONCE; App revalidates and decides the logout. */
+export function resetSessionExpirySignal(): void {
+  _sessionExpiredFired = false;
 }
 
-function abortAllOn401(): void {
-  if (_authAbortController && !_authAbortController.signal.aborted) {
-    _authAbortController.abort();
+function signalSessionExpired(): void {
+  if (_sessionExpiredFired) return;
+  _sessionExpiredFired = true;
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
   }
-  _authAbortController = null;
 }
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -46,21 +44,7 @@ function getToken(): string | null {
   }
 }
 
-function setToken(token: string): void {
-  try {
-    useStore.getState().setToken(token);
-  } catch {
-    // store may not be available yet
-  }
-}
-
-function clearToken(): void {
-  try {
-    useStore.getState().clearToken();
-  } catch {
-    // ignore
-  }
-}
+let tokenCleared = false;
 
 function isAuthFailure(err: Error): boolean {
   return err.message === 'Auth not ready' || err.message.includes('401') || err.message.includes('Unauthorized');
@@ -121,8 +105,6 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     throw new Error('Auth not ready');
   }
 
-  const authController = getAuthAbortController();
-
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -133,10 +115,6 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     } else {
       externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
-  }
-  const onAuthAbort = () => controller.abort();
-  if (!authController.signal.aborted) {
-    authController.signal.addEventListener('abort', onAuthAbort, { once: true });
   }
 
   const idempotencyKey = IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase())
@@ -158,10 +136,13 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     });
 
     if (res.status === 401) {
-      abortAllOn401();
-      clearToken();
+      // GRACEFUL expiry: a 401 on a routine save/sync must NOT abort the
+      // whole request pool or clear the session mid-flow — that made closing
+      // a meal card bounce to login whenever a debounced save 401'd. Signal
+      // once; App revalidates with getMe() and only logs out when the expiry
+      // is CONFIRMED (true stale/revoked session).
       tokenCleared = true;
-      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+      signalSessionExpired();
     }
 
     if (!res.ok) {

@@ -252,6 +252,106 @@ export const DISH_HEALTH_MAP: Record<string, { healthCategories: string[]; tags:
     healthCategories: ['lean-protein'],
     tags: ['high-protein', 'low-carb'],
   },
+  'anda-bhurji': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein', 'low-carb'],
+  },
+  'anda-paratha': {
+    healthCategories: [],
+    tags: ['high-protein'],
+  },
+  'anda-curry-north': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'keema-paratha': {
+    healthCategories: [],
+    tags: ['high-protein'],
+  },
+  'anda-sandwich-kolkata': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'kolkata-chicken-roll': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'dimer-devil': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'thukpa-chicken': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein', 'high-fiber'],
+  },
+  'egg-masala-indore': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'egg-bhurji-pav-bhopal': {
+    healthCategories: [],
+    tags: ['high-protein'],
+  },
+  'chicken-poha-nagpur': {
+    healthCategories: ['lean-protein'],
+    tags: ['low-calorie', 'high-fiber'],
+  },
+  'naga-egg-roast': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'bread-pakora': {
+    healthCategories: [],
+    tags: [],
+  },
+  'pyaaz-kachori': {
+    healthCategories: [],
+    tags: [],
+  },
+  'bread-omelette': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'vindaloo': {
+    healthCategories: [],
+    tags: ['high-protein'],
+  },
+  'malabar-fish-curry': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'papri-chaat': {
+    healthCategories: [],
+    tags: [],
+  },
+  'bhelpuri': {
+    healthCategories: [],
+    tags: [],
+  },
+  'kaju-katli': {
+    healthCategories: [],
+    tags: [],
+  },
+  'dim-pauruti': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'kolkata-egg-roll': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'ghugni-bread': {
+    healthCategories: ['high-fiber'],
+    tags: ['high-fiber'],
+  },
+  'paneer-bhurji-sandwich': {
+    healthCategories: ['lean-protein'],
+    tags: ['high-protein'],
+  },
+  'ras-malai': {
+    healthCategories: [],
+    tags: [],
+  },
   'egg-fried-rice': {
     healthCategories: ['refined-grain'],
     tags: ['moderate-protein', 'high-carb'],

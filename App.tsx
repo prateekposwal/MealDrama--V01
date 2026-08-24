@@ -3,6 +3,7 @@ import { useStore } from './app/store/useStore';
 import { useTrayStore, seedTodayFromTray } from './plan/store/useTrayStore';
 import { usePantryStore } from './app/store/pantryStore';
 import { useLoopStore } from './plan/store/useLoopStore';
+import { healTrayDietGaps } from './utils/dietHeal';
 import api, { setAuthReady } from './lib/api';
 import { getMe } from './app/utils/authApi';
 import { X } from 'lucide-react';
@@ -21,9 +22,133 @@ import { NotificationCenter, checkMealReminder, checkPlanEnding, checkPantryNeed
 import { Toast } from './components/new/Toast';
 import { TabBar, type Tab } from './components/new/TabBar';
 import { useBackNavigation } from './hooks/useBackNavigation';
-import { getRegionKey } from './utils/dishSearch';
+import { getRegionKey, goalToDishHealthFilter, dishHealthMatchScore } from './utils/dishSearch';
+import { isPureSweetDish } from './meal/constants/pairingCatalog';
+import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, enrichSourcePool } from './utils/dietQuota';
 
 const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
+
+// Legacy-clone purge: older builds seeded the same dish under different ids
+// (style-expanded clones) — "Yakhni ×2" in the tray. Keep first per name,
+// via a proper setState so the persist middleware writes it back.
+const purgeTrayClones = () => {
+  const norm = (s: string) => (s || '').trim().toLowerCase();
+  useStore.setState((s) => {
+    let changed = false;
+    const next: typeof s.trayLibrary = { ...s.trayLibrary };
+    for (const slotKey of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+      const tray = s.trayLibrary[slotKey] || [];
+      const seen = new Set<string>();
+      const deduped = tray.filter(m => {
+        const n = norm(m.name);
+        if (seen.has(n)) return false;
+        seen.add(n);
+        return true;
+      });
+      if (deduped.length !== tray.length) {
+        changed = true;
+        next[slotKey] = deduped;
+      }
+    }
+    return changed ? { trayLibrary: next } : {};
+  });
+};
+
+// Stale-loop sanitize: queues built by the old modulo-wrap code contain the
+// same dish multiple times, and old assignments repeat dishes within a day.
+// Keep-first per (slot, name) in the queue and per (date, name) in
+// assignments so legacy persisted data heals itself on startup.
+const TRAY_SLOT_CAP = 6;
+const PLAN_SLOT_CAP = 6;
+/** Per-slot minimum × representatives for distinctive diets (the "more eggs" bar). */
+const DIET_REP_TARGET = 2;
+/** Rotation-pool breadth per slot — capped tray pools repeated daily otherwise. */
+const POOL_SLOT_TARGET = 12;
+/** Health-match scorer from a user goal string ("High Protein" → lifts protein dishes). */
+const healthMatchFor = (goal?: string) => {
+  const f = goalToDishHealthFilter(goal);
+  return (d: Dish) => (f && f !== 'all' ? dishHealthMatchScore(d, f) : 0);
+};
+const purgeTrayOverflow = () => {
+  useStore.setState((s) => {
+    let changed = false;
+    const next: typeof s.trayLibrary = { ...s.trayLibrary };
+    for (const slotKey of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+      const tray = s.trayLibrary[slotKey] || [];
+      // Cap keep-first — legacy builds stacked distinct dishes across
+      // repeated rebuilds (13-lunch trays).
+      if (tray.length > TRAY_SLOT_CAP) { changed = true; next[slotKey] = tray.slice(0, TRAY_SLOT_CAP); }
+    }
+    return changed ? { trayLibrary: next } : {};
+  });
+};
+const purgePlanDayDupes = () => {
+  try {
+    useTrayStore.setState((s: any) => {
+      const days = s.plan?.days;
+      if (!days || Object.keys(days).length === 0) return {};
+      let changed = false;
+      const nextDays: any = {};
+      for (const date of Object.keys(days)) {
+        const day = days[date];
+        if (!day) continue;
+        const nextDay: any = {};
+        for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+          const items = day[slot] || [];
+          const seen = new Set<string>();
+          const kept = items.filter((m: any) => {
+            const n = (m.name || m.title || '').trim().toLowerCase();
+            if (n && seen.has(n)) return false;
+            if (n) seen.add(n);
+            return true;
+          }).slice(0, PLAN_SLOT_CAP);
+          if (kept.length !== items.length) { changed = true; nextDay[slot] = kept; }
+        }
+        if (Object.keys(nextDay).length > 0) nextDays[date] = { ...day, ...nextDay };
+      }
+      if (!changed) return {};
+      return { plan: { ...s.plan, days: { ...days, ...nextDays } } };
+    });
+  } catch (e) {
+    console.warn('[App] purgePlanDayDupes skipped:', e);
+  }
+};
+const purgeLoopDupes = () => {
+  const norm = (s: string) => (s || '').trim().toLowerCase();
+  try {
+    const { mealLoop } = useLoopStore.getState() as any;
+    if (!mealLoop?.config && !(mealLoop?.rotationQueue?.length)) return;
+    let queueChanged = false;
+    const qKeys = new Set<string>();
+    const dedupedQueue: any[] = [];
+    for (const q of mealLoop.rotationQueue || []) {
+      // Same slot+name (variant clones) or same slot+id (old wrap bug) → dup.
+      const kName = `${q.mealType}:${norm(q.dishName)}`;
+      const kId = `${q.mealType}:${q.dishId}`;
+      if (qKeys.has(kName) || qKeys.has(kId)) { queueChanged = true; continue; }
+      qKeys.add(kName); qKeys.add(kId);
+      dedupedQueue.push(q);
+    }
+    let assignmentsChanged = false;
+    const aSeen = new Set<string>();
+    const dedupedAssignments: any[] = [];
+    for (const a of mealLoop.assignments || []) {
+      const k = `${a.date}:${a.mealType}:${norm(a.dishName)}`;
+      if (aSeen.has(k)) { assignmentsChanged = true; continue; }
+      aSeen.add(k);
+      dedupedAssignments.push(a);
+    }
+    if (queueChanged || assignmentsChanged) {
+      const nextIndex = Math.min(mealLoop.next_index || 0, dedupedQueue.length);
+      const nextPointer = Math.min(mealLoop.rotationPointer || 0, dedupedQueue.length);
+      useLoopStore.setState({
+        mealLoop: { ...mealLoop, rotationQueue: dedupedQueue, assignments: dedupedAssignments, next_index: nextIndex, rotationPointer: nextPointer },
+      });
+    }
+  } catch (e) {
+    console.warn('[App] purgeLoopDupes skipped:', e);
+  }
+};
 
 const DashScreen = React.lazy(() => import('./screens/Dashboard'));
 const PlanScreen = React.lazy(() => import('./screens/PlanScreen'));
@@ -107,7 +232,14 @@ const App: React.FC = () => {
     const checkBoth = () => {
       if (!cancelled) {
         if (timeoutId) clearTimeout(timeoutId);
+        purgeTrayClones();
+        purgeTrayOverflow();
+        purgeLoopDupes();
+        purgePlanDayDupes();
         seedTodayFromTray();
+        // Heal stale trays: rebuild-time quota fixes never reached installs
+        // hydrated BEFORE those fixes (trays with zero egg dishes persist).
+        void healTrayDietGaps();
         const hhId = useStore.getState().householdId;
         if (hhId) useStore.getState().refreshHousehold();
         setIsHydrated(true);
@@ -231,6 +363,23 @@ const App: React.FC = () => {
       }
     });
   }, [isHydrated, isLoggedIn, updateProfile]);
+
+  // GRACEFUL session expiry: a routine save/sync 401 signals 'auth:unauthorized'
+  // WITHOUT nuking the app (closing a meal card used to bounce to login). Revalid
+  // ately via getMe(); only a CONFIRMED stale/revoked token logs out.
+  useEffect(() => {
+    if (!isHydrated) return;
+    const onUnauthorized = async () => {
+      setToast({ message: 'Reconnecting — verifying session…', type: 'info' });
+      const serverUser = await getMe().catch(() => null);
+      if (!serverUser) {
+        useStore.getState().clearToken();
+        setToast({ message: 'Session expired — please log in again', type: 'error' });
+      }
+    };
+    window.addEventListener('auth:unauthorized', onUnauthorized as any);
+    return () => window.removeEventListener('auth:unauthorized', onUnauthorized as any);
+  }, [isHydrated, setToast]);
 
   // ─── Cycle-end nudge: toast when loop has ≤3 days of assignments left ───
   useEffect(() => {
@@ -395,6 +544,10 @@ const App: React.FC = () => {
       } else {
         console.log('[App] Login data verified in storage.');
       }
+      // Re-run the diet heal AFTER login — at startup it may have run before
+      // auth hydrated (user null → heal bails). A logged-in user must get
+      // their diet reps (eggs in north snacks, etc.) without a restart.
+      void healTrayDietGaps(true);
     }} />
     </Suspense>;
   }
@@ -450,48 +603,119 @@ const App: React.FC = () => {
               const trayStore = useTrayStore.getState();
 
               const seededDishes: Dish[] = [];
+              const usedFirstIds = new Set<string>(); // same-day cross-slot dedup (ids AND names — variants share base names)
+              const usedSlotNames = new Set<string>(); // cross-slot DIVERSITY: lunch shouldn't mirror dinner
+              const normName = (s: string) => (s || '').trim().toLowerCase();
               const library = await getDishLibrary();
+              const distType = distinctiveTypeFor(dietPref);
+              // Rebuild semantics: REPLACE, not append — repeated setups must
+              // not stack onto pools from earlier runs (trays hit 13 lunches).
+              useStore.setState({
+                trayLibrary: { breakfast: [], lunch: [], snacks: [], dinner: [] },
+              });
+              useTrayStore.setState((s: any) => ({
+                plan: { ...s.plan, days: { ...s.plan.days, [today]: { breakfast: [], lunch: [], snacks: [], dinner: [] } } },
+              }));
+              purgeTrayClones();
               for (const slot of preferences.plannedSlots) {
                 const slotKey = slot.toLowerCase() as 'breakfast' | 'lunch' | 'dinner' | 'snacks';
                 const candidates = library.filter(d =>
                   (d.region === regionKey || d.region === 'all') &&
                   d.category.includes(slotKey as any) &&
-                  allowedTypes.includes(d.type)
+                  allowedTypes.includes(d.type) &&
+                  !isPureSweetDish(d)
                 ).sort((a, b) => {
                   const aPrio = dietPriority[(a.diet||a.type||'').toLowerCase()] ?? 99;
                   const bPrio = dietPriority[(b.diet||b.type||'').toLowerCase()] ?? 99;
-                  return aPrio - bPrio;
+                  // Diet leads; health focus breaks the tie so today's plan's
+                  // seed dish also leans toward the user's wellness goal.
+                  return aPrio - bPrio || healthMatchFor(preferences.healthGoal)(b) - healthMatchFor(preferences.healthGoal)(a);
                 });
-                // Pick up to 3 dishes per slot — diet-matched first
-                const selected = candidates.slice(0, 3);
+                // Pick up to 5 dishes per slot — diet-matched first, and
+                // preferring dishes no earlier slot already took (lunch must
+                // not mirror dinner when both pools share 'all' dishes).
+                const fresh = candidates.filter(d => !usedSlotNames.has(normName(d.name)));
+                const selected = (fresh.length >= 5 ? fresh : [...fresh, ...candidates.filter(d => !fresh.includes(d))]).slice(0, 5);
                 for (const dish of selected) {
                   seededDishes.push(dish);
+                  usedSlotNames.add(normName(dish.name));
                   trayState.addToTray(slotKey, {
                     id: dish.id, dishId: dish.id, name: dish.name,
                     icon: dish.icon, sourceRegion: dish.region,
                   });
                 }
-                // Add the first dish to today's meal (which is now diet-prioritized)
-                const first = selected[0];
+                // Add the first dish to today's meal (diet-prioritized, never
+                // repeating a dish already seeded into another slot today —
+                // prevents Bhindi Masala at both lunch AND dinner)
+                const first = selected.find(d => !usedFirstIds.has(d.id) && !usedFirstIds.has(normName(d.name))) ?? selected[0];
                 if (first) {
+                  usedFirstIds.add(first.id);
+                  usedFirstIds.add(normName(first.name));
+                  usedSlotNames.add(normName(first.name));
                   const firstVariant = first.variants?.[0];
                   trayStore.addMealToSlot(today, slotKey, {
                     id: first.id, name: first.name, icon: first.icon, region: first.region as Meal['region'],
                   }, firstVariant ? { variantId: firstVariant.id, variant: firstVariant.name } : undefined);
                 }
               }
+
+              // Diet representation quota (ALL diets, PER-SLOT target):
+              // breakfast's eggs once satisfied a GLOBAL deficit of 3 while
+              // dinner/snacks starved (the sparse-plan bug). Now compute the
+              // deficit per planned slot: each slot must reach 2 representatives.
+              // Reps enrich the TRAY only — the plan defaults to ONE card (the
+              // diet-prioritized `first` above). The startup heal's plan-wide
+              // presence pass adds a diet card to a slot whose regional pick
+              // genuinely had none, WITHOUT doubling a diet-first slot.
+              const poolsBySlot = { breakfast: [], lunch: [], snacks: [], dinner: [] } as any;
+              for (const d of seededDishes) {
+                for (const c of (d.category ?? [])) {
+                  const k = c.toLowerCase();
+                  if (k in poolsBySlot) poolsBySlot[k].push(d);
+                }
+              }
+              const perSlot = dietDeficitBySlot(poolsBySlot, distType, DIET_REP_TARGET);
+              const reps = pickDietRepresentativesWithSlots(library, {
+                distType,
+                regionKey,
+                minCount: Math.min(perSlot.total, 8),
+                excludeNames: usedSlotNames,
+                plannedSlots: preferences.plannedSlots,
+              });
+              for (const { dish, slot } of reps) {
+                seededDishes.push(dish);
+                usedSlotNames.add(normName(dish.name));
+                if (!slot) continue;
+                trayState.addToTray(slot, {
+                  id: dish.id, dishId: dish.id, name: dish.name,
+                  icon: dish.icon, sourceRegion: dish.region,
+                });
+              }
               setTrayBuilt(true);
 
-              // Build source pool from seeded dishes + apply default loop config
+              // Build source pool from seeded dishes + apply default loop config.
+              // Tray items lead (user's curated picks), then the pool is ENRICHED
+              // with more diet-allowed region dishes (to POOL_SLOT_TARGET) so a
+              // 7-day rotation actually varies — a pool capped at the 6-item tray
+              // repeated the same 5 snacks every day (the "repeating again again"
+              // report).
               const currentTray = useStore.getState().trayLibrary;
-              const newPool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+              const trayPool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
               for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
                 const items = currentTray[slot] ?? [];
                 for (const item of items) {
                   const dish = seededDishes.find(d => d.id === item.dishId);
-                  if (dish && !newPool[slot].find(d => d.id === dish.id)) newPool[slot].push(dish);
+                  if (dish && !trayPool[slot].find(d => d.id === dish.id)) trayPool[slot].push(dish);
                 }
               }
+              const newPool = enrichSourcePool(trayPool, library.filter(d => !isPureSweetDish(d)), {
+                allowedTypes,
+                regionKey,
+                target: POOL_SLOT_TARGET,
+                priority: (d) => (dietPriority[(d.diet || d.type || '').toLowerCase()] ?? 99),
+                // Health focus steers the pool's breadth (ordering only).
+                healthScore: healthMatchFor(preferences.healthGoal),
+              });
               const defaultConfig: MealLoopConfig = {
                 cycleLength: 7, startDate: today, skipDays: [], repeatPattern: 'random',
               };

@@ -49,6 +49,9 @@ export function validateSourcePool(pool: SourcePool, plannedSlots?: string[]): L
 /**
  * Build initial rotation queue from source pool.
  * Interleaves by slot type to ensure balanced daily coverage.
+ * Each UNIQUE dish appears exactly once per cycle — smaller pools must NOT
+ * be modulo-wrapped into duplicates (the heap's own gap/starvation logic
+ * handles daily reuse; wrapping caused "same dish twice in one day").
  */
 export function buildRotationQueue(pool: SourcePool, dishes?: Dish[]): RotationQueueItem[] {
   const slots = SLOT_TYPES.filter(s => pool[s].length > 0);
@@ -61,16 +64,13 @@ export function buildRotationQueue(pool: SourcePool, dishes?: Dish[]): RotationQ
     dinner: [...pool.dinner],
   };
 
-  const pointers: Record<string, number> = { breakfast: 0, lunch: 0, snacks: 0, dinner: 0 };
   const result: RotationQueueItem[] = [];
   const maxLen = Math.max(...slots.map(s => queues[s].length));
 
   for (let i = 0; i < maxLen; i++) {
     for (const slot of slots) {
-      const q = queues[slot];
-      if (q.length === 0) continue;
-      const dish = q[i % q.length];
-      if (!dish) continue;
+      const dish = queues[slot][i];
+      if (!dish) continue; // this slot's pool is exhausted — never wrap
       const style = dishes ? getDishStyle(dish.id) : undefined;
       result.push({
         dishId: dish.id,
@@ -214,6 +214,12 @@ export function assignFromQueue(
 
     if (isSkippedDay(dateStr, config.skipDays)) continue;
 
+    // Same-day cross-slot dedup: a dish served in one slot must not be
+    // re-served in another slot on the SAME day (e.g. Bhindi Masala at both
+    // lunch and dinner when it belongs to both pools). Keys hold BOTH ids and
+    // normalized names — expanded variants share a base name under diff ids.
+    const usedToday = new Set<string>();
+
     for (const slot of slotOrder) {
       const heap = slotHeaps[slot];
       if (heap.size === 0) continue;
@@ -229,11 +235,27 @@ export function assignFromQueue(
         heap.size,
       ));
 
-      // Pop the most-starved dish (longest since last served)
-      const candidate = heap.pop();
-      if (!candidate) continue;
+      // Pop the most-starved dishes until one was NOT already served today
+      // in another slot. Deferred entries go back into the heap afterwards;
+      // if the whole pool was used today we fall back to the first deferred
+      // dish (better to repeat than leave the slot empty).
+      const deferred: { dish: RotationQueueItem; lastDate: string | undefined }[] = [];
+      let chosen: { dish: RotationQueueItem; lastDate: string | undefined } | null = null;
+      const norm = (s: string) => s.trim().toLowerCase();
+      while (heap.size > 0) {
+        const candidate = heap.pop();
+        if (!candidate) break;
+        if (!usedToday.has(candidate.dish.dishId) && !usedToday.has(norm(candidate.dish.dishName))) {
+          chosen = candidate;
+          break;
+        }
+        deferred.push(candidate);
+      }
+      if (!chosen && deferred.length > 0) chosen = deferred.shift()!;
+      for (const d of deferred) heap.push(d);
+      if (!chosen) continue;
 
-      const { dish: item, lastDate } = candidate;
+      const { dish: item, lastDate } = chosen;
       if (!lastDate || daysBetweenFast(lastDate, dateStr) >= gap) {
         // Eligible — assign it, push back with updated lastDate
         assignments.push({
@@ -246,10 +268,12 @@ export function assignFromQueue(
         });
         existingSet.add(key);
         lastServed.set(item.dishId, dateStr);
+        usedToday.add(item.dishId);
+        usedToday.add(norm(item.dishName));
         heap.push({ dish: item, lastDate: dateStr });
       } else {
         // Not yet eligible — push back and skip this slot for today
-        heap.push(candidate);
+        heap.push(chosen);
       }
     }
     activeDays++;
@@ -559,6 +583,11 @@ export function autoFillLoop(
 
     if (isSkippedDay(dateStr, config.skipDays)) continue;
 
+    // Same-day cross-slot dedup by id AND normalized name — variants share
+    // base names under different ids ("X with Bajra Roti" vs base "X").
+    const norm = (s: string) => s.trim().toLowerCase();
+    const usedToday = new Set<string>();
+
     for (const slot of slotOrder) {
       const q = sq[slot];
       if (q.length === 0) continue;
@@ -569,15 +598,27 @@ export function autoFillLoop(
       const p = slotPointers[slot]! % q.length;
       slotPointers[slot]++;
       const item = q[p]!;
+      // Prefer the next not-yet-used-today dish (round-robin scan); repeat
+      // beats an empty slot when the whole pool was already served today.
+      let chosenItem = item;
+      for (let j = 1; j < q.length; j++) {
+        const alt = q[(p + j) % q.length]!;
+        if (!usedToday.has(alt.dishId) && !usedToday.has(norm(alt.dishName))) {
+          chosenItem = alt;
+          break;
+        }
+      }
 
       assignments.push({
         date: dateStr,
         mealType: slot,
-        dishId: item.dishId,
-        dishName: item.dishName,
+        dishId: chosenItem.dishId,
+        dishName: chosenItem.dishName,
         order: assignments.length,
       });
       existingSet.add(key);
+      usedToday.add(chosenItem.dishId);
+      usedToday.add(norm(chosenItem.dishName));
     }
     activeDays++;
   }
