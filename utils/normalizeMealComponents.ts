@@ -426,14 +426,51 @@ export function detectAllEmbeddedCarbs(dishName: string): string[] {
   const breadKeywords = ['puri', 'poori', 'luchi', 'baati', 'bafla', 'bati', 'kulcha', 'bhatura', 'batura', 'bhature', 'thepla', 'bhakri', 'pav', 'pao'];
   const selfCarbKeywords = ['vada', 'bonda', 'pakora', 'chilla', 'bath', 'bhath', 'uttapam'];
 
-  if (rotiKeywords.some(kw => lower.includes(kw))) found.add('Roti');
+  if (rotiKeywords.some(kw => lower.includes(kw))) {
+    // Specific wheat breads first: "with Roti" → Roti, Naans/Paratha variants specific
+    if (/naan/.test(lower)) found.add('Naan');
+    else if (/paratha/.test(lower)) found.add('Paratha');
+    else if (/phulka/.test(lower)) found.add('Phulka');
+    else if (/tandoori/.test(lower)) found.add('Tandoori Roti');
+    else if (/rumali/.test(lower)) found.add('Rumali Roti');
+    else if (/missi/.test(lower)) found.add('Missi Roti');
+    else found.add('Roti');
+  }
   if (riceKeywords.some(kw => lower.includes(kw))) found.add('Rice');
   if (milletKeywords.some(kw => lower.includes(kw))) found.add('Millet Roti');
   if (cornKeywords.some(kw => lower.includes(kw))) found.add('Corn Roti');
-  if (breadKeywords.some(kw => lower.includes(kw))) found.add('Bread');
+  if (breadKeywords.some(kw => lower.includes(kw))) {
+    // SPECIFIC names, not generic "Bread": bhature/bhatura → Bhatura, puri → Puri …
+    if (/bhatur/.test(lower)) found.add('Bhatura');
+    else if (/luchi/.test(lower)) found.add('Luchi');
+    else if (/kulcha/.test(lower)) found.add('Kulcha');
+    else if (/bhakri/.test(lower)) found.add('Bhakri');
+    else if (/thepla/.test(lower)) found.add('Thepla');
+    else if (/puri|poori/.test(lower)) found.add('Puri');
+    else if (/pav|pao/.test(lower)) found.add('Pav');
+    else if (/baati|bafla|bati/.test(lower)) found.add('Baati');
+    else found.add('Bread');
+  }
   if (selfCarbKeywords.some(kw => lower.includes(kw))) found.add('Batter');
 
   return Array.from(found);
+}
+
+/**
+ * The SINGLE embedded carb of a labelled dish ("Dal Gosht with Roti" → Roti).
+ * The meal-customize modal must pre-select this even when `item.roti` is
+ * absent (legacy rows / variant-authored titles) — the "title says with Roti
+ * but the bread chip isn't selected" bug.
+ */
+export function classifyEmbeddedCarb(label: string): { kind: 'bread' | 'rice' | null; name: string } {
+  const carbs = detectAllEmbeddedCarbs(label || '');
+  for (const c of carbs) {
+    if (isRotiLike(c) || isBreadLike(c)) return { kind: 'bread', name: c };
+  }
+  for (const c of carbs) {
+    if (c === 'Rice' || /rice/i.test(c)) return { kind: 'rice', name: c };
+  }
+  return { kind: null, name: '' };
 }
 
 // Memoized versions for performance-critical paths

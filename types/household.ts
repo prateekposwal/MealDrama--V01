@@ -1,9 +1,20 @@
 export type HouseholdRole = 'admin' | 'member';
 
+export interface HouseholdMemberProfile {
+  dietType: string;
+  region: string;
+  plannedSlots: string[];
+  healthGoal: string;
+}
+
 export interface HouseholdMember {
   id: string;
+  userId?: string | null;
   name: string;
   role: HouseholdRole;
+  canEditPlan: boolean;
+  autoPlanEnabled: boolean;
+  profile?: HouseholdMemberProfile;
   joinedAt: string;
 }
 

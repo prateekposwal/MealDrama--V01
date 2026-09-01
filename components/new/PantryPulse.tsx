@@ -27,6 +27,12 @@ import NotificationCenter from '../notification/NotificationCenter';
 import DishImage from './DishImage';
 import { isAfterEnd, SLOT_TIME_DEFAULTS, computeEffectiveServings } from '../../types/tray';
 import { getISODate, addDaysISO, daysUntil } from '../../utils/dateUTC';
+import { planDishIds, buyListFor } from '../../utils/buyList';
+import { dishBuyGroups, buySummary, radarUses, recipeIngredients, allMissingItems, type BuySummary } from '../../utils/buyByDish';
+import { useNotificationStore } from '../../app/notifications/notificationStore';
+import { BuyByDishSheet } from '../household/BuyByDishSheet';
+import { useHouseholdFeedStore } from '../../plan/store/householdFeedStore';
+import type { Dish } from '../../meal/constants/dishLibrary';
 import PullToRefresh from './PullToRefresh';
 import { usePantryStore } from '../../app/store/pantryStore';
 import { usePantryInventoryStore, groupPurchasesByDay } from '../../app/store/pantryInventoryStore';
@@ -80,6 +86,28 @@ const PantryPulse: React.FC = () => {
     // ─── P0: pantry surplus forecast ───────────────────────────────────
     const inventoryEntries = usePantryInventoryStore(s => s.entries);
     const purchaseEvents = usePantryInventoryStore(s => s.purchaseEvents);
+
+    // ─── Buy-by-dish (reacts to every purchase via the entries selector) ───
+    const [showBuySheet, setShowBuySheet] = useState(false);
+    const [preBuySummary, setPreBuySummary] = useState<BuySummary | null>(null);
+    const buyData = (() => {
+      const today = getISODate();
+      const day = useTrayStore.getState().plan.days?.[today];
+      const dayMeals = { breakfast: day?.breakfast ?? [], lunch: day?.lunch ?? [], snacks: day?.snacks ?? [], dinner: day?.dinner ?? [] };
+      const dishIds = [...new Set(planDishIds(dayMeals as any))];
+      const familyItems = useHouseholdFeedStore.getState().sharedPlan.filter(f => f.date === today);
+      const planEntries = dishIds
+        .map(id => dishes.find(d => d.id === id))
+        .filter((d): d is Dish => !!d)
+        .map(dish => ({ dish, members: 1 + familyItems.filter(f => f.dishId === dish.id).length }));
+      const stock = new Map(inventoryEntries.map((e: any) => [e.name.toLowerCase(), { quantity: e.quantity, unit: e.unit }]));
+      const staples = user?.pantryStaples ?? ([] as string[]);
+      const groups = dishBuyGroups(planEntries, (dish) => recipeIngredients(dish, dishes, user?.diet), stock, staples);
+      const expiring = inventoryEntries
+        .filter((e: any) => e.expiry && daysUntil(e.expiry, today) <= 2)
+        .map((e: any) => ({ name: e.name, daysLeft: daysUntil(e.expiry, today) }));
+      return { groups, summary: buySummary(groups), radar: radarUses(groups, expiring) };
+    })();
     const forecastSnacks = user?.plannedSlots?.includes('Snacks') ?? false;
     const forecastResults = useMemo<ForecastResult[]>(() => {
         if (!inventoryEntries.length) return [];
@@ -564,6 +592,19 @@ const PantryPulse: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-white pb-32 animate-in fade-in duration-500 ">
+            <BuyByDishSheet
+                open={showBuySheet}
+                onClose={() => setShowBuySheet(false)}
+                groups={showBuySheet ? buyData.groups : []}
+                summary={showBuySheet ? buyData.summary : { dishes: 0, itemsToBuy: 0 }}
+                radar={buyData.radar}
+                previousSummary={preBuySummary}
+                onBuyDish={(_key, items) => {
+                    const st = usePantryInventoryStore.getState();
+                    for (const it of items) st.logPurchase(it.name, { quantity: it.quantity ?? 1, unit: it.unit ?? '', source: 'bought' });
+                    useStore.getState().setToast({ message: `Bought ${items.length} item${items.length > 1 ? 's' : ''} — counts updated`, type: 'success' });
+                }}
+            />
             <WhatsAppShareModal
                 isOpen={showShareModal}
                 defaultPhone={sharePhone || user?.cookContact || ''}
@@ -580,17 +621,38 @@ const PantryPulse: React.FC = () => {
                         <h2 className="text-xl font-bold tracking-tight text-gray-900 mt-1">in the Kitchen</h2>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                        {buyData.summary.itemsToBuy > 0 && (() => {
+                            const notifKey = `buy-before-cook:${getISODate()}`;
+                            try {
+                                if (!window.localStorage.getItem(notifKey)) {
+                                    window.localStorage.setItem(notifKey, '1');
+                                    useNotificationStore.getState().addNotification({
+                                        type: 'pantry_buy',
+                                        title: `🛒 Buy ${buyData.summary.itemsToBuy} item${buyData.summary.itemsToBuy > 1 ? 's' : ''} before the cook starts`,
+                                        message: buyListFor((buyData.groups as any).flatMap((g: any) => g.items), new Map(), []).slice(0, 4).map((m: any) => `${m.name} ${m.quantity}${m.unit ?? ''}`).join(', '),
+                                    });
+                                }
+                            } catch { /* storage unavailable */ }
+                            return (
+                                <button
+                                    onClick={() => { setPreBuySummary(buyData.summary); setShowBuySheet(true); }}
+                                    className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-amber-50 text-orange-600 border-amber-200 active:scale-95 transition-all shrink-0"
+                                    aria-label="Buy before cook today"
+                                    title="Buy before cook · today"
+                                >
+                                    🛒 {buyData.summary.itemsToBuy}
+                                    <span className="hidden md:inline"> · today {new Date(`${getISODate()}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
+                                </button>
+                            );
+                        })()}
                         <button onClick={() => {if(!(sharePhone||user?.cookContact)){useStore.getState().setToast({message:'Enter a phone number in Profile first',type:'info'});return;}setShowShareModal(true);}}
                             className="flex items-center gap-2 bg-[#FF385C] text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all shadow-sm"
                         ><Share2 size={14} /> Share</button>
                         <NotificationCenter defaultTab="pantry" />
                     </div>
                 </div>
-                <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-bold text-emerald-600">✅ {checkedCount} in kitchen</span>
-                    <span className="text-gray-300">·</span>
-                    <span className="text-sm font-bold text-orange-600">❌ {uncheckedCount} to buy</span>
-                </div>
+                {/* Per-category ✅/❌ chips live on each group header; the 🛒 header pill
+                          carries the overall to-buy total. */}
 
                 {/* ─── Recent purchases (P2) ─── */}
                 {recentPurchaseGroups.length > 0 && (
@@ -794,6 +856,14 @@ const PantryPulse: React.FC = () => {
                             <span className="text-base">{group.emoji}</span>
                             <span className="text-xs font-black uppercase tracking-widest text-gray-500">{group.label}</span>
                             <span className="text-xs font-black text-gray-300">{group.items.length} items</span>
+                            <span className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
+                                <span title="You already have these" className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                                    ✅ {group.items.filter(i => checkedItems[i.name]).length} in kitchen
+                                </span>
+                                <span title="Still need to buy" className="inline-flex items-center gap-1 rounded-full bg-orange-50 border border-orange-100 px-2 py-0.5 text-[11px] font-bold text-orange-700">
+                                    ❌ {group.items.length - group.items.filter(i => checkedItems[i.name]).length} to buy
+                                </span>
+                            </span>
                         </div>
                     </div>
                     <div className="px-4 grid grid-cols-2 gap-3">

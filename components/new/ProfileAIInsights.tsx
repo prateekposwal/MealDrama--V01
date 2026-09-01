@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { fetchAIScore } from '../../utils/aiBridge';
+import { fetchAIScore } from '../../utils/aiEngine';
 import { useStore } from '../../app/store/useStore';
 import { useTrayStore } from '../../plan/store/useTrayStore';
 

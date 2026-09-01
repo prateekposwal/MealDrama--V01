@@ -2,6 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { orderSuggestionsRegionFirst, type SuggestionLike } from '../utils/suggestionUtils';
 import { DISH_LIBRARY, type Dish } from '../meal/constants/dishLibrary';
 
+describe('orderSuggestionsRegionFirst — robustness', () => {
+  it('NEVER throws on a misplaced-arg call (userDiet passed as items — the dashboard crash)', () => {
+    // Regression: Dashboard health-insight called (userDiet, items, regionKey, dishes)
+    // — userDiet (a string) landed in `items` → "items.filter is not a function".
+    const r = orderSuggestionsRegionFirst('veg' as any, [{ id: 'a', name: 'Rajma' }]);
+    expect(Array.isArray(r)).toBe(true);
+  });
+});
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const item = (id: string, name: string, region?: string): SuggestionLike => ({ id, name, region });

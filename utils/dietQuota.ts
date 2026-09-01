@@ -190,6 +190,33 @@ export function enrichSourcePool<P extends DietSourcePool>(
   return out as P;
 }
 
+/** Diet → allowed dish types (canonical; used by plan purge + share guards). */
+export function allowedTypesForDiet(diet?: string | null): string[] {
+  const d = (diet || '').toLowerCase();
+  if (d === 'veg') return ['veg', 'vegan'];
+  if (d === 'eggitarian') return ['veg', 'vegan', 'eggitarian'];
+  if (d === 'non-veg') return ['veg', 'non-veg', 'vegan', 'eggitarian'];
+  if (d === 'vegan') return ['vegan'];
+  return ['veg', 'vegan'];
+}
+
+/** Keep only tray items local to (or shared across) the NEW region — drops
+ *  far-region leftovers when a user changes their food region. Pure. */
+export function keepRegionTrayItems(
+  tray: { breakfast?: Array<{ sourceRegion?: string; region?: string; [k: string]: unknown }>; lunch?: Array<{ sourceRegion?: string; region?: string; [k: string]: unknown }>; snacks?: Array<{ sourceRegion?: string; region?: string; [k: string]: unknown }>; dinner?: Array<{ sourceRegion?: string; region?: string; [k: string]: unknown }> },
+  regionKey: string,
+): typeof tray {
+  const slots = ['breakfast', 'lunch', 'snacks', 'dinner'] as const;
+  const out: any = {};
+  for (const s of slots) {
+    out[s] = (tray?.[s] ?? []).filter(m => {
+      const r = (m.sourceRegion ?? m.region ?? '').toLowerCase();
+      return !r || r === 'all' || r === regionKey.toLowerCase();
+    });
+  }
+  return out as typeof tray;
+}
+
 /** Map a profile diet string to its distinctive type (null when unknown). */
 export function distinctiveTypeFor(diet?: string | null): string | null {
   const d = (diet || '').toLowerCase();

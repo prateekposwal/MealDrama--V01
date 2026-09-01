@@ -19,7 +19,11 @@ export type NotificationType =
   | 'tip'
   | 'pantry_reminder'
   | 'pantry_low'
-  | 'pantry_expired';
+  | 'pantry_expired'
+  | 'pantry_buy'
+  // household feed (shared plan / purchases / permissions / requests)
+  | 'family_request'
+  | 'family_activity';
 
 export interface AppNotification {
   id: string;

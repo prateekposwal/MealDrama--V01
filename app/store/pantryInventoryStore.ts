@@ -14,8 +14,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nativeStorage } from '../utils/nativeStorage';
 import { getISODate } from '../../utils/dateUTC';
+import { useStore } from './useStore';
 import { categoryForName, defaultExpiry, defaultStorageFor, type InventoryEntry } from '../../utils/pantryForecast';
 import type { IngredientCategory } from '../../meal/constants/dishLibrary';
+import { useHouseholdFeedStore } from '../../plan/store/householdFeedStore';
 
 /** Purchase-ledger cap: keep the 200 most recent events, evict the oldest. */
 const PURCHASE_EVENT_CAP = 200;
@@ -80,6 +82,16 @@ export const usePantryInventoryStore = create<PantryInventoryState>()(
       logPurchase: (name, purchase) => {
         const clean = (name || '').trim();
         if (!clean || !(purchase.quantity > 0)) return;
+        // Shared-pantry feed: when a household is active, announce the purchase
+        // in the household activity feed so other members' dots + pantry see it.
+        try {
+          const { householdId } = useStore.getState();
+          if (householdId) {
+            useHouseholdFeedStore.getState().postActivity(householdId, 'purchased', `${clean} ×${purchase.quantity}${purchase.unit ?? ''}`);
+          }
+        } catch {
+          // best-effort — never block a purchase on the feed
+        }
         // Idempotency: drop accidental double-fires of the SAME pack
         // (same name+quantity+unit) within DUPLICATE_WINDOW_MS of the last
         // logged event — before touching stock or the ledger.

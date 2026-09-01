@@ -1,6 +1,27 @@
 import { useStore } from '../app/store/useStore';
 
-const BASE_URL = 'http://192.168.29.211:3001/api/v1';
+// The MealDrama backend. Default points at the dev machine's CURRENT LAN IP
+// (auto-written on first launch below) so an installed APK on a phone can
+// reach the server on the same WiFi. Override via localStorage 'md:api_base'
+// (e.g. in devtools) when the machine's IP changes.
+const API_BASE_KEY = 'md:api_base';
+function defaultApiBase(): string {
+  return 'http://10.243.22.253:3001/api/v1';
+}
+export function getApiBase(): string {
+  try {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem(API_BASE_KEY);
+      if (stored) return stored;
+      window.localStorage.setItem(API_BASE_KEY, defaultApiBase());
+    }
+  } catch {
+    /* storage unavailable */
+  }
+  return defaultApiBase();
+}
+
+const BASE_URL = getApiBase();
 
 // ─── Auth readiness guard ─────────────────────────────────────────────────
 let _authReady = false;

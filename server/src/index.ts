@@ -179,7 +179,9 @@ app.use('/api/v1/custom-dishes', require('./routes/custom-dishes').default);
 app.use('/api/v1/loop-config', require('./routes/loopConfig').default);
 app.use('/api/v1/tts', require('./routes/tts').default);
 app.use('/api/v1/households', require('./routes/pantry').default);
-app.use('/api/v1/ai', require('./routes/ai').default);
+app.use('/api/v1/households', require('./routes/householdFeed').default);
+app.use('/api/v1/households', require('./routes/sharedPlan').default);
+app.use('/api/v1/households', require('./routes/householdKitchen').default);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

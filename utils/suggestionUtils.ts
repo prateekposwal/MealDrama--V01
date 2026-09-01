@@ -94,28 +94,24 @@ export function orderSuggestionsRegionFirst<T extends SuggestionLike>(
   library?: readonly Dish[],
   diet?: string,
 ): T[] {
+  // Defensive: a wrong-arg-order call used to pass userDiet as `items` (a
+  // string) → "items.filter is not a function". Never trust the array.
+  const list = Array.isArray(items) ? items : [];
   // Step 1: optional diet filtering
   const filtered = diet
-    ? items.filter((item) => {
+    ? list.filter((item) => {
         const dishDiet = inferDietFromName(item.name);
         if (diet === 'non-veg') return true; // include all
         if (diet === 'eggitarian') return true; // include all
         if (diet === 'veg') return dishDiet !== 'non-veg'; // exclude non-veg
         return true;
       })
-    : items;
-  // Step 2: region-first ordering (same as before)
-  // Step 1: optional diet filtering
-  const dietFiltered = diet
-    ? items.filter((item) => {
-        const dishDiet = inferDietFromName(item.name);
-        if (diet === 'non-veg') return true; // include all
-        if (diet === 'eggitarian') return true; // include all
-        if (diet === 'veg') return dishDiet !== 'non-veg'; // exclude non-veg
-        return true;
-      })
-    : items;  // Step 2: region-first ordering (same as before)
-  const key = getRegionKey(regionKey);
+    : list;
+  // Guard the label too — a misplaced array can arrive in `regionKey` slot.
+  let key = 'all';
+  if (typeof regionKey === 'string') {
+    try { key = getRegionKey(regionKey); } catch { key = 'all'; }
+  }
   const resolved = filtered.map(item => ({
     item,
     region: resolveSuggestionRegion(item, library) ?? 'all',

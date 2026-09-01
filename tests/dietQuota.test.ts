@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pickDietRepresentatives, pickDietRepresentativesWithSlots, distinctiveTypeFor, primarySlotFor, deficitCount, dietDeficitBySlot, enrichSourcePool } from '../utils/dietQuota';
+import { pickDietRepresentatives, pickDietRepresentativesWithSlots, distinctiveTypeFor, primarySlotFor, deficitCount, dietDeficitBySlot, enrichSourcePool, keepRegionTrayItems } from '../utils/dietQuota';
 import type { Dish } from '../meal/constants/dishLibrary';
 
 function dish(overrides: Partial<Dish> & { id: string; name: string }): Dish {
@@ -215,5 +215,24 @@ describe('enrichSourcePool', () => {
     });
     expect(out.snacks[0]!.id).toBe('hp');       // health lifts it to the lead slot
     expect(out.snacks.map(d => d.id)).toContain('neu'); // ordering-only: both included
+  });
+});
+
+describe('keepRegionTrayItems — region-change reseed (the far-region purge)', () => {
+  const item = (id: string, name: string, region?: string) => ({ id, dishId: id, name, icon: '🍛', sourceRegion: region ?? 'all' });
+  it('drops far-region trays, keeps new-region + all', () => {
+    const tray = {
+      breakfast: [item('a', 'Aloo Paratha', 'north'), item('b', 'Idli', 'south'), item('c', 'Oats', 'all'), item('d', 'Custom')],
+      lunch: [],
+      snacks: [],
+      dinner: [],
+    };
+    const out = keepRegionTrayItems(tray, 'south');
+    expect(out.breakfast.map((m: any) => m.name)).toEqual(['Idli', 'Oats', 'Custom']);
+  });
+  it('untouched store returns identical references', () => {
+    const tray = { breakfast: [item('a', 'Rajma', 'north')], lunch: [], snacks: [], dinner: [] };
+    const out = keepRegionTrayItems(tray, 'north');
+    expect(out.breakfast.map((m: any) => m.name)).toEqual(['Rajma']);
   });
 });

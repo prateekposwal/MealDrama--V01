@@ -228,12 +228,14 @@ export function assignFromQueue(
       if (existingSet.has(key)) continue;
 
       // Anti-repetition: gap scales inversely with pool size
-      // With 1 dish, gap=1 so it fills daily. With larger pools, gap grows
-      // to prevent the same dish too often, but never starves the plan.
-      const gap = Math.max(1, Math.min(
+      // With 1 dish, gap=1 so it fills daily. With 2+ dishes, NEVER repeat the
+      // same dish within 48h of a prior serve — a whole-week "no repeats" hard
+      // floor (the "5-dish week repeats" complaint).
+      const baseGap = Math.max(1, Math.min(
         Math.floor(config.cycleLength / Math.max(1, heap.size)),
         heap.size,
       ));
+      const gap = heap.size >= 2 ? Math.max(2, baseGap) : 1;
 
       // Pop the most-starved dishes until one was NOT already served today
       // in another slot. Deferred entries go back into the heap afterwards;
@@ -294,6 +296,29 @@ export function assignFromQueue(
     calendarSpan = Math.round((last.getTime() - s.getTime()) / 86400000) + 1;
   }
   return assignments;
+}
+
+/**
+ * Week RICHNESS metric: distinct dishes vs total assignment slots per meal
+ * type (1.0 = every slot different). Clients surface it; tests lock a floor.
+ */
+export function weekVariety(assignments: MealLoopAssignment[]): number {
+  const perSlot = new Map<string, { distinct: Set<string>; total: number }>();
+  for (const a of assignments) {
+    const e = perSlot.get(a.mealType) ?? { distinct: new Set<string>(), total: 0 };
+    e.distinct.add(a.dishId ?? a.dishName);
+    e.total += 1;
+    perSlot.set(a.mealType, e);
+  }
+  if (perSlot.size === 0) return 1;
+  let sum = 0;
+  let count = 0;
+  for (const e of perSlot.values()) {
+    if (e.total === 0) continue;
+    sum += e.distinct.size / e.total;
+    count += 1;
+  }
+  return count ? Math.round((sum / count) * 100) / 100 : 1;
 }
 
 /**

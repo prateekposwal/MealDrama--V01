@@ -410,6 +410,7 @@ interface StoreState {
   joinHousehold: (code: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
   refreshHousehold: () => Promise<void>;
+  updateHouseholdMember: (memberId: string, patch: { role?: string; canEditPlan?: boolean; autoPlanEnabled?: boolean; plannedSlots?: string[] }) => Promise<void>;
 }
 
 export const useStore = create<StoreState>()(
@@ -949,6 +950,25 @@ export const useStore = create<StoreState>()(
           if (hh) set({ household: hh });
         } catch {
           // silent — stale cache is acceptable
+        }
+      },
+
+      // ─── Household plan permissions (admin) ────────────────────────────
+      updateHouseholdMember: async (memberId, patch) => {
+        const hhId = get().householdId;
+        if (!hhId) return;
+        try {
+          await householdApi.updateMember(hhId, memberId, patch);
+          await get().refreshHousehold();
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('household:refresh'));
+          const name = get().household?.members.find(m => m.id === memberId)?.name ?? 'member';
+          get().setToast({ message: `Updated ${name}'s plan access`, type: 'success' });
+          // Permission change → household feed → the connected dots update everywhere.
+          void import('../../plan/store/householdFeedStore').then(m =>
+            m.useHouseholdFeedStore.getState().postActivity(hhId, 'permission', `Updated ${name}'s plan access`),
+          );
+        } catch (e: any) {
+          get().setToast({ message: `Failed to update member: ${e?.message ?? 'unknown'}`, type: 'error' });
         }
       },
 

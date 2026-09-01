@@ -12,29 +12,36 @@
 import type { Dish } from '../../meal/constants/dishLibrary';
 import { selectTryThese } from '../../utils/dishSearch';
 
-const STORAGE_KEY = 'md_suggestion_seen_v1';
-/** How many recent suggestions we remember at once. */
+const STORAGE_PREFIX = 'md_suggestion_seen_';
+/** Max recent suggestions remembered at once. */
 const MAX_SEEN = 48;
 /** When full, drop the OLDEST half so freshly-rotated dishes re-enter. */
 const PRUNE_TO = 24;
 
-let _seen: string[] | null = null;
+let _seen = new Map<string, string[] | null>(); // scope → cache
 
-function loadSeen(): string[] {
-  if (_seen) return _seen;
-  try {
-    const raw = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null;
-    _seen = raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    _seen = [];
-  }
-  return _seen;
+function storageKey(scope?: string | null): string {
+  return `${STORAGE_PREFIX}${scope || 'default'}`;
 }
 
-function saveSeen(ids: string[]): void {
-  _seen = ids;
+function loadSeen(scope?: string | null): string[] {
+  const key = storageKey(scope);
+  const cached = _seen.get(key);
+  if (cached) return cached ?? [];
   try {
-    if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+    const raw = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
+    const arr = raw ? (JSON.parse(raw) as string[]) : [];
+    _seen.set(key, arr);
+    return arr;
+  } catch {
+    return [];
+  }
+}
+
+function saveSeen(scope: string | null | undefined, ids: string[]): void {
+  _seen.set(storageKey(scope), ids);
+  try {
+    if (typeof window !== 'undefined') window.localStorage.setItem(storageKey(scope), JSON.stringify(ids));
   } catch {
     /* storage unavailable (private mode / tests) — in-memory only */
   }
@@ -45,17 +52,17 @@ function saveSeen(ids: string[]): void {
  * remembered MAX_SEEN, the oldest PRUNE_TO drop out and become suggestible
  * again (rotation, not permanent exclusion).
  */
-export function recordSuggestions(ids: string[]): void {
+export function recordSuggestions(ids: string[], scope?: string | null): void {
   if (ids.length === 0) return;
-  const seen = loadSeen();
+  const seen = loadSeen(scope);
   const next = [...new Set([...seen, ...ids])];
   const trimmed = next.length > MAX_SEEN ? next.slice(next.length - PRUNE_TO) : next;
-  saveSeen(trimmed);
+  saveSeen(scope, trimmed);
 }
 
 /** Forget everything (exposed for tests / user "reshuffle" affordances). */
-export function resetSuggestionSeen(): void {
-  saveSeen([]);
+export function resetSuggestionSeen(scope?: string | null): void {
+  saveSeen(scope, []);
 }
 
 /**
@@ -66,16 +73,16 @@ export function resetSuggestionSeen(): void {
  */
 export function nextSuggestionBatch(
   dishes: Dish[],
-  opts: { userDiet?: string; regionKey: string; plannedSlots?: string[]; maxPerSlot?: number; excludeIds?: string[]; healthGoal?: string },
+  opts: { userDiet?: string; regionKey: string; plannedSlots?: string[]; maxPerSlot?: number; excludeIds?: string[]; healthGoal?: string; scope?: string | null },
 ): Dish[] {
-  const seen = loadSeen();
+  const seen = loadSeen(opts.scope);
   const exclude = new Set([...(opts.excludeIds ?? []), ...seen]);
   const batch = selectTryThese(dishes, { ...opts, excludeIds: [...exclude] });
-  recordSuggestions(batch.map(d => d.id));
+  recordSuggestions(batch.map(d => d.id), opts.scope);
   return batch;
 }
 
 /** Ids inside the rolling seen-set (for tests / UI hints). */
-export function getSuggestionSeen(): string[] {
-  return [...loadSeen()];
+export function getSuggestionSeen(scope?: string | null): string[] {
+  return [...loadSeen(scope)];
 }

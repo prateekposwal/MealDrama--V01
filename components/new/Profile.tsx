@@ -10,6 +10,7 @@ import { compactPrimaryId } from '../../types/identity';
 import { getRegionKey } from '../../utils/dishSearch';
 import { pickDietRepresentatives, distinctiveTypeFor, enrichSourcePool } from '../../utils/dietQuota';
 import { isPureSweetDish } from '../../meal/constants/pairingCatalog';
+import { daysUntil } from '../../utils/dateUTC';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import SwapCustomizeModal from '../meal/SwapCustomizeModal';
 import DishSearchModal from '../meal/DishSearchModal';
@@ -19,12 +20,14 @@ import CreateHouseholdModal from './CreateHouseholdModal';
 import JoinHouseholdModal from './JoinHouseholdModal';
 import InviteMemberModal from './InviteMemberModal';
 import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Camera, Users, Copy, LogIn } from 'lucide-react';
-import { getISODate } from '../../utils/dateUTC';
 import WeeklyHealthSummary from '../health/WeeklyHealthSummary';
 import NotificationCenter from '../../components/notification/NotificationCenter';
 import { useNotificationStore } from '../../app/notifications';
+import { healTrayDietGaps } from '../../utils/dietHeal';
+import { diffProfileFields } from '../../utils/profileDiff';
 import ExpenseList from '../household/ExpenseList';
 import ActivityFeed from '../household/ActivityFeed';
+import { FamilyPlans } from '../household/FamilyPlans';
 import ProfileAIInsights from './ProfileAIInsights';
 
 // ─── Collapsible Section ─────────────────────────────────────────────────────
@@ -87,6 +90,17 @@ const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType
     const [nameDraft, setNameDraft] = useState<string>(defaultName);
     const [showSaved, setShowSaved] = useState(false);
     const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+    // "What changed" — any diet/region/slots edit gets a plain-language toast.
+    const _prevProfile = useRef<any>({ diet: user?.diet, region: user?.region, plannedSlots: user?.plannedSlots });
+    useEffect(() => {
+        const next = { diet: user?.diet, region: user?.region, plannedSlots: user?.plannedSlots };
+        const changes = diffProfileFields(_prevProfile.current, next);
+        if (changes.length) useStore.getState().setToast({ message: `Updated: ${changes.join(' · ')}`, type: 'success' });
+        _prevProfile.current = next;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.diet, user?.region, user?.plannedSlots]);
+
     useEffect(() => {
         setNameDraft(user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : ''));
     }, [user?.name, user?.primaryId]);
@@ -918,6 +932,45 @@ const eligible = filtered.filter((x:any) =>
                     </div>
                 </CollapsibleSection>
 
+                {/* ─── Spice level toggle (moved here from the dashboard header) ─── */}
+                <CollapsibleSection title="Taste" color="orange">
+                    <div className="flex items-center justify-between p-4 rounded-[22px] bg-orange-50/50 border border-orange-200/50">
+                        <div className="min-w-0">
+                            <p className="text-sm font-bold text-gray-900">Spice level</p>
+                            <p className="text-xs text-gray-500">Tap the pill to cycle Mild → Medium → Hot</p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                const levels: ('mild' | 'medium' | 'hot')[] = ['mild', 'medium', 'hot'];
+                                const current = user?.spiceLevel || 'medium';
+                                const idx = levels.indexOf(current);
+                                const next = levels[(idx + 1) % levels.length];
+                                updateProfile({ spiceLevel: next });
+                            }}
+                            className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-orange-50 text-orange-500 border-orange-100 active:scale-95 transition-all shrink-0"
+                        >
+                            {SPICE_LABELS[user?.spiceLevel || 'medium'] ?? 'Medium 🌶️'}
+                        </button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-3">
+                        <button
+                            onClick={() => {
+                                void healTrayDietGaps(true);
+                                useStore.getState().setToast({ message: 'Diet reps re-matched to your profile', type: 'success' });
+                            }}
+                            className="flex-1 py-2.5 rounded-xl bg-orange-100 text-orange-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                        >
+                            ↻ Re-match diet
+                        </button>
+                        <button
+                            onClick={() => window.dispatchEvent(new Event('household:refresh'))}
+                            className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-[11px] font-black uppercase tracking-widest active:scale-95 transition-all"
+                        >
+                            ⟳ Refresh family
+                        </button>
+                    </div>
+                </CollapsibleSection>
+
                 <CollapsibleSection title="Household" color="violet">
                     <div className="p-5 rounded-[22px] bg-orange-50/50 border border-orange-200/50">
                         {household ? (
@@ -952,6 +1005,7 @@ const eligible = filtered.filter((x:any) =>
                                         currentMemberRole={household.members.find(m => m.id === user?.id)?.role || 'member'}
                                     />
                                     <ActivityFeed householdId={household.id} />
+                                    <FamilyPlans household={household} />
                                     <div className="flex gap-3 pt-2">
                                     <button onClick={() => setShowInviteMember(true)} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">
                                         <Copy size={14} /> Invite
@@ -1074,6 +1128,7 @@ const eligible = filtered.filter((x:any) =>
                 </section>
 
             </main>
+
 
             <MealLoopConfigModal
                 isOpen={mealLoopModalOpen}

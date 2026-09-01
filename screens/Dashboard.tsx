@@ -27,20 +27,30 @@ import { HealthTipsPanel } from '../components/health/HealthTipsPanel';
 import { PlateBalanceVisualizer } from '../components/health/PlateBalanceVisualizer';
 import { scorePlateBalance } from '../utils/nutritionScore';
 import { DISH_HEALTH_MAP, COMPONENT_HEALTH_MAP } from '../app/constants/healthGuidelines';
-import { getRegionKey, selectTryThese } from '../utils/dishSearch';
+import { getRegionKey, selectTryThese, goalToDishHealthFilter, dishHealthMatchScore } from '../utils/dishSearch';
 import { nextSuggestionBatch, recordSuggestions } from '../plan/utils/suggestionRotation';
+import { useHouseholdFeedStore, sharedItemsForDate } from '../plan/store/householdFeedStore';
+import { useHouseholdKitchenStore } from '../plan/store/householdKitchenStore';
+import { allowedTypesForDiet } from '../utils/dietQuota';
+import { cookDayPlan, sharedGrocery, canAcceptForDiet, cookSummaryText, type CookBatch } from '../utils/familyPlanMerge';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal, orderSuggestionsRegionFirst } from '../utils/suggestionUtils';
 import { getShareStrings, ShareLanguage, SLOT_LABELS } from '../utils/share';
-import { fetchAIRecommendations, fetchAISuggestions } from '../utils/aiBridge';
+import { fetchAISuggestions } from '../utils/aiEngine';
 import { classifySuggestion } from '../utils/classifySuggestion';
 import { inferDishHealthCategories } from '../utils/inferDishHealthCategories';
 import { computeTodaysCalories, missingPantryItems, orderDishesRegionFirst, pantryHasItem, dishIngredientGaps } from '../utils/healthInsight';
 import { getIngredientsForMealOption } from '../utils/ingredientUtils';
-import DashboardAIRecommendations from '../components/new/DashboardAIRecommendations';
+import { planIngredients, planDishIds, familyDishIds, buyListFor, StockMap } from '../utils/buyList';
+import { dishBuyGroups, buySummary, radarUses, recipeIngredients, type BuyDishGroup, type BuySummary } from '../utils/buyByDish';
+import { BuyByDishSheet } from '../components/household/BuyByDishSheet';
+import { daysUntil } from '../utils/dateUTC';
+import { usePantryInventoryStore } from '../app/store/pantryInventoryStore';
+import { useNotificationStore } from '../app/notifications/notificationStore';
+import { maybeBuyNotif } from '../utils/buyNotifs';
 import { computeStyleWarnings, type StyleWarning } from '../meal/constants/dishStyles';
 import { resolveSlotTimes, aggregateSlotItems, getSkipUndoWindowExpiry, isSlotActive, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
 import PullToRefresh from '../components/new/PullToRefresh';
@@ -427,7 +437,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const skipped = useTrayStore(s => s.skipped);
     const addMealToSlot = useTrayStore(s => s.addMealToSlot);
     const addToTray = useStore(s => s.addToTray);
-    const updateProfile = useStore(s => s.updateProfile);
     const swapMealInSlot = useTrayStore(s => s.swapMealInSlot);
     const updateItemInline = useTrayStore(s => s.updateItemInline);
     const removeMealFromSlot = useTrayStore(s => s.removeMealFromSlot);
@@ -464,6 +473,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [showTrayScreen, setShowTrayScreen] = useState(false);
     const [undoSlot, setUndoSlot] = useState<{ date: string; mealType: MealType; type: 'complete' | 'skip' } | null>(null);
     const [showSlotPicker, setShowSlotPicker] = useState(false);
+    const [showBuySheet, setShowBuySheet] = useState(false);
+    const [preBuySummary, setPreBuySummary] = useState<BuySummary | null>(null);
     useLockBodyScroll(showSlotPicker);
     useBackButtonClose(showSlotPicker, () => setShowSlotPicker(false));
     const [addDishOpen, setAddDishOpen] = useState(false);
@@ -532,12 +543,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         setUndoSlot({ date, mealType, type: 'complete' });
         setTimeout(() => setUndoSlot(null), 10000);
         setToast({ message: `✅ ${mealType} completed — logged!`, type: 'success' });
-        // Fire-and-forget to AI bridge: log completion for learning
-        fetch('/api/v1/ai/score', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mealType, action: 'completed', date }),
-        }).catch(() => {});
     }, [completeSlot, setToast]);
 
     const handleUndoComplete = useCallback((date: string, mealType: MealType) => {
@@ -563,12 +568,38 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
     const ACTIVE_SLOTS = useMemo(() => SLOTS.filter(s => plannedSlots.includes(s.key)), [plannedSlots]);
 
+    // ONE reactive buy-list — re-computes on every pantry/purchase change.
+    const pantryEntries = usePantryInventoryStore(s => s.entries ?? []);
+    const buyData = (() => {
+      const todayISO = getTodayISO();
+      const familyItems = useHouseholdFeedStore.getState().sharedPlan.filter(f => f.date === todayISO);
+      const dayMeals = Object.fromEntries(ACTIVE_SLOTS.map(s => [s.mealType, getMealsCapped(todayISO, s.mealType)])) as any;
+      const dishIds = [...new Set(planDishIds(dayMeals))];
+      const planEntries = dishIds
+        .map(id => dishes.find(d => d.id === id))
+        .filter((d): d is Dish => !!d)
+        .map(dish => ({ dish, members: 1 + familyItems.filter(f => f.dishId === dish.id).length }));
+      // Shared kitchen ledger wins when in a household — one truth for everyone.
+      const hhIdNow = useStore.getState().householdId;
+      const hhStock = hhIdNow ? useHouseholdKitchenStore.getState().stock : {};
+      const stock: StockMap = hhIdNow
+        ? new Map(Object.values(hhStock).map(l => [l.name.toLowerCase(), { quantity: l.quantity, unit: l.unit }]))
+        : new Map(pantryEntries.map((e: any) => [e.name.toLowerCase(), { quantity: e.quantity, unit: e.unit }]));
+      const staples = user?.pantryStaples ?? ([] as string[]);
+      const groups = dishBuyGroups(planEntries, (dish) => recipeIngredients(dish, dishes, userDiet), stock, staples);
+      const expiring = pantryEntries
+        .map((e: any) => e.expiry ? { name: e.name, daysLeft: daysUntil(e.expiry, todayISO) } : null)
+        .filter((e: { name: string; daysLeft: number } | null): e is { name: string; daysLeft: number } => !!e && e.daysLeft <= 2);
+      return { groups, summary: buySummary(groups), radar: radarUses(groups, expiring), stock, staples };
+    })();
+
+
     // ── Fetch AI-powered slot-organized suggestions ──
     useEffect(() => {
       let cancelled = false;
       (async () => {
         setAiLoading(true);
-        const result = await fetchAISuggestions({}, userDiet, [regionKey]);
+        const result = await fetchAISuggestions({}, userDiet, (user as any)?.preferredRegions?.length ? (user as any).preferredRegions : [regionKey]);
         if (!cancelled) {
           setAiSuggestions(result);
           setAiLoading(false);
@@ -577,7 +608,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
       return () => { cancelled = true; };
     }, [userDiet, regionKey]);
 
-    const spiceLabel = user?.spiceLevel === 'mild' ? 'Mild 🌿' : user?.spiceLevel === 'hot' ? 'Hot 🔥' : 'Medium 🌶️';
 
     // Handle swap customize apply
     const handleSwapCustomizeApply = useCallback((date: string, mealType: MealType, itemId: string) => {
@@ -649,7 +679,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     }, [addMealToSlot, getMeals, setToast, addToTray]);
 
     // Quick add modal result — pass Dish to store, store applies defaults
-    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant) => {
+    const handleQuickAddMeal = useCallback((date: string, slot: string, dish: Dish, variant?: DishVariant, requestForMemberId?: string | null) => {
         const mealType = slot.toLowerCase() as MealType;
         const ck = slotKey(date, mealType);
         const trayState = useTrayStore.getState();
@@ -670,9 +700,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             variant: variant?.name,
             variantId: variant?.id,
             addon: variant?.addOn,
+            ...(requestForMemberId ? { requestedBy: requestForMemberId } : {}),
         });
+        // Member-request flow: announce a family request in the household feed.
+        if (requestForMemberId && household?.id) {
+            const memberName = household.members.find(m => m.id === requestForMemberId)?.name;
+            if (memberName) useHouseholdFeedStore.getState().postActivity(household.id, 'requested', `${dish.name} for ${memberName}`);
+        }
+        // Shared-plan week (one table per household): every add lands in the
+        // family plan so members see the same merged week.
+        const hhIdNow = useStore.getState().householdId;
+        if (hhIdNow) {
+            void useHouseholdFeedStore.getState().addSharedPlan(hhIdNow, {
+                date,
+                mealType,
+                dishName: dish.name,
+                dishId: dish.id,
+                icon: dish.icon,
+                ...(requestForMemberId ? { requestedBy: requestForMemberId, requestedFor: requestForMemberId, status: 'requested' as const } : {}),
+            });
+        }
         setShowQuickAdd(false);
-    }, [addMealToSlot, getMeals, setToast, addToTray]);
+    }, [addMealToSlot, getMeals, setToast, addToTray, household]);
 
     const handleAddAnother = useCallback((date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => {
         const meal = dishToMeal(dish, variant);
@@ -1079,18 +1128,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                     </h2>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => {
-                            const levels: ('mild' | 'medium' | 'hot')[] = ['mild', 'medium', 'hot'];
-                            const current = user?.spiceLevel || 'medium';
-                            const idx = levels.indexOf(current);
-                            const next = levels[(idx + 1) % levels.length];
-                            updateProfile({ spiceLevel: next });
-                        }}
-                        className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-orange-50 text-orange-500 border-orange-100 active:scale-95 transition-all"
-                    >
-                        {spiceLabel}
-                    </button>
+                    {(() => {
+                        try {
+                            const slotsToday = ACTIVE_SLOTS.some(s => getMealsCapped(today, s.mealType).length > 0);
+                            if (!slotsToday || buyData.summary.itemsToBuy === 0) return null;
+                            // Once-a-day bell notification (no spam).
+                            const notifKey = `buy-before-cook:${today}`;
+                            const evPush = maybeBuyNotif(buyData.summary.itemsToBuy, today);
+                            try {
+                                if (!window.localStorage.getItem(notifKey)) {
+                                    window.localStorage.setItem(notifKey, '1');
+                                    useNotificationStore.getState().addNotification({
+                                        type: 'pantry_buy',
+                                        title: `🛒 Buy ${buyData.summary.itemsToBuy} item${buyData.summary.itemsToBuy > 1 ? 's' : ''} before the cook starts`,
+                                        message: buyListFor((buyData.groups as any).flatMap((g: any) => g.items), buyData.stock, buyData.staples).slice(0, 4).map((m: any) => `${m.name} ${m.quantity}${m.unit ?? ''}`).join(', '),
+                                    });
+                                }
+                                if (evPush) useNotificationStore.getState().addNotification({ type: 'pantry_buy', ...evPush });
+                            } catch { /* storage unavailable */ }
+                            return (
+                                <button
+                                    onClick={() => { setPreBuySummary(buyData.summary); setShowBuySheet(true); }}
+                                    className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-amber-50 text-orange-600 border-amber-200 active:scale-95 transition-all"
+                                    aria-label="Buy before cook today"
+                                    title="Buy before cook · today"
+                                >
+                                    🛒 {buyData.summary.itemsToBuy}
+                                    <span className="hidden sm:inline">Buy before cook</span>
+                                    <span className="hidden md:inline"> · today</span>
+                                </button>
+                            );
+                        } catch {
+                            return null;
+                        }
+                    })()}
                     <NotificationCenter />
                 </div>
             </header>
@@ -1109,7 +1180,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             {(() => {
               const hasAiContent = aiSuggestions && Object.values(aiSuggestions).some(arr => arr.length > 0);
               if (!aiLoading && !hasAiContent && dishes.length === 0) return null;
-              const tryThese = nextSuggestionBatch(dishes, { userDiet, regionKey, plannedSlots, excludeIds: addedDishIds, healthGoal: user?.healthGoals?.[0] });
+              const tryThese = nextSuggestionBatch(dishes, { userDiet, regionKey, plannedSlots, excludeIds: addedDishIds, healthGoal: user?.healthGoals?.[0], scope: user?.id });
               return (
                 <div className="px-4 mt-4">
                     <div className="flex items-center gap-2 mb-3">
@@ -1117,7 +1188,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             {displayActiveUpcomingSlots.length === 0 && displayCompletedSlots.length > 0 ? 'Build tomorrow\u2019s meals' : 'Try these'}
                         </p>
                         <span className="text-xs font-bold text-gray-500">
-                            {aiSuggestions ? 'AI curated' : `${regionKey} · ${userDiet}`}
+                            {aiSuggestions ? 'curated' : `${regionKey} · ${userDiet}`}
                         </span>
                     </div>
                     <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -1159,19 +1230,178 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         ) : tryThese.length === 0 ? (
                             <p className="text-xs font-bold text-gray-500 py-2">All added — enjoy your plan 🎉</p>
                         ) : (
-                            tryThese.map(d => (
+                            tryThese.map(d => {
+                                const hGoal = user?.healthGoals?.[0];
+                                const hFilter = hGoal ? goalToDishHealthFilter(hGoal) : null;
+                                const hBoost = hFilter && hFilter !== 'all' ? dishHealthMatchScore(d, hFilter) : 0;
+                                const hLabel = hGoal ? (goalToDishHealthFilter(hGoal) === 'high-protein' ? '💪 protein' : goalToDishHealthFilter(hGoal) === 'low-cal' ? '🌱 light' : '✨ match') : '';
+                                return (
                                 <button key={d.id} onClick={()=>{setPendingDish(d);setShowSlotPicker(true);}}
                                     className="flex flex-col items-center gap-1 flex-shrink-0 active:scale-95 transition-all">
                                     <div className="relative w-20 h-20 rounded-full overflow-hidden border-2 border-gray-200 shadow-sm bg-gray-50 ring-1 ring-black/5 hover:ring-[#FF385C]/30 transition-all">
                                         <DishImage name={d.name} size="full" className="w-full h-full object-cover" />
+                                        {hBoost > 0 && (
+                                            <span className="absolute top-0.5 left-0.5 text-[9px] font-black text-emerald-700 bg-emerald-50 rounded-full px-1.5 py-0.5 border border-emerald-100">{hLabel}</span>
+                                        )}
                                     </div>
                                     <div className="h-[40px] flex items-center justify-center">
                                         <p className="text-sm font-bold text-gray-900 leading-tight max-w-[96px] text-center line-clamp-2">{d.name}</p>
                                     </div>
                                 </button>
-                            ))
+                                );
+                            })
                         )}
                     </div>
+                </div>
+              );
+            })()}
+
+            {/* ─── FAMILY PLAN — cook-batched week (display-layer merge) ─── */}
+            {(() => {
+              if (!household || household.members.length <= 1) return null;
+              const store = useHouseholdFeedStore.getState();
+              const todayPlan = sharedItemsForDate(store.sharedPlan, today);
+              const memberName = (id: string | null) => household.members.find(m => m.id === id)?.name ?? 'Family';
+              const planC = cookDayPlan(todayPlan, memberName);
+              if (planC.batches.length === 0) return null;
+              const grocery = sharedGrocery(todayPlan, undefined as any).slice(0, 5);
+              const batchAction = (batch: CookBatch, status: 'accepted' | 'completed') => {
+                const dish = dishes.find(d => d.id === batch.dishId);
+                // Veg guard: never batch-accept a non-veg family dish into a veg plan.
+                if (dish && !canAcceptForDiet(dish.type, userDiet)) {
+                  setToast({ message: `${dish.name} doesn't fit your ${userDiet} diet — skipped`, type: 'info' });
+                  return;
+                }
+                for (const id of batch.itemIds) useHouseholdFeedStore.getState().setSharedStatus(household.id, id, status, status === 'accepted' ? (user?.id ?? null) : undefined);
+              };
+              return (
+                <div className="px-4 mt-3">
+                  <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-black uppercase tracking-widest text-emerald-700">👨‍🍳 Cook · {today}</p>
+                      <button
+                        onClick={() => {
+                          const missingByDish: Record<string, number> = {};
+                          for (const g of buyData.groups) {
+                            missingByDish[g.dishId ?? ''] = g.items.filter(i => i.status === 'missing').length;
+                          }
+                          const base = cookSummaryText(planC, today, missingByDish);
+                          const buyLine = buyData.summary.itemsToBuy > 0
+                            ? `\n🛒 Buy ${buyData.summary.itemsToBuy} item${buyData.summary.itemsToBuy > 1 ? 's' : ''} before cooking.`
+                            : '\n🛒 All ingredients on hand.';
+                          navigator.clipboard?.writeText(`${base}${buyLine}`)
+                            .then(() => setToast({ message: 'Cook summary copied (incl. buy list)', type: 'success' }))
+                            .catch(() => setToast({ message: 'Copy failed', type: 'error' }));
+                        }}
+                        className="px-2 py-1 rounded-lg bg-emerald-600 text-white text-[10px] font-bold active:scale-95 transition-all"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {planC.batches.map(b => (
+                        <div key={b.key} className="flex items-center justify-between gap-2 rounded-xl bg-white/85 px-2.5 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-gray-900 truncate">
+                              {b.icon} {b.dishName}
+                              {b.members.length > 1 && <span className="text-[#FF385C] ml-1">×{b.quantity} (👥 {b.members.join(', ')})</span>}
+                            </p>
+                            <p className="text-[11px] text-gray-500 truncate">
+                              {b.mealType} · {b.members.join(', ')}
+                              {b.quantity > 1 && b.members.length === 1 ? ` ×${b.quantity}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <button
+                              onClick={() => batchAction(b, 'completed')}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold active:scale-95 transition-all"
+                            >
+                              Done
+                            </button>
+                            {b.status === 'requested' && (
+                              <button
+                                onClick={() => batchAction(b, 'accepted')}
+                                className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-[11px] font-bold active:scale-95 transition-all"
+                              >
+                                Accept
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {planC.prepLinks.length > 0 && (
+                      <p className="text-[11px] font-bold text-teal-700 mt-2">
+                        🔁 {planC.prepLinks.map(p => `${p.dishName} twice (${p.slots.join(' + ')})`).join(' · ')} — prep once.
+                      </p>
+                    )}
+                    {planC.mealtimeConflicts.length > 0 && (
+                      <p className="text-[11px] font-bold text-red-600 mt-1">
+                        ⚠️ {planC.mealtimeConflicts.map(c => `${c.mealType}: ${c.dishes.join(' & ')}`).join(' · ')} — two dishes same time!
+                      </p>
+                    )}
+                    {grocery.length > 0 && (
+                      <div className="mt-2 border-t border-emerald-100 pt-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">🛒 Shared groceries (counted once)</p>
+                        <div className="flex flex-wrap gap-1">
+                          {grocery.map((g, gi) => (
+                            <span key={`${g.name}-${gi}`} className="text-[11px] font-bold text-gray-700 bg-white rounded-full px-2 py-0.5 border border-emerald-100">
+                              {g.name} {g.quantity}{g.unit ?? ''}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ─── HOUSEHOLD REQUESTS — shared-plan member feed ─── */}
+            {(() => {
+              if (!household || household.members.length <= 1) return null;
+              const requests = useHouseholdFeedStore.getState().requests;
+              const from = getISODate().slice(0, 10);
+              const pending = requests.filter(r => r.date >= from);
+              if (pending.length === 0) return null;
+              return (
+                <div className="px-4 mt-4">
+                  <div className="p-3 rounded-2xl bg-indigo-50 border border-indigo-100">
+                    <p className="text-xs font-black uppercase tracking-widest text-indigo-600 mb-2">🙋 Household requests</p>
+                    <div className="flex flex-col gap-2">
+                      {pending.slice(0, 6).map(r => {
+                        const dish = dishes.find(d => d.id === r.dishId);
+                        return (
+                          <div key={r.id} className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 truncate">
+                                {r.requestedByMemberName} requested {r.dishName ?? r.dishId}
+                              </p>
+                              <p className="text-xs text-gray-500">{r.slotType} · {r.date}</p>
+                            </div>
+                            {dish && (
+                              <button
+                                onClick={() => {
+                                  // Veg user guard: never pull a non-veg FAMILY dish into a veg plan.
+                                  if (!allowedTypesForDiet(userDiet).includes(dish.type)) {
+                                    setToast({ message: `${dish.name} doesn't fit your ${userDiet} diet — skipped`, type: 'info' });
+                                    return;
+                                  }
+                                  addMealToSlot(r.date, r.slotType as MealType, dishToMeal(dish), { requestedBy: r.requestedByMemberId });
+                                  addToTray(r.slotType, { id: dish.id, dishId: dish.id, name: dish.name, icon: dish.icon, sourceRegion: dish.region });
+                                  if (household.id) useHouseholdFeedStore.getState().postActivity(household.id, 'accepted', `${dish.name} for ${r.requestedByMemberName}`);
+                                  useHouseholdFeedStore.getState().markSeen();
+                                }}
+                                className="shrink-0 px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold active:scale-95 transition-all"
+                              >
+                                Accept
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               );
             })()}
@@ -1199,8 +1429,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         {new Date(today).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                     </span>
                 </div>
-
-                <DashboardAIRecommendations userId={user?.id} diet={userDiet} region={regionKey} />
 
                 {/* ─── TODAY'S SLOTS ─── */}
                 {(() => {
@@ -1500,6 +1728,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 preselectedSlot={sharePreselectSlot}
             />
 
+            {/* ─── BUY-BY-DISH sheet (dashboard pill → grouped buy) ─── */}
+            <BuyByDishSheet
+              open={showBuySheet}
+              onClose={() => setShowBuySheet(false)}
+              groups={showBuySheet ? buyData.groups : []}
+              summary={showBuySheet ? buyData.summary : { dishes: 0, itemsToBuy: 0 }}
+              radar={buyData.radar}
+              previousSummary={preBuySummary}
+              householdId={useStore.getState().householdId ?? undefined}
+              assumptions={useHouseholdKitchenStore.getState().assumptions}
+              onAssumption={(name, flag) => {
+                const hhId = useStore.getState().householdId;
+                if (hhId) void useHouseholdKitchenStore.getState().setAssumption(hhId, name, flag);
+              }}
+              onBuyDish={(key, items) => {
+                const hhId = useStore.getState().householdId;
+                if (hhId) {
+                  const k = useHouseholdKitchenStore.getState();
+                  for (const it of items) void k.addPurchase(hhId, it.name, it.quantity ?? 1, it.unit ?? '');
+                } else {
+                  const store = usePantryInventoryStore.getState();
+                  for (const it of items) store.logPurchase(it.name, { quantity: it.quantity ?? 1, unit: it.unit ?? '', source: 'bought' });
+                }
+                setToast({ message: `Bought ${items.length} item${items.length > 1 ? 's' : ''} — counts updated`, type: 'success' });
+              }}
+            />
+
             {/* Undo toast */}
             {undoSlot && (
                 <div className="fixed bottom-40 left-4 right-4 z-50 ">
@@ -1553,6 +1808,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             {new Date(pickDate).toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })}
                             {pickDate !== today && <span className="text-[#FF385C] ml-1">· Tomorrow</span>}
                         </p>
+                        {household && household.members.length > 1 && (
+                            <p className="text-[11px] font-bold text-gray-400 mb-3">
+                                Each member’s plan is auto-generated from their own diet &amp; region (see Profile → Household → Family Plans).
+                            </p>
+                        )}
                         <div className="space-y-2">
                             {ACTIVE_SLOTS.map(({ label, key, mealType }) => {
                                 const { start, end } = getSlotDefaultTimes(mealType, preferences);
@@ -1579,8 +1839,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         onClick={() => {
                                             if (pendingDish) {
                                                 handleQuickAddMeal(pickDate, key, pendingDish);
-                                                setPendingDish(null);
-                                                setShowSlotPicker(false);
+                                                setPendingDish(null); setShowSlotPicker(false);
                                             } else {
                                                 setAddDishSlot(key.toLowerCase() as MealType);
                                                 setAddDishOpen(true);
@@ -1813,7 +2072,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                 </div>
                             )}
                             {aiSuggestions && (() => {
-                                const items = orderSuggestionsRegionFirst(userDiet, Object.entries(aiSuggestions).flatMap(([slot, ds]) => (ds || []).slice(0, 1).map((d: any) => ({ slot, ...d }))), regionKey, dishes).slice(0, 4);
+                                const flatItems = Object.entries(aiSuggestions).flatMap(([slot, ds]) => (ds || []).slice(0, 1).map((d: any) => ({ slot, ...d })));
+                                const items = orderSuggestionsRegionFirst(flatItems, regionKey, dishes, userDiet).slice(0, 4);
                                 if (items.length === 0) return null;
                                 return (
                                     <div className="space-y-1.5">

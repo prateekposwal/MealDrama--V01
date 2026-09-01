@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { X, Plus, Minus } from 'lucide-react';
 import DishImage from '../new/DishImage';
-import { isCarb } from '../../utils/normalizeMealComponents';
+import { isCarb, classifyEmbeddedCarb } from '../../utils/normalizeMealComponents';
 import { generateMealTitle } from '../../utils/generateMealTitle';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { pairingOptionsFor, isRejectedSide } from '../../meal/constants/pairingCatalog';
@@ -44,11 +44,17 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
     const def = dish?.defaultPairings;
     const result: Record<string, string[]> = { sides: [], beverages: [], bread: [], rice: [], dessert: [] };
     const allNames = new Set<string>();
-    // Bread and Rice first
+    // Bread and Rice first — INCLUDING the carb embedded in the dish/variant
+    // title ("Dal Gosht with Roti" → Roti pre-selected) even when item.roti is
+    // absent on legacy rows.
     const breadVal = item.roti || (def?.roti ?? '');
     const riceVal = item.rice || (def?.rice ?? '');
     if (breadVal) { result.bread = [breadVal]; allNames.add(breadVal.toLowerCase()); }
     if (riceVal) { result.rice = [riceVal]; allNames.add(riceVal.toLowerCase()); }
+    const dishLbl = item.title || item.name || dish?.name || '';
+    const embedded = classifyEmbeddedCarb(dishLbl);
+    if (!breadVal && embedded.kind === 'bread') { result.bread = [embedded.name]; allNames.add(embedded.name.toLowerCase()); }
+    if (!riceVal && embedded.kind === 'rice') { result.rice = [embedded.name]; allNames.add(embedded.name.toLowerCase()); }
     // Helper to add items, filtering out carbs AND dish-mains from side categories
   const addIfNew = (items: string[] | undefined, defItems: string[] | undefined, key: string, isCarbCategory: boolean) => {
       (items?.length ? items : (defItems || [])).forEach(s => {
@@ -122,6 +128,10 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
     const riceVal = item.rice || (def?.rice ?? '');
     if (breadVal) { result.bread = [breadVal]; allNames.add(breadVal.toLowerCase()); }
     if (riceVal) { result.rice = [riceVal]; allNames.add(riceVal.toLowerCase()); }
+    const dishLbl = item.title || item.name || dish?.name || '';
+    const embedded = classifyEmbeddedCarb(dishLbl);
+    if (!breadVal && embedded.kind === 'bread') { result.bread = [embedded.name]; allNames.add(embedded.name.toLowerCase()); }
+    if (!riceVal && embedded.kind === 'rice') { result.rice = [embedded.name]; allNames.add(embedded.name.toLowerCase()); }
     const addIfNew = (items: string[] | undefined, defItems: string[] | undefined, key: string) => {
       (items?.length ? items : (defItems || [])).forEach(s => {
         if (allNames.has(s.toLowerCase())) return;

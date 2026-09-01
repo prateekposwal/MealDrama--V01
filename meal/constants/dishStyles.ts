@@ -1162,7 +1162,7 @@ export const DISH_STYLES: Record<DishStyleGroup, string[]> = {
     'Mango Chutney (Mavinakai Chutney)',
     'Gundruk (Fermented Leafy Greens)',
     'Andhra Lamb Pachadi (Spicy Lamb Pickle)',
-    'Hakka Noodles', 'Chow Mein', 'American Chop Suey',
+    'Hakka Noodles', 'Chow Mein', 'Chop Suey',
   ],
   Soup: [
     'Rasam', 'Pappu Charu', 'Pachi Palusu', 'Mulligatawny Soup',

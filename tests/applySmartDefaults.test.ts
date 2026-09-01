@@ -1,6 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import { applySmartDefaults } from '../plan/store/helpers/applySmartDefaults';
+import { classifyEmbeddedCarb } from '../utils/normalizeMealComponents';
 import type { Meal } from '../types/tray';
+
+describe('classifyEmbeddedCarb — title says it, the modal must select it', () => {
+  it('"Dal Gosht with Roti" → bread Roti; "with Rice" → rice', () => {
+    expect(classifyEmbeddedCarb('Dal Gosht with Roti').kind).toBe('bread');
+    expect(classifyEmbeddedCarb('Dal Gosht with Roti').name).toBe('Roti');
+    expect(classifyEmbeddedCarb('Butter Chicken with Rice').kind).toBe('rice');
+    expect(classifyEmbeddedCarb('Rajma Chawal').kind).toBe('rice');
+    expect(classifyEmbeddedCarb('Aloo Gobhi').kind).toBeNull();
+  });
+
+  it('bhature/bhatura resolves to Bhatura, not generic "Bread" (the Amritsari Chole Bhature bug)', () => {
+    expect(classifyEmbeddedCarb('Amritsari Chole Bhature').name).toBe('Bhatura');
+    expect(classifyEmbeddedCarb('Chole Bhature').name).toBe('Bhatura');
+    expect(classifyEmbeddedCarb('Chole Bhature').kind).toBe('bread');
+    expect(classifyEmbeddedCarb('Luchi with Aloo').name).toBe('Luchi');
+    expect(classifyEmbeddedCarb('Puri Bhaji').name).toBe('Puri');
+    expect(classifyEmbeddedCarb('Amritsari Chole Bhature').name).not.toBe('Bread');
+  });
+});
 
 const makeMeal = (overrides: Partial<Meal>): Meal => ({
   id: 'test-meal',
@@ -544,5 +564,22 @@ describe('applySmartDefaults — breakfast / self-carb pairing sanity (the roti-
       tags: ['paneer', 'gravy'],
     });
     expect(applySmartDefaults(meal, 'dinner').roti).toBe('Wheat Roti');
+  });
+
+  it('EMBEDDED carb: a row titled "…with Roti" keeps Roti as the default carb even without stored roti', () => {
+    // Legacy row: the dish/variant name carries the carb, item.roti is absent.
+    const meal = makeMeal({
+      id: 'dal-gosht',
+      name: 'Dal Gosht',
+      region: 'north',
+      tags: ['dal', 'mutton'],
+      defaultPairings: { sides: ['Roti', 'Dal', 'Pickle'], beverages: ['Buttermilk'] } as any,
+    });
+    const existing = {
+      id: 'x', title: 'Dal Gosht with Roti', name: 'Dal Gosht',
+    } as any;
+    const defaults = applySmartDefaults(meal, 'dinner', existing);
+    expect(defaults.roti).toBe('Roti');
+    expect(defaults.sides).not.toContain('Dal'); // dish-mains never pair as sides
   });
 });

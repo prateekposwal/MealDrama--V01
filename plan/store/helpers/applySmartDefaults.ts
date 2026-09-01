@@ -10,6 +10,7 @@ import {
   isRotiLike,
   isBreadLike,
   detectEmbeddedCarb,
+  classifyEmbeddedCarb,
 } from '../../../utils/normalizeMealComponents';
 import { normalizeRegion, regionDefaultCarb, regionDefaultRice, regionDefaultSalad, regionDefaultBeverage, isRejectedSide } from '../../../meal/constants/pairingCatalog';
 
@@ -88,8 +89,17 @@ export function applySmartDefaults(
     const explicitRotiNull = dp && 'roti' in dp && dp.roti === null;
     const explicitRiceNull = dp && 'rice' in dp && dp.rice === null;
     const canInferCarb = (_slotType === 'lunch' || _slotType === 'dinner') && !isSelfCarb;
-    const seededRoti = explicitRotiNull || !canInferCarb ? null : (dp.roti ?? (meal.rotiOptions?.length ? normalizeCategory(meal.rotiOptions[0]!) : null));
-    const seededRice = explicitRiceNull ? null : (!seededRoti && canInferCarb && meal.riceOptions?.length ? normalizeCategory(meal.riceOptions[0]!) : null);
+    // A dish/variant titled "…with Roti / Naan / Rice" embeds its carb; honour it
+    // even when the row predates stored roti (legacy persistence).
+    const embedded = existingItem ? classifyEmbeddedCarb(existingItem.title || existingItem.name || '') : null;
+    const roto = (meal.rotiOptions?.length
+      ? normalizeCategory(meal.rotiOptions[0]!)
+      : (embedded?.kind === 'bread' ? embedded!.name : null)) as string | null;
+    const rico = (meal.riceOptions?.length
+      ? normalizeCategory(meal.riceOptions[0]!)
+      : (embedded?.kind === 'rice' ? embedded!.name : null)) as string | null;
+    const seededRoti = explicitRotiNull || !canInferCarb ? null : (dp.roti ?? roto);
+    const seededRice = explicitRiceNull ? null : (!seededRoti && canInferCarb) ? ((dp.rice ?? rico) as string | null) : null;
 
     const itemQtys: Record<string, number> = {};
     for (const item of [seededRoti, seededRice, ...sides, ...beverages, ...dessert].filter((s): s is string => s != null)) {

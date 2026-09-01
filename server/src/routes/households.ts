@@ -36,20 +36,26 @@ router.get('/:householdId', async (req: Request, res: Response) => {
     if (!isMember) return res.status(403).json({ error: 'Forbidden' });
 
     res.json({
-      household_id: household.id,
+      id: household.id,
       name: household.name,
-      location_region: household.locationRegion,
-      household_size: null,
-      onboarding_progress: null,
+      adminId: household.members.find(m => m.role === 'admin')?.userId ?? userId,
+      code: household.code,
       members: household.members.map(m => ({
-        member_id: m.id,
+        id: m.id,
+        userId: m.userId ?? null,
         name: m.name,
         role: m.role,
-        persona: null,
-        age_group: null,
-        diet_type: null,
-        health_profile: null,
+        canEditPlan: (m as any).canEditPlan ?? true,
+        autoPlanEnabled: (m as any).autoPlanEnabled ?? true,
+        profile: {
+          dietType: (m as any).user?.profile?.dietType ?? 'veg',
+          region: (m as any).user?.profile?.region ?? 'north',
+          plannedSlots: (m as any).user?.profile?.plannedSlots ?? [],
+          healthGoal: (m as any).user?.profile?.healthGoal ?? '',
+        },
+        joinedAt: (m as any).createdAt ? new Date((m as any).createdAt).toISOString() : new Date().toISOString(),
       })),
+      createdAt: household.createdAt.toISOString(),
     });
   } catch (error) {
     if (error instanceof APIError) throw error;
@@ -134,6 +140,8 @@ router.post('/', async (req: Request, res: Response) => {
         id: m.id,
         name: m.name,
         role: m.role,
+        canEditPlan: (m as any).canEditPlan ?? true,
+        autoPlanEnabled: (m as any).autoPlanEnabled ?? true,
         joinedAt: (m as any).createdAt ? new Date((m as any).createdAt).toISOString() : new Date().toISOString(),
       })),
       createdAt: household.createdAt.toISOString(),
@@ -190,6 +198,8 @@ router.post('/join', async (req: Request, res: Response) => {
         id: m.id,
         name: m.name,
         role: m.role,
+        canEditPlan: (m as any).canEditPlan ?? true,
+        autoPlanEnabled: (m as any).autoPlanEnabled ?? true,
         joinedAt: (m as any).createdAt ? new Date((m as any).createdAt).toISOString() : new Date().toISOString(),
       })),
       createdAt: updated!.createdAt.toISOString(),
@@ -255,6 +265,76 @@ router.post('/:householdId/regenerate-code', async (req: Request, res: Response)
     if (error instanceof APIError) throw error;
     console.error('[API] Regenerate code error:', error);
     res.status(500).json({ error: 'Failed to regenerate code' });
+  }
+});
+
+/**
+ * PATCH /api/v1/households/:householdId/members/:memberId
+ * Admin permissioning for a household member's plan lane:
+ *   { role?, canEditPlan?, autoPlanEnabled? } (+ optional plannedSlots for
+ *   the member's UserProfile, so auto-plans respect their slot selection).
+ * Records an ActivityFeed event so every member's DOTS stay connected.
+ */
+router.patch('/:householdId/members/:memberId', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) throw new APIError('UNAUTHORIZED', 'Unauthorized', 401);
+    const householdId = String(req.params.householdId || '');
+    const memberId = String(req.params.memberId || '');
+
+    const payload = z.object({
+      role: z.enum(['admin', 'member']).optional(),
+      canEditPlan: z.boolean().optional(),
+      autoPlanEnabled: z.boolean().optional(),
+      plannedSlots: z.array(z.string()).optional(),
+    }).parse(req.body);
+
+    const household = await prisma.household.findUnique({
+      where: { id: householdId },
+      include: { members: true },
+    });
+    if (!household) throw new APIError('NOT_FOUND', 'Household not found', 404);
+    const me = household.members.find(m => m.userId === userId);
+    const isAdmin = me?.role === 'admin';
+    if (!isAdmin) throw new APIError('FORBIDDEN', 'Only an admin can change plan permissions', 403);
+
+    const target = household.members.find(m => m.id === memberId);
+    if (!target) throw new APIError('NOT_FOUND', 'Member not found', 404);
+
+    const updated = await prisma.householdMember.update({
+      where: { id: memberId },
+      data: {
+        role: payload.role ?? target.role,
+        canEditPlan: payload.canEditPlan ?? ((target as any).canEditPlan ?? true),
+        autoPlanEnabled: payload.autoPlanEnabled ?? ((target as any).autoPlanEnabled ?? true),
+      },
+    });
+
+    // Sync the member's plan-lane slots to their profile when supplied.
+    if (payload.plannedSlots && target.userId) {
+      const profile = await prisma.userProfile.upsert({
+        where: { userId: target.userId },
+        create: { userId: target.userId, plannedSlots: payload.plannedSlots },
+        update: { plannedSlots: payload.plannedSlots },
+      });
+      if (!profile) throw new APIError('INTERNAL', 'profile sync failed', 500);
+    }
+
+    await prisma.activityFeed.create({
+      data: {
+        householdId,
+        memberName: me?.name ?? 'Admin',
+        action: 'permission',
+        detail: `${(updated as any).canEditPlan ? 'can edit' : 'view-only'} plan · toggler ${target.name}`,
+      },
+    });
+
+    res.json({ id: updated.id, role: updated.role, canEditPlan: (updated as any).canEditPlan, autoPlanEnabled: (updated as any).autoPlanEnabled });
+  } catch (error: any) {
+    if (error instanceof APIError) throw error;
+    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid payload' });
+    console.error('[API] Household member update error:', error);
+    res.status(500).json({ error: 'Failed to update member' });
   }
 });
 

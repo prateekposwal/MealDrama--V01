@@ -4,6 +4,8 @@ import { useTrayStore, seedTodayFromTray } from './plan/store/useTrayStore';
 import { usePantryStore } from './app/store/pantryStore';
 import { useLoopStore } from './plan/store/useLoopStore';
 import { healTrayDietGaps } from './utils/dietHeal';
+import { useHouseholdFeedStore } from './plan/store/householdFeedStore';
+import { useHouseholdKitchenStore } from './plan/store/householdKitchenStore';
 import api, { setAuthReady } from './lib/api';
 import { getMe } from './app/utils/authApi';
 import { X } from 'lucide-react';
@@ -15,6 +17,7 @@ import { OfflineBanner } from './components/new/OfflineBanner';
 import { enqueue } from './app/utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
 import type { Dish } from './meal/constants/dishLibrary';
+import { DISH_LIBRARY } from './meal/constants/dishLibrary';
 import type { SourcePool } from './plan/utils/mealLoopEngine';
 import type { Meal, MealLoopConfig } from './types/tray';
 import { getISODate } from './utils/dateUTC';
@@ -24,7 +27,7 @@ import { TabBar, type Tab } from './components/new/TabBar';
 import { useBackNavigation } from './hooks/useBackNavigation';
 import { getRegionKey, goalToDishHealthFilter, dishHealthMatchScore } from './utils/dishSearch';
 import { isPureSweetDish } from './meal/constants/pairingCatalog';
-import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, enrichSourcePool } from './utils/dietQuota';
+import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, enrichSourcePool, allowedTypesForDiet, keepRegionTrayItems } from './utils/dietQuota';
 
 const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
 
@@ -113,6 +116,28 @@ const purgePlanDayDupes = () => {
     console.warn('[App] purgePlanDayDupes skipped:', e);
   }
 };
+// Diet-violation purge: a veg user must never see non-veg in their week.
+// Persisted loop queues/assignments from older configs (or family accepts)
+// can hold diet-invalid dishes — drop them so plans respect the CURRENT diet.
+const purgeLoopDietViolations = () => {
+  try {
+    const { mealLoop } = useLoopStore.getState() as any;
+    const allowed = allowedTypesForDiet(useStore.getState().user?.diet);
+    if (!mealLoop || (!mealLoop.rotationQueue?.length && !mealLoop.assignments?.length)) return;
+    const typeOf = (id?: string) => (id ? DISH_LIBRARY.find(d => d.id === id)?.type : undefined);
+    const queue = (mealLoop.rotationQueue || []).filter((q: any) => !q.dishId || allowed.includes(typeOf(q.dishId) ?? 'x-no-type'));
+    const assignments = (mealLoop.assignments || []).filter((a: any) => !a.dishId || allowed.includes(typeOf(a.dishId) ?? 'x-no-type'));
+    if (queue.length !== (mealLoop.rotationQueue || []).length || assignments.length !== (mealLoop.assignments || []).length) {
+      useLoopStore.setState((s: any) => ({
+        mealLoop: { ...s.mealLoop, rotationQueue: queue, assignments },
+      }));
+      console.log('[App] purgeLoopDietViolations: removed diet-invalid loop rows');
+    }
+  } catch (e) {
+    console.warn('[App] purgeLoopDietViolations skipped:', e);
+  }
+};
+
 const purgeLoopDupes = () => {
   const norm = (s: string) => (s || '').trim().toLowerCase();
   try {
@@ -235,6 +260,7 @@ const App: React.FC = () => {
         purgeTrayClones();
         purgeTrayOverflow();
         purgeLoopDupes();
+        purgeLoopDietViolations();
         purgePlanDayDupes();
         seedTodayFromTray();
         // Heal stale trays: rebuild-time quota fixes never reached installs
@@ -364,6 +390,22 @@ const App: React.FC = () => {
     });
   }, [isHydrated, isLoggedIn, updateProfile]);
 
+  // REGION-CHANGE RESEED — dropping/re-seeding isn't manual anymore. On region
+  // edit: drop far-region tray leftovers, heal reps for the new region, toast.
+  const _prevRegion = useRef<string | null>(user?.region ?? null);
+  useEffect(() => {
+    const cur = user?.region;
+    if (cur && _prevRegion.current && _prevRegion.current !== cur) {
+      const newKey = getRegionKey(cur) || 'north';
+      useStore.setState((s: any) => ({ trayLibrary: keepRegionTrayItems(s.trayLibrary, newKey) }));
+      void healTrayDietGaps(true);
+      useStore.getState().refreshHousehold();
+      setToast({ message: 'Region updated — tray reseeded for your cuisine', type: 'success' });
+    }
+    _prevRegion.current = cur ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.region]);
+
   // GRACEFUL session expiry: a routine save/sync 401 signals 'auth:unauthorized'
   // WITHOUT nuking the app (closing a meal card used to bounce to login). Revalid
   // ately via getMe(); only a CONFIRMED stale/revoked token logs out.
@@ -380,6 +422,33 @@ const App: React.FC = () => {
     window.addEventListener('auth:unauthorized', onUnauthorized as any);
     return () => window.removeEventListener('auth:unauthorized', onUnauthorized as any);
   }, [isHydrated, setToast]);
+
+  // HOUSEHOLD FEED — poll shared requests + activity while a household is active.
+  // Powers the member-request strip, shared pantry purchase feed and the
+  // notification DOTS (every dot connected to a real household event).
+  useEffect(() => {
+    if (!isHydrated) return;
+    const refreshFeed = () => {
+      const hhId = useStore.getState().householdId;
+      if (hhId) {
+        void useHouseholdFeedStore.getState().refresh(hhId);
+        void useHouseholdKitchenStore.getState().refresh(hhId);
+      }
+    };
+    refreshFeed();
+    const iv = setInterval(refreshFeed, 30000);
+    window.addEventListener('loop_updated', refreshFeed);
+    window.addEventListener('pantry:invalidate', refreshFeed);
+    window.addEventListener('household:refresh', refreshFeed);
+    window.addEventListener('family:refresh', refreshFeed);
+    return () => {
+      clearInterval(iv);
+      window.removeEventListener('loop_updated', refreshFeed);
+      window.removeEventListener('pantry:invalidate', refreshFeed);
+      window.removeEventListener('household:refresh', refreshFeed);
+      window.removeEventListener('family:refresh', refreshFeed);
+    };
+  }, [isHydrated]);
 
   // ─── Cycle-end nudge: toast when loop has ≤3 days of assignments left ───
   useEffect(() => {

@@ -594,6 +594,30 @@ describe('dishLibrary region-consistency data', () => {
     }
   });
 
+  it('no misleading national qualifiers on dish names (American/English — the confusing-prefix bug)', () => {
+    // "American Chop Suey" (rename→Chop Suey) and "Healthy English Muffin Pizzas"
+    // (→Healthy Muffin Pizzas) carried country prefixes that confuse the cuisine.
+    // Americano (coffee) is the sole legit exception.
+    const offenders = DISH_LIBRARY.filter(d =>
+      /american|english/i.test(d.name) && !/americano/i.test(d.name));
+    expect(offenders.map(d => `${d.id}:${d.name}`)).toEqual([]);
+    const chop = DISH_LIBRARY.find(d => d.id === 'american-chop-suey')!;
+    expect(chop.name).toBe('Chop Suey');
+    const muffin = DISH_LIBRARY.find(d => d.id === 'english-muffin-pizzas')!;
+    expect(muffin.name).toBe('Healthy Muffin Pizzas');
+    expect(muffin.variants?.[0]?.name).toBe('Muffin Pizza Veg');
+  });
+
+  it('Amritsari Chole Bhature pairs chutney + pickle + salad (no more bare "Salad")', () => {
+    const ac = DISH_LIBRARY.find(d => d.id === 'amritsari-chole')!;
+    const bhature = ac.variants?.find((v: any) => v.id === 'amritsari-bhature');
+    expect(bhature).toBeDefined();
+    const sides = (bhature as any)?.defaultPairings?.sides ?? [];
+    expect(sides).toContain('Pickle');
+    expect(sides).toContain('Green Chutney');
+    expect(sides).toContain('Salad');
+  });
+
   it('every bread-based dish carries full pantry-resolvable ingredients', () => {
     // Pantry guarantee: adding any of these meals must feed ingredient names
     // into the pantry (via getIngredientNamesForMeal → variant.ingredients).

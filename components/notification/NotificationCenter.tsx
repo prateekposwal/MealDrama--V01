@@ -17,6 +17,9 @@ const TYPE_ICONS: Record<string, string> = {
   pantry_reminder: '🥦',
   pantry_low: '⚠️',
   pantry_expired: '🗑️',
+  pantry_buy: '🛒',
+  family_request: '🙋',
+  family_activity: '👨‍👩‍👧',
 };
 
 function isPantry(type: string): boolean {

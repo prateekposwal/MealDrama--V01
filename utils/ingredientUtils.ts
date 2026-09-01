@@ -1315,6 +1315,131 @@ export function invalidateIngredientCache(): void {
     INGREDIENT_CACHE.clear();
 }
 
+// ─── LIGHT-DISH GATE ─────────────────────────────────────────────────────────
+// Beverages / teas / coffees / desserts / soups must NEVER pick up the
+// savoury-mains inference (oil/ghee/chutney/yogurt/potato/"spice"). For light
+// dishes with no explicit recipe, keep only beverage-ish names.
+const LIGHT_ALLOWED = /tea|coffee|cocoa|chocolate|sugar|honey|milk|cream|rose|saffron|water|lemon|mint|ginger|cardamom|cinnamon|clove|ice|coconut|pistachio|almond|raisin|cashew|dry fruit|berry|juice/;
+const LIGHT_BANNED = /chutney|ghee|oil|yogurt|curd|potato|spice|besan|flour|rice|wheat|garam|chilli|turmeric|cumin|coriander|salt|tomato|onion|garlic|phulka|roti|naan|paratha|puri/;
+
+/** Placeholder templates: the "Salt/Pepper/Coriander" filler many entries used
+ *  instead of a real recipe. Treat them as "no recipe" so the inference +
+ *  completeness chain fills the true ingredients (the repeating data gap). */
+const PLACEHOLDER_NAMES = new Set(['salt', 'pepper', 'coriander leaves', 'coriander', 'water', 'rice', 'oil']);
+
+export function isPlaceholderIngredients(items: Array<{ name: string }>): boolean {
+    if (!items || items.length === 0) return false;
+    // A "recipe" can't be 1-2 items (kallu→"Coconut Sap", pasta→"Rice,Salt");
+    // and any fully-generic list — the 3-item soup template included — is
+    // filler, not a recipe.
+    if (items.length <= 2) return true;
+    return items.every(i => PLACEHOLDER_NAMES.has((i.name || '').trim().toLowerCase()));
+}
+
+export function isLightCategory(dish: { name?: string; tags?: string[] }): boolean {
+    const name = (dish.name || '').toLowerCase();
+    const tags = (dish.tags || [] as string[]).map(t => t.toLowerCase()).join(' ');
+    return /tea|chai|coffee|juice|shake|smoothie|lassi|chaas|sharbat|soup|salad|shorba|rasam|charu|saar|broth|stew|thukpa|thenthuk|noodle|phagshapa|toddy|kallu|kaal|wine/.test(name)
+        || tags.includes('beverage')
+        || tags.includes('soup')
+        || /dessert|sweet|cake|kheer|payasam|halwa|barfi|jalebi|kulfi|pudding/.test(name);
+}
+
+function lightFilter(items: Ingredient[]): Ingredient[] {
+    return items.filter(i => LIGHT_ALLOWED.test(i.name.toLowerCase()) && !LIGHT_BANNED.test(i.name.toLowerCase()));
+}
+
+/** Light dish with nothing after filtering → a minimal role-based fill is
+ *  better than empty (charg/lassi/soup are never groceries-empty). */
+function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }): Ingredient[] {
+    const filtered = lightFilter(items);
+    // Only generic-ish tokens (water/sugar/lemon) don't make a pantry fill —
+    // fall through to the role-based list so chang/lassi/soup are never hollow.
+    const substantive = filtered.some(i => !['water', 'sugar', 'lemon', 'tea leaves', 'coconut', 'milk', 'ice'].includes(i.name.toLowerCase()));
+    if (filtered.length >= 3 && substantive) return filtered;
+    const name = (dish.name || '').toLowerCase();
+    if (/lassi|chaas|buttermilk/.test(name)) {
+        return [
+            { name: 'Yogurt', quantity: 1, unit: 'cup', category: 'dairy', inStock: false },
+            { name: 'Water', quantity: 0.5, unit: 'cup', category: 'pantry', inStock: false },
+            { name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry', inStock: false },
+        ];
+    }
+    if (/smoothie|milkshake|shake/.test(name)) {
+        const fruit: Ingredient[] = /mango/.test(name)
+            ? [{ name: 'Mango', quantity: 1, unit: 'pc', category: 'produce', inStock: false }]
+            : /banana/.test(name)
+                ? [{ name: 'Banana', quantity: 1, unit: 'pc', category: 'produce', inStock: false }]
+                : /strawberry/.test(name)
+                    ? [{ name: 'Strawberries', quantity: 1, unit: 'cup', category: 'produce', inStock: false }]
+                    : /avocado|peanut/.test(name)
+                        ? [{ name: 'Avocado', quantity: 1, unit: 'pc', category: 'produce', inStock: false }]
+                        : /green|spinach|arugula|kale/.test(name)
+                            ? [{ name: 'Spinach', quantity: 1, unit: 'cup', category: 'produce', inStock: false }]
+                            : /coffee/.test(name)
+                                ? [{ name: 'Coffee Powder', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false }]
+                                : [];
+        return [
+            ...fruit,
+            { name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false },
+            { name: 'Ice', quantity: 1, unit: 'cup', category: 'pantry', inStock: false },
+            { name: 'Honey', quantity: 1, unit: 'tsp', category: 'pantry', inStock: false },
+        ] as Ingredient[];
+    }
+    if (/juice|sharbat|chang|punch|cola/.test(name)) {
+        return /chang|beer/.test(name)
+            ? [{ name: 'Millet', quantity: 1, unit: 'cup', category: 'grains', inStock: false }, { name: 'Water', quantity: 2, unit: 'cup', category: 'pantry', inStock: false }, { name: 'Jaggery', quantity: 1, unit: 'tbsp', category: 'pantry', inStock: false }]
+            : /toddy|kallu|kaal/.test(name)
+                ? [{ name: 'Coconut Sap', quantity: 2, unit: 'cups', category: 'pantry', inStock: false }, { name: 'Jaggery', quantity: 1, unit: 'tbsp', category: 'pantry', inStock: false }, { name: 'Water', quantity: 1, unit: 'cup', category: 'pantry', inStock: false }]
+                : /wine/.test(name)
+                    ? [{ name: 'Grapes', quantity: 1, unit: 'kg', category: 'produce', inStock: false }, { name: 'Sugar', quantity: 2, unit: 'cup', category: 'pantry', inStock: false }, { name: 'Water', quantity: 1, unit: 'cup', category: 'pantry', inStock: false }]
+                    : [
+                        { name: /mango/.test(name) ? 'Mango' : /strawberry/.test(name) ? 'Strawberries' : /banana/.test(name) ? 'Banana' : /apple/.test(name) ? 'Apple' : /orange/.test(name) ? 'Orange' : /pineapple/.test(name) ? 'Pineapple' : 'Lemon', quantity: 1, unit: 'pc', category: 'produce', inStock: false },
+                        { name: 'Water', quantity: 1, unit: 'cup', category: 'pantry', inStock: false },
+                        { name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry', inStock: false },
+                    ];
+    }
+    if (/soup|shorba|rasam|charu|saar|broth|stew|thukpa|thenthuk|noodle/.test(name)) {
+        const protein: Ingredient[] = /chicken/.test(name)
+            ? [{ name: 'Chicken', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+            : /mutton|yakhni|paya|lamb/.test(name)
+                ? [{ name: 'Mutton', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+                : /pork|phagshapa/.test(name)
+                    ? [{ name: 'Pork', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+                    : [];
+        return [
+            ...protein,
+            { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce', inStock: false },
+            { name: 'Tomato', quantity: 2, unit: 'pc', category: 'produce', inStock: false },
+            { name: 'Water', quantity: 2, unit: 'cup', category: 'pantry', inStock: false },
+            { name: 'Black Pepper', quantity: 0.5, unit: 'tsp', category: 'spices', inStock: false },
+            { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce', inStock: false },
+        ] as Ingredient[];
+    }
+    if (/coffee|espresso|americano|macchiato|cortado/.test(name)) {
+        return [
+            { name: 'Coffee Powder', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false },
+            { name: 'Hot Water', quantity: 1, unit: 'cup', category: 'pantry', inStock: false },
+            { name: 'Milk', quantity: 1, unit: 'tbsp', category: 'dairy', inStock: false },
+        ] as Ingredient[];
+    }
+    if (/gojju|pulusu|kuzhambu/.test(name)) {
+        return [
+            { name: 'Tamarind', quantity: 1, unit: 'tbsp', category: 'pantry', inStock: false },
+            { name: 'Jaggery', quantity: 1, unit: 'tbsp', category: 'pantry', inStock: false },
+            { name: 'Mustard Seeds', quantity: 1, unit: 'tsp', category: 'spices', inStock: false },
+            { name: 'Red Chilli', quantity: 2, unit: 'pcs', category: 'spices', inStock: false },
+        ] as Ingredient[];
+    }
+    return [
+        { name: 'Lemon', quantity: 1, unit: 'pc', category: 'produce', inStock: false },
+        { name: 'Water', quantity: 1, unit: 'cup', category: 'pantry', inStock: false },
+        { name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry', inStock: false },
+        { name: 'Black Pepper', quantity: 0.25, unit: 'tsp', category: 'spices', inStock: false },
+        { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce', inStock: false },
+    ] as Ingredient[];
+}
+
 export function getIngredientsForMealOption(
     dishId: string,
     variantId: string,
@@ -1334,6 +1459,16 @@ export function getIngredientsForMealOption(
         if (!variant) variant = dish.variants[0];
         if (variant) {
             const r: Ingredient[] = [...(variant.ingredients || [])];
+
+            // EXPLICIT recipe wins — trust it fully. But a PLACEHOLDER filler
+            // (Salt/Pepper/Coriander) is not a recipe → fall through so the
+            // inference + completeness chain fills the real ingredients.
+            if (r.length > 0 && !isPlaceholderIngredients(r)) {
+                if (categorySelections) r.push(...getIngredientsFromCategorySelections(categorySelections));
+                INGREDIENT_CACHE.set(cacheKey, r);
+                return r;
+            }
+
             const variantInclusiveName = variant && variantId
                 ? resolveDisplayName(dish.name, variant)
                 : dish.name;
@@ -1356,6 +1491,9 @@ export function getIngredientsForMealOption(
                 if (!existingNames.has(ing.name.toLowerCase())) r.push(ing);
             }
             r.push(..._resolveAccompaniments(variant), ..._inferFromDishName(dish, new Set(r.map(i => i.name.toLowerCase()))));
+            // Completeness pass: regional staples + dry fruits for sweets, so a
+            // sparse variant still shares a full, correct shopping list.
+            r.push(...inferRegionalCompleteness(dish, new Set(r.map(i => i.name.toLowerCase()))));
             if (variant.ingredients?.some(i => i.category === 'breads')) {
                 const explicitBreadNames = new Set(variant.ingredients.filter(i => i.category === 'breads').map(i => i.name.toLowerCase()));
                 for (let i = r.length - 1; i >= 0; i--) {
@@ -1366,14 +1504,16 @@ export function getIngredientsForMealOption(
                 }
             }
             if (categorySelections) r.push(...getIngredientsFromCategorySelections(categorySelections));
-            INGREDIENT_CACHE.set(cacheKey, r);
-            return r;
+            const finalVariant = isLightCategory(dish) ? lightFilterWithFallback(r, dish) : r;
+            INGREDIENT_CACHE.set(cacheKey, finalVariant);
+            return finalVariant;
         }
     }
     const result: Ingredient[] = inferIngredientsFromDishId(dishId);
     if (categorySelections) result.push(...getIngredientsFromCategorySelections(categorySelections));
-    INGREDIENT_CACHE.set(cacheKey, result);
-    return result;
+    const finalResult = dish && isLightCategory(dish) ? lightFilterWithFallback(result, dish) : result;
+    INGREDIENT_CACHE.set(cacheKey, finalResult);
+    return finalResult;
 }
 
 // ─── Accompaniment alias maps (module-level — created once, not per call) ───────
@@ -1462,6 +1602,102 @@ function _isGrain(s: string): boolean {
 
 function _toBaseName(name: string): string {
     return name.toLowerCase().replace(/toast/g, '').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const INDIAN_REGIONS = ['north', 'south', 'east', 'west', 'central', 'northeast'];
+
+/**
+ * COMPLETENESS pass — the "missing dry fruits / oil / salt / turmeric" gap.
+ * Every Indian dish gets its missing customary staples added when absent:
+ *   • savoury mains → Oil/Salt/Turmeric + regional fat & aromatics
+ *   • rice dishes   → Ghee + whole spices (+ mint/saffron for biryani-ish)
+ *   • dals          → ghee/cumin/turmeric + tadka hints
+ *   • sweets        → DRY FRUITS (raisins/almonds/pistachios) + sugar/cardamom/ghee
+ *   • south         → coconut/curry leaves/mustard seed/tamarind
+ *   • east/ne       → mustard oil + kalonji/panch-phoron hint
+ * Never duplicates (existingNames), never touches bakery/beverages/salads where
+ * those items don't belong.
+ */
+function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingredient[] {
+    const out: Ingredient[] = [];
+    const push = (i: Ingredient) => { if (!existingNames.has(i.name.toLowerCase())) out.push(i); };
+    const nameLower = (dish.name || '').toLowerCase();
+    const tagLower = (dish.tags || []).map(t => t.toLowerCase()).join(' ');
+    const all = `${nameLower} ${tagLower}`;
+    const region = (dish.region || '').toLowerCase();
+
+    const isSweet = /dessert|sweet|halwa|kheer|payasam|payesh|barfi|ladoo|burfi|shrikhand|basundi|jalebi|gulab|jamun|kaju|ras ma?lai|rasgulla|mysore|son papdi|pitha|mithai/.test(all)
+        && !/stir-fry|curry|gravy|korma|bhindi|sabzi/.test(all);
+    const isBeverage = /beverage|chai|tea|coffee|juice|shake|smoothie|lassi|chaas|buttermilk|sharbat/.test(all);
+    const isRiceDish = /biryani|pulao|khichdi|paella|fried rice|jeera rice|sambar rice|curd rice|rice/.test(nameLower)
+        && !isSweet;
+    const isDal = /dal|daal|lentil|chana|rajma|chole|ghugni|dal-makhani/.test(all);
+    const isCurried = /curry|gravy|korma|tikka|kebab|bhuna|jhol|kalia|kosha|bharta|rogan|vindaloo|saag|masala|bhurji|manchurian|stew|tawa|roast|roasted|asparagus|saute|grilled/.test(all);
+    const isSouth = region === 'south';
+    const isEast = region === 'east' || region === 'northeast';
+    const isNorth = region === 'north' || region === 'all' || region === 'central';
+    const isWest = region === 'west';
+
+    const savory = (isCurried || isDal || isRiceDish || /chicken|mutton|fish|prawn|paneer|egg/i.test(all)) && !isSweet && !isBeverage;
+    if (savory) {
+        push({ name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry' });
+        push({ name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' });
+        push({ name: 'Turmeric', quantity: 0.5, unit: 'tsp', category: 'spices' });
+        if (isNorth || isWest) push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        if (isSouth) {
+            push({ name: 'Coconut', quantity: 0.5, unit: 'cup', category: 'produce' });
+            push({ name: 'Curry Leaves', quantity: 1, unit: 'sprig', category: 'produce' });
+            push({ name: 'Mustard Seeds', quantity: 1, unit: 'tsp', category: 'spices' });
+            push({ name: 'Tamarind', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        }
+        if (isEast) push({ name: 'Mustard Oil', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        if (isCurried) {
+            push({ name: 'Cumin Seeds', quantity: 1, unit: 'tsp', category: 'spices' });
+            push({ name: 'Red Chili Powder', quantity: 0.5, unit: 'tsp', category: 'spices' });
+        }
+    }
+
+    if (isRiceDish && savory) {
+        push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        push({ name: 'Whole Spices', quantity: 1, unit: 'tsp', category: 'spices' });
+        if (/biryani/.test(all)) {
+            push({ name: 'Saffron', quantity: 0.25, unit: 'tsp', category: 'spices' });
+            push({ name: 'Mint Leaves', quantity: 0.25, unit: 'cup', category: 'produce' });
+        }
+    }
+
+    if (isDal) {
+        push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        push({ name: 'Cumin Seeds', quantity: 1, unit: 'tsp', category: 'spices' });
+        if (isEast) push({ name: 'Panch Phoron', quantity: 0.5, unit: 'tsp', category: 'spices' });
+    }
+
+    if (isSweet) {
+        push({ name: 'Sugar', quantity: 0.5, unit: 'cup', category: 'pantry' });
+        push({ name: 'Cardamom', quantity: 2, unit: 'pods', category: 'spices' });
+        // DRY FRUITS — the missing item for sweets across the board
+        // (no Ghee auto-add: pantry contract keeps sweets Ghee-free inferred).
+        push({ name: 'Raisins', quantity: 2, unit: 'tbsp', category: 'pantry' });
+        push({ name: 'Almonds', quantity: 2, unit: 'tbsp', category: 'pantry' });
+        push({ name: 'Pistachios', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        if (/kheer|payasam|payesh|ras/.test(all)) push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
+        if (/gajar|halwa|rabri|phirni/.test(all)) push({ name: 'Milk', quantity: 1.5, unit: 'cup', category: 'dairy' });
+    }
+
+    if (isBeverage && /chai|tea/.test(all)) {
+        push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
+        push({ name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry' });
+        push({ name: 'Tea Leaves', quantity: 1, unit: 'tsp', category: 'pantry' });
+    }
+
+    if (/pancake|oatmeal|oats|muffin|cookie|banana bread|bake|granola|waffle/.test(all)) {
+        push({ name: 'Flour', quantity: 1.5, unit: 'cups', category: 'grains' });
+        push({ name: 'Sugar', quantity: 0.5, unit: 'cup', category: 'pantry' });
+        push({ name: 'Baking Powder', quantity: 1, unit: 'tsp', category: 'pantry' });
+        push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
+    }
+
+    return out;
 }
 
 function _resolveAccompaniments(variant: Dish['variants'][0]): Ingredient[] {
@@ -1574,6 +1810,30 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
     if (nameLower.includes('curry') || nameLower.includes('gravy') || nameLower.includes('korma'))
         if (!result.some(i => i.category === 'grains') && !result.some(i => i.category === 'breads') && !existingNames.has('rice'))
             result.push({ name: 'Rice', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
+
+    // ─── Base INDIAN aromatics — the missing tomato/onion/ginger/garlic gap ──
+    // Indian mains (curries/gravies/dal/tikka/kebab...) share a base of onion,
+    // tomato, green chilli, ginger-garlic & coriander. Dishes with sparse or
+    // empty variant ingredient lists shared only "Chicken 200g + Ghee/Oil +
+    // Spice" — add the aromatics so EVERY curried dish shares a complete list.
+    // Skipped for bakery/sweets/beverages/breads/soups where they don't belong.
+    const INDIAN_REGIONS = ['north', 'south', 'east', 'west', 'central', 'northeast'];
+    const indianish = (dish.region || 'all') === 'all' || INDIAN_REGIONS.includes(dish.region || '');
+    const tagLower = (dish.tags || []).map(t => t.toLowerCase()).join(' ');
+    const isBakerySweet = /beverage|dessert|sweet|cake|halwa|kheer|payasam|biscuit|cookie|shake|smoothie|toast|sandwich|bread|packagora|chilla|idli|dosa|poha|upma|paratha|naan/.test(nameLower + ' ' + tagLower);
+    const isCurried = /curry|gravy|korma|tikka|kebab|bhuna|jhol|kalia|kosha|bharta|rogan|vindaloo|saag|masala|dal|keema|kofta|malai|pasanda|achari|do-pyaza|manchurian|bhurji|fry|tawa|khol|stew/.test(nameLower + ' ' + tagLower);
+    if (indianish && isCurried && !isBakerySweet) {
+        const aromatics: Ingredient[] = [
+            { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce', inStock: false },
+            { name: 'Tomato', quantity: 2, unit: 'pc', category: 'produce', inStock: false },
+            { name: 'Green Chilli', quantity: 2, unit: 'pc', category: 'produce', inStock: false },
+            { name: 'Ginger-Garlic Paste', quantity: 1, unit: 'tbsp', category: 'produce', inStock: false },
+            { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce', inStock: false },
+        ] as Ingredient[];
+        for (const ing of aromatics) {
+            if (!existingNames.has(ing.name.toLowerCase())) result.push(ing);
+        }
+    }
 
     if ((nameLower.includes('chilla') || nameLower.includes('cheela')) && !existingNames.has('onions'))
         result.push({ name: 'Onions', quantity: 1, unit: 'pc', category: 'produce', inStock: false });

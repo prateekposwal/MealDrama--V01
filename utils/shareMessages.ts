@@ -266,7 +266,73 @@ export interface RecipeShareInput {
   pairings?: { sides?: string[]; beverages?: string[] };
 }
 
-/** Generic method text per cooking style — a pragmatic bridge, not curated steps. */
+/** Singular/aliased ingredient-name normalization + unit normalization, so
+ *  "Potato"/"Potatoes", "pcs"/"pc", "tbsp"/"tbsps" merge into ONE line and
+ *  duplicate variant rows aggregate instead of repeating (the WhatsApp
+ *  Recipe-to-Cook duplication bug). */
+const INGREDIENT_ALIASES: Record<string, string> = {
+  'potatoes': 'potato', 'tomatoes': 'tomato', 'onions': 'onion', 'chillies': 'chilli',
+  'green chillies': 'green chilli', 'gingers': 'ginger', 'garlics': 'garlic',
+  'leaves': 'leaf', 'coriander leaves': 'coriander', 'curry leaves': 'curry leaf',
+  'capsicums': 'capsicum', 'carrots': 'carrot', 'beetroots': 'beetroot',
+  'cucumbers': 'cucumber', 'radishes': 'radish', 'spring onions': 'spring onion',
+  'cabbages': 'cabbage', 'peas ': 'pea ', 'breads': 'bread', 'ghees': 'ghee',
+};
+const UNIT_ALIASES: Record<string, string> = {
+  'pcs': 'pc', 'pieces': 'pc', 'gms': 'g', 'grms': 'g', 'tbsps': 'tbsp',
+  'teaspoons': 'tsp', 'cups': 'cup', 'liters': 'liter', 'litres': 'liter',
+  'handfuls': 'handful', 'sprigs': 'sprig', 'pods': 'pod', 'pinchs': 'pinch',
+  'cloves': 'clove', 'bunches': 'bunch', 'packets': 'packet',
+};
+
+function normIngredientName(name: string): string {
+  let n = (name || '').trim().toLowerCase();
+  n = INGREDIENT_ALIASES[n] ?? n;
+  if (n.endsWith('s') && !n.endsWith('ss') && !n.endsWith('us') && n !== 'peas' && n !== 'oats' && n !== 'lentils') {
+    n = n.slice(0, -1);
+  }
+  return n.trim();
+}
+
+const titleCase = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+function normIngredientUnit(unit?: string): string {
+  if (!unit) return '';
+  const u = String(unit).trim().toLowerCase();
+  return UNIT_ALIASES[u] ?? u;
+}
+
+export interface AggregatedIngredient {
+  name: string;
+  quantity?: number;
+  unit?: string;
+  category?: string;
+}
+
+/** Merge duplicate/aliased ingredient rows, summing quantities per (name, unit). */
+export function aggregateIngredients(
+  ingredients: { name: string; quantity?: number; unit?: string; category?: string }[],
+): AggregatedIngredient[] {
+  const map = new Map<string, AggregatedIngredient>();
+  for (const ing of ingredients ?? []) {
+    const keyName = normIngredientName(ing.name);
+    if (!keyName) continue;
+    const unit = normIngredientUnit(ing.unit);
+    const key = `${keyName}|${unit}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.quantity = (existing.quantity ?? 1) + (ing.quantity ?? 1);
+    } else {
+      map.set(key, {
+        name: titleCase(keyName),
+        quantity: ing.quantity ?? 1,
+        unit: unit || undefined,
+        category: ing.category || 'pantry',
+      });
+    }
+  }
+  return [...map.values()];
+}
 export const STYLE_STEPS: Record<string, string[]> = {
   tadka: ['Heat oil; add spices to temper.', 'Add the base and cook on low heat.', 'Finish with fresh garnish.'],
   tawa: ['Heat a flat tawa or skillet.', 'Cook each side until golden.', 'Rest briefly before serving.'],
@@ -303,9 +369,9 @@ export function recipeShareForDish(input: RecipeShareInput, language: ShareLangu
   if (input.ingredients.length) {
     lines.push('', `*${s.pantryFor}*`);
     const byCat = new Map<string, string[]>();
-    for (const ing of input.ingredients) {
+    for (const ing of aggregateIngredients(input.ingredients)) {
       const cat = ing.category || 'pantry';
-      const qty = ing.quantity ? ` — ${ing.quantity}${ing.unit || ''}` : '';
+      const qty = ing.quantity !== undefined && ing.quantity !== null ? ` — ${ing.quantity}${ing.unit || ''}` : '';
       const arr = byCat.get(cat) || [];
       arr.push(`  • ${ing.name}${qty}`);
       byCat.set(cat, arr);

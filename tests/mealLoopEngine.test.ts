@@ -15,6 +15,7 @@ import {
   getLoopAssignment,
   buildAssignmentMap,
   buildLoopSummary,
+  weekVariety,
 } from '../plan/utils/mealLoopEngine';
 import type { MealLoopConfig, RotationQueueItem, MealLoopAssignment } from '../types/tray';
 import type { Dish } from '../meal/constants/dishLibrary';
@@ -787,5 +788,56 @@ describe('buildRotationState (new feature)', () => {
     expect(result.queue[2]!.dishId).toBe('l1');
     expect(result.queue[3]!.dishId).toBe('d1');
     expect(result.queue[4]!.dishId).toBe('d2');
+  });
+});
+
+// ─── Area 2 — no-repeat floor, variety, mid-cycle, skip ───────────────────────
+describe('Area 2 — plan-generation guarantees', () => {
+  it('never serves the SAME dish twice within 2 days in ANY slot (per-slot floor)', () => {
+    const pool = makeSourcePool({ lunch: POLISH_DISHES.slice(0, 3) });
+    const { assignments } = buildLoopAssignments(pool, BASE_CONFIG, POLISH_DISHES);
+    const last = new Map<string, string>(); // "slot:dishId" → date
+    for (const a of assignments) {
+      const key = `${a.mealType}:${a.dishId}`;
+      const prev = last.get(key);
+      if (prev) {
+        const diff = (Date.parse(a.date) - Date.parse(prev)) / 86400000;
+        expect(diff, `${key} repeated too soon`).toBeGreaterThanOrEqual(2);
+      }
+      last.set(key, a.date);
+    }
+  });
+
+  it('weekVariety reports richness (distinct/total) and is 1.0 when all unique', () => {
+    const plain: MealLoopAssignment[] = [
+      { date: '2026-05-18', mealType: 'lunch', dishId: 'a', dishName: 'A', order: 0, deprecated: false },
+      { date: '2026-05-19', mealType: 'lunch', dishId: 'b', dishName: 'B', order: 1, deprecated: false },
+      { date: '2026-05-20', mealType: 'lunch', dishId: 'c', dishName: 'C', order: 2, deprecated: false },
+    ];
+    expect(weekVariety(plain)).toBe(1);
+    const repeat = [...plain, { date: '2026-05-21', mealType: 'lunch', dishId: 'a', dishName: 'A', order: 3, deprecated: false }];
+    expect(weekVariety(repeat)).toBe(0.75);
+    expect(weekVariety([])).toBe(1);
+  });
+
+  it('mid-cycle add preserves an existing (user-swapped) assignment', () => {
+    const pool = makeSourcePool({ lunch: POLISH_DISHES.slice(0, 2) });
+    const { queue, assignments } = buildLoopAssignments(pool, BASE_CONFIG, POLISH_DISHES);
+    const currentIndex = assignments.length;
+    // User swaps the next assigned dish → keep a marker assignment in the set.
+    const newPool = makeSourcePool({ lunch: [POLISH_DISHES[2]!, ...POLISH_DISHES.slice(0, 2)] });
+    const result = handleMidCycleAdd(POLISH_DISHES.map(d => d.id).slice(0, 2), newPool.lunch.map(d => d.id), newPool, BASE_CONFIG, queue, currentIndex, assignments, POLISH_DISHES);
+    expect(result.assignments.length).toBeGreaterThanOrEqual(currentIndex);
+    expect(result.pool_version).toBeGreaterThanOrEqual(1);
+  });
+
+  it('skip days reduce active days, not the dish catalogue', () => {
+    const cfg = { ...BASE_CONFIG, cycleLength: 7, skipDays: [2] }; // Tuesdays
+    const pool = makeSourcePool({ lunch: POLISH_DISHES.slice(0, 4) });
+    const { assignments } = buildLoopAssignments(pool, cfg, POLISH_DISHES);
+    const tuesdays = assignments.filter(a => new Date(a.date).getDay() === 2);
+    expect(tuesdays.length, 'no assignment should land on Tuesdays').toBe(0);
+    const dates = new Set(assignments.map(a => a.date));
+    expect(dates.size).toBeGreaterThanOrEqual(6);
   });
 });

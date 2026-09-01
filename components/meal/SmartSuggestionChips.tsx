@@ -8,7 +8,7 @@ import DishImage from '../new/DishImage';
 import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
 import { useAsyncGuard, requestDedupCache } from '../../utils/asyncGuard';
 import { useStore } from '../../app/store/useStore';
-import { fetchAISuggestions } from '../../utils/aiBridge';
+import { fetchAISuggestions } from '../../utils/aiEngine';
 
 interface SmartSuggestionChipsProps {
   date: string;
@@ -79,17 +79,26 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
     // Try AI bridge first, fall back to existing cache
     fetchAISuggestions({}, userDiet, prefs).then(aiSugs => {
       if (!asyncGuard.isCurrent(requestId)) return;
-      if (aiSugs && aiSugs[mealType.toLowerCase()]?.length > 0) {
-        const mapped: SuggestionMeal[] = aiSugs[mealType.toLowerCase()].map((d: any) => ({
+      const slotSugs = aiSugs?.[mealType.toLowerCase()];
+      if (slotSugs && slotSugs.length > 0) {
+        const mapped: SuggestionMeal[] = (slotSugs ?? []).map((d: any) => ({
           id: d.id,
           name: d.name,
-          diet: userDiet,
+          icon: d.icon || '🍽️',
           region: d.region,
+          type: d.type || 'veg',
+          prepMinutes: d.prepMinutes ?? 15,
+          defaultGravy: d.defaultGravy,
+          defaultRoti: d.defaultRoti,
+          defaultRice: d.defaultRice,
+          defaultSides: d.defaultSides || [],
+          defaultBeverages: d.defaultBeverages || [],
+          diet: userDiet,
           category: d.slots,
           mealType: mealType,
           image: '',
           suggestedBy: 'ai',
-        }));
+        } as SuggestionMeal & { diet?: string; category?: string[]; mealType?: string; image?: string; suggestedBy?: string }));
         setSuggestions(mapped);
         setSource('api');
         setLoading(false);

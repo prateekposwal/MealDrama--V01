@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider          = "postgresql"
-  url               = env("DATABASE_URL")
-  connection_timeout = 20
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // 1. AUTH & IDENTITY
@@ -38,20 +37,26 @@ model Household {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  members    HouseholdMember[]
-  expenses   Expense[]
-  activities ActivityFeed[]
+  members         HouseholdMember[]
+  expenses        Expense[]
+  sharedPlanItems SharedPlanItem[]
+  stock           HouseholdStock[]
+  assumptions     HouseholdAssumption[]
+  memberLanes     MemberLane[]
+  activities      ActivityFeed[]
 
   @@index([code])
 }
 
 model HouseholdMember {
-  id          String   @id @default(uuid())
-  householdId String
-  userId      String?
-  name        String
-  role        String   @default("member") // admin, member
-  createdAt   DateTime @default(now())
+  id              String   @id @default(uuid())
+  householdId     String
+  userId          String?
+  name            String
+  role            String   @default("member") // admin, member
+  canEditPlan     Boolean  @default(true) // member may edit their own plan lane
+  autoPlanEnabled Boolean  @default(true) // auto-generate this member's plan
+  createdAt       DateTime @default(now())
 
   household     Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
   user          User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -107,6 +112,78 @@ model ActivityFeed {
   @@index([householdId])
 }
 
+/// TRUE shared plan — the family week lives in ONE table, merged across
+/// members. Each row is authored by a member and may target another member.
+model SharedPlanItem {
+  id           String   @id @default(uuid())
+  householdId  String
+  authorUserId String
+  date         DateTime @db.Date
+  mealType     String // breakfast, lunch, snacks, dinner
+  dishId       String?
+  dishName     String
+  icon         String   @default("🍽️")
+  requestedBy  String?  @db.VarChar(64) // memberId who flagged it
+  requestedFor String?  @db.VarChar(64) // memberId it's for (null = family)
+  status       String   @default("planned") // planned, requested, accepted, completed
+  quantity     Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId, date])
+  @@index([householdId, mealType])
+}
+
+/// The shared KITCHEN — one pantry ledger per household. Any member's
+/// "bought" bumps the household stock so every device sees the same numbers
+/// (kills the double-count). Personal pantries remain when not in a household.
+model HouseholdStock {
+  id          String   @id @default(uuid())
+  householdId String
+  name        String
+  quantity    Float    @default(0)
+  unit        String   @default("")
+  purchasedBy String   // member name
+  createdAt   DateTime @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, name, unit])
+  @@index([householdId])
+}
+
+/// Per-member "already have / don't have" assumptions — persisted so a fresh
+/// device (or restart) keeps the same buy adjustments for everyone.
+model HouseholdAssumption {
+  id          String   @id @default(uuid())
+  householdId String
+  memberId    String
+  name        String
+  flag        String   @default("have") // have | notHave
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, memberId, name])
+  @@index([householdId])
+}
+
+/// Persisted member-lane snapshot — the generated per-member week stored on
+/// the server so a fresh device sees the same Family Plans without regenerating.
+model MemberLane {
+  id          String   @id @default(uuid())
+  householdId String
+  memberId    String
+  snapshot    Json     // { dates: [{ date, slots: { breakfast?: {id,name,icon}, ... } }] }
+  updatedAt   DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, memberId])
+}
+
 // 5. USER PREFERENCES
 model UserProfile {
   id            String   @id @default(uuid())
@@ -116,6 +193,8 @@ model UserProfile {
   allergies     String[] // ["peanuts", "gluten"]
   dislikedItems String[] // ["okra", "bitter-gourd"]
   spiceLevel    String   @default("medium") // mild, medium, hot
+  plannedSlots  String[] // breakfast/lunch/dinner/snacks — per-member plan lanes
+  healthGoal    String   @default("") // balanced / high-protein / …
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
