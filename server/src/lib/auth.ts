@@ -3,8 +3,13 @@ import type { Request, Response, NextFunction } from 'express';
 
 declare global {
   namespace Express {
-    interface Request {
-      user?: TokenPayload;
+    // Augment Express.User (from @types/passport) so req.user has the JWT fields.
+    // Must NOT re-declare Request.user — passport already declares `user?: User`.
+    interface User {
+      userId: string;
+      email: string;
+      phone: string | null;
+      name?: string;
     }
   }
 }

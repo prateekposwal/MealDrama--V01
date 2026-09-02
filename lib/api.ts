@@ -1,4 +1,16 @@
-import { useStore } from '../app/store/useStore';
+// Lazy getter — breaks circular module init (api ↔ useStore).
+// Top-level `import { useStore }` caused ReferenceError: Cannot access
+// '_authReady' before initialization because useStore.ts calls setAuthReady()
+// during zustand hydration before api.ts finishes evaluating its `let`.
+// Dynamic import() resolves synchronously once modules are registered.
+let _useStoreMod: typeof import('../app/store/useStore') | null = null;
+function _useStore() {
+  if (!_useStoreMod) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _useStoreMod = require('../app/store/useStore') as typeof import('../app/store/useStore');
+  }
+  return _useStoreMod.useStore;
+}
 
 // The MealDrama backend. Default points at the dev machine's CURRENT LAN IP
 // (auto-written on first launch below) so an installed APK on a phone can
@@ -59,7 +71,7 @@ interface FetchOptions extends RequestInit {
 
 function getToken(): string | null {
   try {
-    return useStore.getState().token ?? null;
+    return _useStore().getState().token ?? null;
   } catch {
     return null;
   }
