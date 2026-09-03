@@ -62,6 +62,8 @@ export interface DishVariant {
     ingredients?: Ingredient[];
     // Optional: preparation or serving tip
     tip?: string;
+    // Optional: variant-level pairing overrides
+    defaultPairings?: { sides?: string[]; beverages?: string[]; dessert?: string[] };
 }
 
 export interface Dish {
@@ -4581,7 +4583,7 @@ const centralDishes: Dish[] = [
         tags: ['chickpeas', 'spicy', 'comfort', 'street-food'],
         defaultPairings: { sides: ['Bhature', 'Kulcha', 'Chopped Onion', 'Pickle'], beverages: ['Buttermilk'] },
         variants: [
-            { id: 'chole-bhature-central', name: 'Chole Bhature', addOn: 'with bhature', mealContext: 'breakfast', defaultPairings: { sides: ["Salad","Pickle","Green Chutney"], beverages: ["Buttermilk"] }, ingredients: [{ name: 'Chickpeas', quantity: 1, unit: 'cup', category: 'proteins' }, { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Tomato', quantity: 2, unit: 'pcs', category: 'produce' }, { name: 'Ginger-Garlic Paste', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Turmeric', quantity: 0.25, unit: 'tsp', category: 'spices' }, { name: 'Red Chili Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Chole Masala', quantity: 1, unit: 'tbsp', category: 'spices' }, { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce' }, { name: 'Flour', quantity: 1, unit: 'cup', category: 'grains' }, { name: 'Yogurt', quantity: 2, unit: 'tbsp', category: 'dairy' }] , defaultPairings: { sides: ["Salad","Papad"], beverages: ["Buttermilk"] }, },
+            { id: 'chole-bhature-central', name: 'Chole Bhature', addOn: 'with bhature', mealContext: 'breakfast', defaultPairings: { sides: ["Salad","Pickle","Green Chutney"], beverages: ["Buttermilk"] }, ingredients: [{ name: 'Chickpeas', quantity: 1, unit: 'cup', category: 'proteins' }, { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Tomato', quantity: 2, unit: 'pcs', category: 'produce' }, { name: 'Ginger-Garlic Paste', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Turmeric', quantity: 0.25, unit: 'tsp', category: 'spices' }, { name: 'Red Chili Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Chole Masala', quantity: 1, unit: 'tbsp', category: 'spices' }, { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce' }, { name: 'Flour', quantity: 1, unit: 'cup', category: 'grains' }, { name: 'Yogurt', quantity: 2, unit: 'tbsp', category: 'dairy' }] },
             { id: 'chole-kulche-central', name: 'Chole Kulche', addOn: 'with kulcha', mealContext: 'lunch', ingredients: [{ name: 'Chickpeas', quantity: 1, unit: 'cup', category: 'proteins' }, { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Tomato', quantity: 2, unit: 'pcs', category: 'produce' }, { name: 'Ginger-Garlic Paste', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Turmeric', quantity: 0.25, unit: 'tsp', category: 'spices' }, { name: 'Red Chili Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Chole Masala', quantity: 1, unit: 'tbsp', category: 'spices' }, { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce' }] , defaultPairings: { sides: ["Salad","Papad"], beverages: ["Buttermilk"] }, },
             { id: 'chole-rice-central', name: 'Chole with Rice', addOn: 'with rice', mealContext: 'lunch', ingredients: [{ name: 'Chickpeas', quantity: 1, unit: 'cup', category: 'proteins' }, { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce' }, { name: 'Tomato', quantity: 2, unit: 'pcs', category: 'produce' }, { name: 'Ginger-Garlic Paste', quantity: 1, unit: 'tbsp', category: 'pantry' }, { name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry' }, { name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' }, { name: 'Turmeric', quantity: 0.25, unit: 'tsp', category: 'spices' }, { name: 'Red Chili Powder', quantity: 0.5, unit: 'tsp', category: 'spices' }, { name: 'Chole Masala', quantity: 1, unit: 'tbsp', category: 'spices' }, { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce' }, { name: 'Rice', quantity: 1, unit: 'cup', category: 'grains' }] , defaultPairings: { sides: ["Salad","Papad"], beverages: ["Buttermilk"] }, },
         ],
@@ -4778,7 +4780,7 @@ const northeastDishes: Dish[] = [
         nutrition: ['carb'],
         tags: ['alkaline', 'traditional', 'unique'],
         defaultPairings: { sides: ['Roti', 'Rice', 'Salad'], beverages: ['Ginger Tea'] },
-        defaultPairings: { sides: ["Salad","Papad"], beverages: ["Buttermilk"] }, variants: [{ id: 'khar-raw-papaya', name: 'Khar with Raw Papaya' }, { id: 'khar-mustard', name: 'Khar with Mustard Greens' }],
+        variants: [{ id: 'khar-raw-papaya', name: 'Khar with Raw Papaya' }, { id: 'khar-mustard', name: 'Khar with Mustard Greens' }],
     },
     {
         id: 'smoked-pork',

@@ -815,7 +815,7 @@ describe('Area 2 — plan-generation guarantees', () => {
       { date: '2026-05-20', mealType: 'lunch', dishId: 'c', dishName: 'C', order: 2, deprecated: false },
     ];
     expect(weekVariety(plain)).toBe(1);
-    const repeat = [...plain, { date: '2026-05-21', mealType: 'lunch', dishId: 'a', dishName: 'A', order: 3, deprecated: false }];
+    const repeat: MealLoopAssignment[] = [...plain, { date: '2026-05-21', mealType: 'lunch', dishId: 'a', dishName: 'A', order: 3, deprecated: false }];
     expect(weekVariety(repeat)).toBe(0.75);
     expect(weekVariety([])).toBe(1);
   });

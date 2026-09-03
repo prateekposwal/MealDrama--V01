@@ -84,7 +84,7 @@ describe('buildPantryGroups', () => {
 
     const dairy = groups.find(g => g.category === 'dairy');
     expect(dairy).toBeDefined();
-    expect(dairy!.items[0].name).toBe('Yogurt');
+    expect(dairy!.items[0]!.name).toBe('Yogurt');
   });
 
   it('aggregates duplicate ingredients from multiple sources', () => {
@@ -96,10 +96,10 @@ describe('buildPantryGroups', () => {
     const produce = groups.find(g => g.category === 'produce');
     expect(produce).toBeDefined();
     // 3 pcs onion → 300g (buy-friendly grams)
-    expect(produce!.items[0].totalQuantity).toBe(300);
-    expect(produce!.items[0].unit).toBe('g');
-    expect(produce!.items[0].sources).toContain('Rajma Chawal');
-    expect(produce!.items[0].sources).toContain('Dal Tadka');
+    expect(produce!.items[0]!.totalQuantity).toBe(300);
+    expect(produce!.items[0]!.unit).toBe('g');
+    expect(produce!.items[0]!.sources).toContain('Rajma Chawal');
+    expect(produce!.items[0]!.sources).toContain('Dal Tadka');
   });
 
   it('converts cups to grams for grains', () => {
@@ -108,8 +108,8 @@ describe('buildPantryGroups', () => {
     ]);
     const grains = groups.find(g => g.category === 'grains');
     expect(grains).toBeDefined();
-    expect(grains!.items[0].unit).toBe('g');
-    expect(grains!.items[0].totalQuantity).toBe(185);
+    expect(grains!.items[0]!.unit).toBe('g');
+    expect(grains!.items[0]!.totalQuantity).toBe(185);
   });
 
   it('handles empty input', () => {

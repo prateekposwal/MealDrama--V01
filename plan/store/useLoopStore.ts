@@ -213,8 +213,8 @@ function buildLoopTrayItem(
 }
 
 export const useLoopStore = create<LoopStore>()(
-  persist(
-    (set, get) => ({
+  persist<LoopStore, [], [], Pick<LoopStore, 'mealLoop' | 'lastFeaturedTimes'>>(
+    (set, get): LoopStore => ({
       mealLoop: EMPTY_LOOP_STATE,
       lastFeaturedTimes: {},
 
@@ -597,7 +597,8 @@ export const useLoopStore = create<LoopStore>()(
       name: 'mealdrama-loop-store',
       version: 3,
       storage: nativeStorage,
-      migrate: (persisted: Record<string, unknown>, version: number) => {
+      migrate: (persistedIn: unknown, version: number) => {
+        const persisted = (persistedIn as Record<string, any> | null) ?? {};
         if (version < 2) {
           const old = persisted?.mealLoop;
           if (old?.rotationState) {
@@ -636,20 +637,22 @@ export const useLoopStore = create<LoopStore>()(
         if (persisted?.mealLoop?.overrides) {
           persisted.mealLoop.overrides = rehydrateMap(persisted.mealLoop.overrides);
         }
-        return persisted;
+        return persisted as Pick<LoopStore, 'mealLoop' | 'lastFeaturedTimes'>;
       },
       partialize: (state) => {
         const ml = state.mealLoop;
         return {
           mealLoop: {
             ...ml,
-            overrides: new PersistentMap(ml.overrides instanceof Map ? ml.overrides : Object.entries(ml.overrides ?? {})),
+            overrides: rehydrateMap(ml.overrides),
             undoStack: [],
           },
           lastFeaturedTimes: state.lastFeaturedTimes,
         };
       },
-      merge: (persisted: Record<string, unknown>, current: Record<string, unknown>) => {
+      merge: (persistedIn: unknown, currentIn: unknown) => {
+        const persisted = (persistedIn as Record<string, any> | null) ?? {};
+        const current = (currentIn as Record<string, any> | null) ?? {};
         const ml = persisted.mealLoop;
         return {
           ...current,
@@ -661,7 +664,7 @@ export const useLoopStore = create<LoopStore>()(
               ml.overrides ?? current.mealLoop?.overrides,
             ),
           } : current.mealLoop,
-        };
+        } as LoopStore;
       },
     }
   )

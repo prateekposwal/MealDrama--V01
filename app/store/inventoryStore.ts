@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nativeStorage } from '../utils/nativeStorage';
 import type { InventoryEntry } from '../../utils/pantryForecast';
+import { getISODate, addDaysISO } from '../../utils/dateUTC';
 
 export interface InventoryItem {
   id: string;                  // unique per (name + unit + expiry)
@@ -24,7 +25,7 @@ export interface InventoryItem {
 interface InventoryState {
   items: InventoryItem[];
   /** Add a new inventory entry (merges if same name+unit+storage already exists) */
-  addItem: (item: Omit<InventoryItem, 'id' | 'addedAt' | 'sources'>) => void;
+  addItem: (item: Omit<InventoryItem, 'id'> & Partial<Pick<InventoryItem, 'addedAt' | 'sources'>>) => void;
   /** Remove an inventory item */
   removeItem: (id: string) => void;
   /** Update quantity of existing item */
@@ -57,24 +58,30 @@ function shouldMerge(a: InventoryItem, b: InventoryItem): boolean {
   );
 }
 
-export const useInventoryStore = create<InventoryState>(
+export const useInventoryStore = create<InventoryState>()(
   persist(
     (set, get) => ({
       items: [],
 
       addItem: (item) => set((state) => {
-        // Check if an identical entry already exists
-        const existingIdx = state.items.findIndex(idx => shouldMerge(state.items[idx], {
-          ...item,
+        const newItem: InventoryItem = {
           id: generateId(item.name, item.unit, item.expiry),
+          name: item.name,
+          quantity: item.quantity,
+          unit: item.unit,
+          category: item.category ?? 'pantry',
+          storage: item.storage,
+          expiry: item.expiry,
           addedAt: item.addedAt || new Date().toISOString(),
           source: item.source ?? 'manual',
           sources: item.sources ?? [],
-        }));
+        };
+        // Check if an identical entry already exists (findIndex callback gets the ITEM)
+        const existingIdx = state.items.findIndex(it => shouldMerge(it, newItem));
 
         if (existingIdx >= 0) {
           // Merge: add quantities, union sources
-          const existing = state.items[existingIdx];
+          const existing = state.items[existingIdx]!;
           const newQty = Math.max(0, existing.quantity + item.quantity);
           const newSources = [...new Set([...existing.sources, ...(item.sources || [])])];
 
@@ -97,20 +104,7 @@ export const useInventoryStore = create<InventoryState>(
           };
         }
 
-        // No existing entry — add new
-        const newItem: InventoryItem = {
-          id: generateId(item.name, item.unit, item.expiry),
-          name: item.name,
-          quantity: item.quantity,
-          unit: item.unit,
-          category: item.category ?? 'pantry',
-          storage: item.storage,
-          expiry: item.expiry,
-          addedAt: item.addedAt || new Date().toISOString(),
-          source: item.source ?? 'manual',
-          sources: item.sources ?? [],
-        };
-
+        // No existing entry — add new (newItem already built above)
         return { items: [...state.items, newItem] };
       }),
 
@@ -121,7 +115,7 @@ export const useInventoryStore = create<InventoryState>(
         set((state) => {
           const idx = state.items.findIndex((item) => item.id === id);
           if (idx < 0) return state;
-          const newQty = Math.max(0, state.items[idx].quantity + delta);
+          const newQty = Math.max(0, state.items[idx]!.quantity + delta);
           if (newQty === 0) {
             // Remove if quantity reaches 0
             return { items: state.items.filter((item) => item.id !== id) };
@@ -150,7 +144,7 @@ export const useInventoryStore = create<InventoryState>(
         }));
         // Simple: return items without expiry that could be short, or items expiring after horizon
         return get().items.filter(
-          (item) => !item.expiry || (item.expiry && new Date(item.expiry) > new Date().setDate(new Date().getDate() + horizonDays))
+          (item) => !item.expiry || (item.expiry && new Date(item.expiry) > new Date(Date.now() + horizonDays * 86400000))
         );
       },
 

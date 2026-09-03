@@ -11,7 +11,7 @@ dotenv.config();
 
 // Initialize Express
 const app: Express = express();
-const PORT = process.env.PORT || 3001;
+const PORT: number = Number(process.env.PORT) || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Prisma singleton initialized in lib/prisma.ts

@@ -6,7 +6,7 @@ describe('orderSuggestionsRegionFirst — robustness', () => {
   it('NEVER throws on a misplaced-arg call (userDiet passed as items — the dashboard crash)', () => {
     // Regression: Dashboard health-insight called (userDiet, items, regionKey, dishes)
     // — userDiet (a string) landed in `items` → "items.filter is not a function".
-    const r = orderSuggestionsRegionFirst('veg' as any, [{ id: 'a', name: 'Rajma' }]);
+    const r = orderSuggestionsRegionFirst('veg' as any, [{ id: 'a', name: 'Rajma' }] as any);
     expect(Array.isArray(r)).toBe(true);
   });
 });

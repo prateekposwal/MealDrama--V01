@@ -28,8 +28,7 @@ export interface CalorieTally {
   approximate: boolean;
   /** True when meals exist but NO dish has calorie data — honest "no data". */
   unknown: boolean;
-  /** Number of estimated calorie entries. */
-  estimatedCount: number;
+  /** Number of estimated calorie entries (see estimatedCount above). */
   /** Sum of today's per-dish protein (× servings) where protein data exists. */
   totalProtein: number;
   /** Number of today's tray items whose dish had a real protein value. */

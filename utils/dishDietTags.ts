@@ -47,8 +47,8 @@ export function getDishDiet(dish: Dish): string | null {
       'vegan': 'veg', // vegan is a subset of veg for our filtering purposes
       'egg': 'eggitarian',
     };
-    if (diet in dietMap) return dietMap[diet];
-    return diet;
+    if (dish.diet in dietMap) return dietMap[dish.diet] ?? null;
+    return dish.diet ?? null;
   }
 
   // Infer from dish type
@@ -59,7 +59,7 @@ export function getDishDiet(dish: Dish): string | null {
       'vegan': 'veg',
       'eggitarian': 'eggitarian',
     };
-    if (dish.type in typeMap) return typeMap[dish.type];
+    if (dish.type in typeMap) return typeMap[dish.type] ?? null;
   }
 
   // Infer from name
@@ -72,7 +72,7 @@ export function getDishDiet(dish: Dish): string | null {
  * @param dishName - the name of the dish to look up
  * @param dishLibrary - optional full dish library; if not provided, uses default import
  */
-export function getDishDietByName(dishName: string, dishLibrary: ReturnType<typeof import('../meal/constants/dishLibrary')>['default'] | ReturnType<typeof import('../meal/constants/dishLibrary')>): string | null {
+export function getDishDietByName(dishName: string, dishLibrary: Dish[] = []): string | null {
   // Try to find the dish by name in the library
   const dishes = Array.isArray(dishLibrary) ? dishLibrary : [];
   const found = dishes.find(d => d.name.toLowerCase() === dishName.toLowerCase());

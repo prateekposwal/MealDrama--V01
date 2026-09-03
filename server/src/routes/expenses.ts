@@ -10,6 +10,11 @@ import { authMiddleware } from '../lib/auth';
 const router = Router();
 router.use(authMiddleware);
 
+// ─── Helper: coerce a URL/query param to a plain string (Express parses as string|string[]|ParsedQs) ──
+function strParam(v: unknown): string {
+  return typeof v === 'string' ? v : Array.isArray(v) ? v[0] ?? '' : '';
+}
+
 // ─── Helper: get current member ──
 async function getMember(userId: string, householdId: string) {
   return prisma.householdMember.findFirst({
@@ -19,7 +24,7 @@ async function getMember(userId: string, householdId: string) {
 
 // ─── List expenses for a household ──
 router.get('/:householdId/expenses', async (req: Request, res: Response) => {
-  const { householdId } = req.params;
+  const householdId = strParam(req.params.householdId);
   const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
@@ -36,7 +41,7 @@ router.get('/:householdId/expenses', async (req: Request, res: Response) => {
 
 // ─── Create expense (equal split by default) ──
 router.post('/:householdId/expenses', async (req: Request, res: Response) => {
-  const { householdId } = req.params;
+  const householdId = strParam(req.params.householdId);
   const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
@@ -86,7 +91,7 @@ router.post('/:householdId/expenses', async (req: Request, res: Response) => {
 
 // ─── Mark split as paid ──
 router.patch('/:householdId/expenses/:expenseId/splits/:splitId/pay', async (req: Request, res: Response) => {
-  const { splitId } = req.params;
+  const splitId = strParam(req.params.splitId);
   const split = await prisma.expenseSplit.update({
     where: { id: splitId },
     data: { paid: true },
@@ -96,7 +101,8 @@ router.patch('/:householdId/expenses/:expenseId/splits/:splitId/pay', async (req
 
 // ─── Delete expense (admin only) ──
 router.delete('/:householdId/expenses/:expenseId', async (req: Request, res: Response) => {
-  const { householdId, expenseId } = req.params;
+  const householdId = strParam(req.params.householdId);
+  const expenseId = strParam(req.params.expenseId);
   const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
@@ -109,7 +115,7 @@ router.delete('/:householdId/expenses/:expenseId', async (req: Request, res: Res
 
 // ─── Get balance summary ──
 router.get('/:householdId/balances', async (req: Request, res: Response) => {
-  const { householdId } = req.params;
+  const householdId = strParam(req.params.householdId);
   const userId = (req as any).user?.userId ?? (req as any).user?.id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   const member = await getMember(userId, householdId);
@@ -139,7 +145,7 @@ router.get('/:householdId/balances', async (req: Request, res: Response) => {
 
 // ─── Activity feed ──
 router.get('/:householdId/activity', async (req: Request, res: Response) => {
-  const { householdId } = req.params;
+  const householdId = strParam(req.params.householdId);
   const activities = await prisma.activityFeed.findMany({
     where: { householdId },
     orderBy: { date: 'desc' },
@@ -150,7 +156,7 @@ router.get('/:householdId/activity', async (req: Request, res: Response) => {
 
 // ─── Log activity ──
 router.post('/:householdId/activity', async (req: Request, res: Response) => {
-  const { householdId } = req.params;
+  const householdId = strParam(req.params.householdId);
   const { memberName, action, detail } = req.body;
   if (!memberName || !action || !detail) {
     return res.status(400).json({ error: 'memberName, action, detail required' });
@@ -163,7 +169,7 @@ router.post('/:householdId/activity', async (req: Request, res: Response) => {
 
 // ─── Consolidated grocery list: all members' meals ──
 router.get('/:householdId/meals', async (req: Request, res: Response) => {
-  const { householdId } = req.params;
+  const householdId = strParam(req.params.householdId);
   const { start, end } = req.query;
 
   // Get all household members with their userIds

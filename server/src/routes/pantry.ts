@@ -14,7 +14,7 @@ router.use(authMiddleware);
 // ─── Helper: fetch all meals for household members ──
 router.get('/:householdId/pantry', async (req: Request, res: Response) => {
   try {
-    const { householdId } = req.params;
+    const householdId = String(req.params.householdId || '');
     const { start, end } = req.query;
 
     // Get all household members with userIds

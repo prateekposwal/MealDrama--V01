@@ -397,7 +397,7 @@ const App: React.FC = () => {
     const cur = user?.region;
     if (cur && _prevRegion.current && _prevRegion.current !== cur) {
       const newKey = getRegionKey(cur) || 'north';
-      useStore.setState((s: any) => ({ trayLibrary: keepRegionTrayItems(s.trayLibrary, newKey) }));
+      useStore.setState((s: any) => ({ trayLibrary: keepRegionTrayItems(s.trayLibrary, newKey) as any }));
       void healTrayDietGaps(true);
       useStore.getState().refreshHousehold();
       setToast({ message: 'Region updated — tray reseeded for your cuisine', type: 'success' });
@@ -802,7 +802,7 @@ const App: React.FC = () => {
                 'Northeast India': ['Rice', 'Mustard Oil', 'Ginger', 'Garlic', 'Green Chili', 'Salt', 'Turmeric', 'Fermented Fish', 'Bamboo Shoot'],
               };
               const pantryRegion = preferences.region as string;
-              const staples = REGION_PANTRY[pantryRegion] || REGION_PANTRY['North India'];
+              const staples: string[] = REGION_PANTRY[pantryRegion] ?? REGION_PANTRY['North India'] ?? [];
               useStore.getState().addToPantry(staples);
               console.log('[App] Seeded pantry with', staples.length, 'staples for', pantryRegion);
 

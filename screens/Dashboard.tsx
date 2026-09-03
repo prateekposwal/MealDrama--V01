@@ -7,7 +7,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspens
 import { useTrayStore, MealType, TrayItem } from '../plan/store/useTrayStore';
 import { useLoopStore } from '../plan/store/useLoopStore';
 import { useStore } from '../app/store/useStore';
-import type { Meal } from '../types/tray';
+import type { Meal, GuestMode } from '../types/tray';
 import type { SuggestionMeal } from '../app/lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
 const SwapCustomizeModal = lazy(() => import('../components/meal/SwapCustomizeModal').then(m => ({ default: m.SwapCustomizeModal })));
@@ -223,15 +223,15 @@ interface DashboardSlotSectionProps {
   swapOpenKey: string | null;
   stableSwapOpen: (itemId: string) => void;
   stableSwapClose: () => void;
-  handleSwapSelect: ReturnType<typeof useCallback>;
-  handleUpdateInline: ReturnType<typeof useCallback>;
-  handleRemove: ReturnType<typeof useCallback>;
-  handleSuggestionAdd: ReturnType<typeof useCallback>;
+  handleSwapSelect: (date: string, mealType: MealType, itemId: string) => (newMealId: string, chipOverrides?: Record<string, unknown>) => void;
+  handleUpdateInline: (date: string, mealType: MealType, itemId: string) => (updates: Partial<TrayItem>) => void;
+  handleRemove: (date: string, mealType: MealType, itemId: string) => () => void;
+  handleSuggestionAdd: (date: string, mealType: MealType) => (suggestion: SuggestionMeal) => void;
   swapCustomizeOpenKey: string | null;
   stableSwapCustomizeOpen: (id: string) => void;
   stableSwapCustomizeClose: () => void;
-  handleSwapCustomizeApply: ReturnType<typeof useCallback>;
-  handleAddAnother: ReturnType<typeof useCallback>;
+  handleSwapCustomizeApply: (date: string, mealType: MealType, itemId: string) => (updates: Partial<TrayItem>) => void;
+  handleAddAnother: (date: string, mealType: MealType, dish: Dish, variant?: DishVariant) => void;
   preferences: Record<string, { start: string; end: string }> | undefined;
   today: string;
   dishes: Dish[];
@@ -241,10 +241,10 @@ interface DashboardSlotSectionProps {
   completions: Record<string, number>;
   skipped: Record<string, number>;
   undoSlot: { date: string; mealType: MealType; type: 'complete' | 'skip' } | null;
-  handleCompleteSlot: ReturnType<typeof useCallback>;
-  handleUndoComplete: ReturnType<typeof useCallback>;
-  handleSkipSlot: ReturnType<typeof useCallback>;
-  handleUndoSkip: ReturnType<typeof useCallback>;
+  handleCompleteSlot: (date: string, mealType: MealType) => void;
+  handleUndoComplete: (date: string, mealType: MealType) => void;
+  handleSkipSlot: (date: string, mealType: MealType) => void;
+  handleUndoSkip: (date: string, mealType: MealType) => void;
 }
 
 const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
@@ -333,6 +333,10 @@ interface DashboardSlotRowProps extends
   onSkipSlotAction: ((date: string, mealType: MealType) => void) | undefined;
   onUndoSkipAction: ((date: string, mealType: MealType) => void) | undefined;
   onShareSlotAction?: (mealType: MealType) => void;
+  swapOpenKey: string | null;
+  onSwapOpen: (itemId: string) => void;
+  onSwapClose: () => void;
+  onSwapSelect: (date: string, mealType: MealType, itemId: string) => (newMealId: string, chipOverrides?: Record<string, unknown>) => void;
 }
 
 const DashboardSlotRow = React.memo<DashboardSlotRowProps>(({
@@ -684,7 +688,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
         const ck = slotKey(date, mealType);
         const trayState = useTrayStore.getState();
         if (trayState.completions[ck] || trayState.skipped[ck]) {
-            setToast({ message: `${mealType} is already completed or skipped`, type: 'warning' as const });
+            setToast({ message: `${mealType} is already completed or skipped`, type: 'warning' as never });
             setShowQuickAdd(false);
             return;
         }
@@ -889,7 +893,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
 
         const categories: string[] = [];
         const tags: string[] = [];
-        const components: { name: string; healthCategories: string[]; tags: string[]; type: 'roti' | 'rice' | 'side' | 'beverage' | 'gravy' | 'dessert' }[] = [];
+        const components: { name: string; healthCategories: string[]; tags: string[]; type: 'roti' | 'rice' | 'side' | 'beverage' | 'gravy' | 'dessert'; qty: number }[] = [];
 
         for (const m of meals) {
           const meta = DISH_HEALTH_MAP[m.meal_id];
@@ -1724,7 +1728,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                 ).map(s => ({ key: s.mealType, label: s.label }))}
                 completedSlots={Object.entries(committedCompletions)
                     .filter(([key]) => key.startsWith(`${today}::`))
-                    .map(([key]) => key.split('::')[1])}
+                    .map(([key]) => key.split('::')[1])
+                    .filter((v): v is string => !!v)}
                 preselectedSlot={sharePreselectSlot}
             />
 
@@ -2034,7 +2039,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                                         <span className="font-semibold text-gray-600">{tipGapItems.length} of {cls.pantryItems.length} items needed</span>
                                                         <button
                                                             onClick={() => {
-                                                              const allMissing = missingPantryItems(cls.pantryItems, pantryStaples);
+                                                              const allMissing = missingPantryItems(cls.pantryItems || [], pantryStaples);
                                                               allMissing.forEach(item => {
                                                                 useStore.getState().addToPantry([item]);
                                                               });

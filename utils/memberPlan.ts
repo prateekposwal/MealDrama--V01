@@ -42,7 +42,7 @@ export function buildMemberDay(prefs: MemberPlanPrefs, library: Dish[] = DISH_LI
   const day: MemberDay = { breakfast: null, lunch: null, snacks: null, dinner: null };
   const diet = (prefs.dietType || 'veg').toLowerCase();
   const regionKey = getRegionKey(prefs.region) || 'north';
-  const allowed = ALLOWED[diet] || ALLOWED.veg;
+  const allowed: string[] = ALLOWED[diet] ?? ALLOWED.veg ?? ['veg'];
   const distType = distinctiveTypeFor(diet);
   const slots: string[] = (prefs.plannedSlots?.length ? prefs.plannedSlots : ['Breakfast', 'Lunch', 'Snacks', 'Dinner'])
     .map(s => s.toLowerCase()).filter(s => (SLOT_KEYS as readonly string[]).includes(s));
@@ -56,7 +56,7 @@ export function buildMemberDay(prefs: MemberPlanPrefs, library: Dish[] = DISH_LI
     const candidates = library
       .filter(d =>
         (d.region === regionKey || d.region === 'all') &&
-        (d.category ?? []).includes(slot) &&
+        (d.category ?? []).includes(slot as Dish['category'][number]) &&
         allowed.includes(d.type) &&
         !isPureSweetDish(d) &&
         !usedNames.has(norm(d.name)))

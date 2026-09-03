@@ -282,13 +282,13 @@ export function scorePlateBalance(meals: MealsForScoring[]): PlateBalanceScore {
     'Stay hydrated with water, chaas, or lemon water',
   ];
 
-  if (vegFruitScore < 6) suggestions.push(VEG_TIPS[dayOfWeek % VEG_TIPS.length]);
-  if (wholeGrainScore < 6) suggestions.push(GRAIN_TIPS[dayOfWeek % GRAIN_TIPS.length]);
-  if (proteinScore < 6) suggestions.push(PROTEIN_TIPS[dayOfWeek % PROTEIN_TIPS.length]);
-  if (healthyFatScore < 4) suggestions.push(FAT_TIPS[dayOfWeek % FAT_TIPS.length]);
+  if (vegFruitScore < 6) suggestions.push(VEG_TIPS[dayOfWeek % VEG_TIPS.length]!);
+  if (wholeGrainScore < 6) suggestions.push(GRAIN_TIPS[dayOfWeek % GRAIN_TIPS.length]!);
+  if (proteinScore < 6) suggestions.push(PROTEIN_TIPS[dayOfWeek % PROTEIN_TIPS.length]!);
+  if (healthyFatScore < 4) suggestions.push(FAT_TIPS[dayOfWeek % FAT_TIPS.length]!);
   if (sugaryScore < 0) {
     breakdown.push('⚠️ Consider reducing sugary items');
-    suggestions.push(DRINK_TIPS[dayOfWeek % DRINK_TIPS.length]);
+    suggestions.push(DRINK_TIPS[dayOfWeek % DRINK_TIPS.length]!);
   }
   if (redMeatScore < 0) {
     breakdown.push('⚠️ Limit red meat consumption');

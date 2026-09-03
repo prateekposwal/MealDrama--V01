@@ -21,7 +21,7 @@ interface PantryState {
   cookNotes: string;
   lastViewMode: 'meals' | 'household';
   setChecked: (name: string, checked: boolean) => void;
-  setCookNotes: (notes) => void;
+  setCookNotes: (notes: string) => void;
   setLastViewMode: (mode: 'meals' | 'household') => void;
   clearChecked: () => void;
   /** U11: day-scoped auto-reset of stale kitchen checks — see impl comment. */
@@ -69,7 +69,7 @@ export const usePantryStore = create<PantryState>()(
       getDaysSinceLastReset: () => {
         const state = get();
         if (!state.lastResetDay) return 'never reset';
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Date().toISOString().split('T')[0]!;
         const resetDate = new Date(state.lastResetDay);
         const todayDate = new Date(today);
         const diffDays = Math.floor(

@@ -5,12 +5,12 @@ import { useTrayStore } from '../../plan/store/useTrayStore';
 
 export default function ProfileAIInsights() {
   const user = useStore(s => s.user);
-  const tray = useStore(s => s.tray);
-  const planDays = useTrayStore(s => s.planDays);
-  const pantry = useStore(s => s.pantry) || [];
+  const tray = useStore(s => s.trayLibrary);
+  const planDays = useTrayStore(s => s.plan.days);
+  const pantry = useStore(s => s.user?.pantryStaples) || [];
   const diet = user?.diet || 'vegetarian';
   const prefs = user?.preferredRegions || ['north_indian'];
-  const healthGoal = user?.healthGoal;
+  const healthGoal = user?.goal;
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);

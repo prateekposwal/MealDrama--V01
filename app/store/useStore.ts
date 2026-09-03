@@ -118,6 +118,8 @@ export interface User {
   /** Immutable primary identity generated at signup (e.g. PRATEEK-MD-20260518-183522-0042) */
   primaryId?: string;
   healthGoals?: string[];
+  /** Preferred cuisine regions for AI dish suggestions (e.g. ['north_indian']). */
+  preferredRegions?: string[];
   allergyMode?: boolean;
   /** Per-slot time overrides (start/end in HH:MM) — overrides SLOT_TIME_DEFAULTS */
   slotTimePreferences?: Record<string, { start: string; end: string }>;
@@ -680,7 +682,7 @@ export const useStore = create<StoreState>()(
           await requestDedupCache.get(dedupKey, 3000, () => api.post('/plan', payload));
           return { ok: true };
         } catch (err: unknown) {
-          if (err?.message?.includes('409') || err?.message?.includes('Conflict')) {
+          if ((err as Error)?.message?.includes('409') || (err as Error)?.message?.includes('Conflict')) {
             get().setToast({ message: 'Plan changed elsewhere. Refreshing.', type: 'info' });
             return { ok: false, reason: 'conflict' };
           }
@@ -691,7 +693,7 @@ export const useStore = create<StoreState>()(
             message: isOffline ? 'Internet broke. Saved locally — will retry.' : 'Server error. Saved locally — will retry.',
             type: 'error',
           });
-          return { ok: false, reason: err?.message ?? 'Sync failed' };
+          return { ok: false, reason: (err as Error)?.message ?? 'Sync failed' };
         }
       },
 
@@ -714,7 +716,7 @@ export const useStore = create<StoreState>()(
             message: isOffline ? 'Internet broke. Saved locally — will retry.' : 'Server error. Saved locally — will retry.',
             type: 'error',
           });
-          return { ok: false, reason: err?.message ?? 'Sync failed' };
+          return { ok: false, reason: (err as Error)?.message ?? 'Sync failed' };
         }
       },
 
@@ -807,7 +809,7 @@ export const useStore = create<StoreState>()(
             await api.post(endpoint, current.payload);
             removePendingMutation(id);
           } catch (err: unknown) {
-            const msg = err?.message ?? '';
+            const msg = (err as Error)?.message ?? '';
             if (msg.includes('401') || msg.includes('Unauthorized')) {
               // C2: Logout clears ALL pendingMutations — break immediately, don't mutate mid-iteration
               state.logout();

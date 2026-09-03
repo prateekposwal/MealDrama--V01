@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useStore } from '../../app/store/useStore';
 import { useTrayStore } from '../../plan/store/useTrayStore';
 import { useLoopStore } from '../../plan/store/useLoopStore';
-import type { MealType } from '../../types/tray';
+import type { MealType, MealLoopConfig } from '../../types/tray';
 import type { SourcePool } from '../../plan/utils/mealLoopEngine';
 import type { Dish, DishVariant, Weight } from '../../meal/constants/dishLibrary';
 import type { Category, Region } from '../../meal/constants/dishLibrary';
@@ -302,8 +302,10 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
         const result: any[] = [];
         for (let i = 0; i < 2; i++) {
             for (const slot of slotOrder) {
-                const idx = i < bySlot[slot].length ? i : bySlot[slot].length - 1 - i;
-                const item = bySlot[slot][i];
+                const arr = bySlot[slot];
+                if (!arr || arr.length === 0) continue;
+                const idx = i < arr.length ? i : arr.length - 1 - i;
+                const item = arr[i];
                 if (item && !result.some(r => r.id === item.id)) result.push(item);
             }
         }
@@ -316,11 +318,11 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
         let slot: MealType = 'lunch';
         if (dish?.category) {
             const match = dish.category.find((c: string) => mealSlots[c.toLowerCase()]);
-            if (match) slot = mealSlots[match.toLowerCase()];
+            if (match) slot = mealSlots[match.toLowerCase()] ?? slot;
         }
         const items = trayLibrary[slot] || [];
         if (items.some((i: any) => i.name === suggestion.name)) return;
-        addToTray(slot, { id: suggestion.id, name: suggestion.name, icon: '' });
+        addToTray(slot, { id: suggestion.id, dishId: suggestion.id, name: suggestion.name, icon: '' });
     }, [trayLibrary, addToTray, dishes]);
 
     const resetCustomForm = () => {
@@ -625,7 +627,7 @@ const eligible = filtered.filter((x:any) =>
                                                         takenBuckets.add(bucket);
                                                         if (!pool[bucket].some((x:any) => x.id === rep.id)) pool[bucket].push(rep);
                                                     }
-                                                    store.applyLoopConfig({...current.config, startDate: new Date().toISOString().split('T')[0]}, pool, library);
+                                                    store.applyLoopConfig({...(current.config as MealLoopConfig), startDate: new Date().toISOString().split('T')[0] ?? ''}, pool, library);
                                                     window.dispatchEvent(new CustomEvent('loop_updated', {detail:{config:current.config}}));
                                                     // Tray must reflect the new diet too — the loop
                                                     // rebuild alone leaves egg-free slots in place.

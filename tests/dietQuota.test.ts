@@ -228,11 +228,11 @@ describe('keepRegionTrayItems — region-change reseed (the far-region purge)', 
       dinner: [],
     };
     const out = keepRegionTrayItems(tray, 'south');
-    expect(out.breakfast.map((m: any) => m.name)).toEqual(['Idli', 'Oats', 'Custom']);
+    expect(out.breakfast!.map((m: any) => m.name)).toEqual(['Idli', 'Oats', 'Custom']);
   });
   it('untouched store returns identical references', () => {
     const tray = { breakfast: [item('a', 'Rajma', 'north')], lunch: [], snacks: [], dinner: [] };
     const out = keepRegionTrayItems(tray, 'north');
-    expect(out.breakfast.map((m: any) => m.name)).toEqual(['Rajma']);
+    expect(out.breakfast!.map((m: any) => m.name)).toEqual(['Rajma']);
   });
 });

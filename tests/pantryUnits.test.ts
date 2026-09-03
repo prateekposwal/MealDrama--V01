@@ -84,7 +84,7 @@ describe('buy-vs-forecast bridge — pack to surplus', () => {
   });
 
   it('buy 200 g coriander vs forecast 0.5 cup (≈15 g) → surplus ~185 g', () => {
-    const lib = { 'chutney': [ { name: 'Coriander Leaves', quantity: 0.5, unit: 'cup', category: 'produce' } as Ingredient ] };
+    const lib: Record<string, Ingredient[]> = { 'chutney': [ { name: 'Coriander Leaves', quantity: 0.5, unit: 'cup', category: 'produce' } as Ingredient ] };
     const entry: InventoryEntry = { name: 'Coriander', quantity: 200, unit: 'g', addedAt: '2026-08-22' };
     const perDay = computeForecast(entry, ws(lib), (id) => lib[id] ?? []);
     const forecast = perDay.reduce((s, d) => s + d.qty, 0);
@@ -93,7 +93,7 @@ describe('buy-vs-forecast bridge — pack to surplus', () => {
   });
 
   it('buy 300 g potato vs forecast 2.5 pc (≈300 g) → no surplus (enough)', () => {
-    const lib = { 'curry': [ { name: 'Potato', quantity: 2.5, unit: 'pcs', category: 'produce' } as Ingredient ] };
+    const lib: Record<string, Ingredient[]> = { 'curry': [ { name: 'Potato', quantity: 2.5, unit: 'pcs', category: 'produce' } as Ingredient ] };
     const entry: InventoryEntry = { name: 'Potato', quantity: 300, unit: 'g', addedAt: '2026-08-22' };
     const perDay = computeForecast(entry, ws(lib), (id) => lib[id] ?? []);
     const forecast = perDay.reduce((s, d) => s + d.qty, 0);

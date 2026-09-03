@@ -60,7 +60,7 @@ passport.use(new GoogleStrategy({
       });
     }
 
-    done(null, { userId: user.id, email: user.email || '', name: user.name || undefined });
+    done(null, { userId: user.id, email: user.email || '', phone: null, name: user.name || undefined });
   } catch (err) {
     done(err as Error);
   }
@@ -84,6 +84,7 @@ router.get('/google/callback',
     const token = generateAccessToken({
       userId: user.userId,
       email: user.email,
+      phone: null,
       name: user.name,
     });
     // Redirect back to Vite frontend with token
