@@ -191,7 +191,12 @@ export async function healTrayDietGaps(force = false): Promise<void> {
     }
 
     // 2) PLAN-WIDE presence: every date's planned slot lacking the diet.
-    const days = useTrayStore.getState().plan.days as Record<string, any> | undefined;
+    // NOTE: this pass APPENDS a meal card to an already-filled slot. It is the
+    // "auto-added second card on reload" regression. It must run ONLY on an
+    // EXPLICIT re-match (force=true: Profile "Re-match diet", diet change).
+    // On a passive reload (force=false) the app restores exact persisted state
+    // and must NOT append cards the user did not ask for.
+    const days = force ? useTrayStore.getState().plan.days as Record<string, any> | undefined : undefined;
     if (days) {
       for (const date of Object.keys(days)) {
         for (const slot of planned) {

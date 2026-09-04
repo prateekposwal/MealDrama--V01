@@ -35,6 +35,7 @@ import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOTS } from '../plan/utils/continuity';
 import { slotKey } from '../plan/utils/planIndex';
 import { getRegionKey } from '../utils/dishSearch';
+import { buildEnrichedLoopPool } from '../utils/loopPool';
 import { getSkipUndoWindowExpiry, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
 import { getISODate, getISTDayOfWeek, parseISODate, daysBetweenISO, addDaysISO } from '../utils/dateUTC';
 import { computeStyleWarnings } from '../meal/constants/dishStyles';
@@ -358,10 +359,22 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     }, [planDays, dishes]);
 
     const handleLoopApply = useCallback((config: any) => {
-        applyLoopConfig(config, traySourcePool, dishes);
+        // PATTERN-FIRST: enrich the raw tray pool to the cycle-scaled target so
+        // the Plan grid never rotates only the 2 tray dishes. Tray picks keep
+        // the lead; the remaining slots fill from diet/region-appropriate library
+        // dishes (Λ3.1 — the 2-dish-loop pattern is fixed at the ROOT, not per-site).
+        const enriched = buildEnrichedLoopPool({
+            sourcePool: traySourcePool,
+            library: dishes,
+            diet: user?.diet,
+            region: user?.region,
+            cycleLength: config.cycleLength,
+            healthGoal: user?.healthGoals?.[0],
+        });
+        applyLoopConfig(config, enriched, dishes);
         window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
         setShowLoopModal(false);
-    }, [traySourcePool, applyLoopConfig, dishes]);
+    }, [traySourcePool, applyLoopConfig, dishes, user?.diet, user?.region, user?.healthGoals?.[0]]);
 
     const isPlanEnding = useMemo(() => {
         if (!mealLoop.config) return false;

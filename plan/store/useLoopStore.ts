@@ -23,6 +23,7 @@ import { PersistentMap, rehydrateMap } from '../../app/utils/PersistentMap';
 
 import { getTrayStore } from './_boot';
 import type { TrayStore } from './useTrayStore';
+import { buildEnrichedLoopPool, poolTargetForCycleLength } from '../../utils/loopPool';
 
 export interface LoopStore {
   mealLoop: MealLoopState;
@@ -66,6 +67,7 @@ function deepMergeLoopState(persisted: Record<string, unknown>, template: Record
 
 let _lastTrayHash = '';
 let _reconciled = false;
+let _healed = false;
 
 function trayLibraryHash(trayLibrary: { breakfast: { dishId?: string }[]; lunch: { dishId?: string }[]; snacks: { dishId?: string }[]; dinner: { dishId?: string }[] }): string {
   const parts: string[] = [];
@@ -77,8 +79,119 @@ function trayLibraryHash(trayLibrary: { breakfast: { dishId?: string }[]; lunch:
   return parts.sort().join(',');
 }
 
+
+/**
+ * PART B — Heal a DEGENERATE persisted loop on rehydration.
+ * useLoopStore PERSISTS mealLoop (rotation queue + assignments + sourceDishIds),
+ * so a 2-dish 2-dish loop created by a raw (un-enriched) Apply path survives a
+ * reload unchanged. This ONE-TIME, idempotent heal rebuilds the rotation via the
+ * ENRICHED short path when the persisted queue is dramatically below the
+ * cycle-scaled target — turning the stuck "Thukpa + Seekh Kebab" rotation into a
+ * proper varied rotation. Guarded by module-level `_healed`: runs once, never on
+ * every render, never churns a healthy loop.
+ */
+export async function healDegenerateLoop(ml: MealLoopState): Promise<MealLoopState | null> {
+  if (_healed) return null;
+  const cfg = ml?.config;
+  if (!cfg) return null; // nothing configured -> nothing to heal; DON'T arm the guard
+  _healed = true;        // arm the once-guard only when we evaluate a real configured loop
+  const queue = ml.rotationQueue || [];
+  if (queue.length === 0) return null;
+
+  const target = poolTargetForCycleLength(cfg.cycleLength);
+  const slotCounts: Record<MealType, number> = { breakfast: 0, lunch: 0, snacks: 0, dinner: 0 };
+  for (const q of queue) slotCounts[q.mealType] = (slotCounts[q.mealType] || 0) + 1;
+  const anySlotSmall = (Object.values(slotCounts) as number[]).some(c => c < 3);
+  const totalSmall = queue.length < target;
+  // Healthy loop -> leave it untouched (never churn variety the user already has).
+  if (!anySlotSmall && !totalSmall) return null;
+
+  // Build the ENRICHED pool from the tray's own dishes (kept as the lead) plus
+  // diet/region-appropriate library dishes up to the cycle-scaled target.
+  let library: Dish[] = [];
+  try { library = (await import('../../meal/constants/dishLibrary')).DISH_LIBRARY; } catch { library = []; }
+  if (!library.length) return null;
+
+  const trayState = useStore.getState();
+  const trayLibrary = trayState.trayLibrary;
+  const sourcePool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+  for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+    for (const item of trayLibrary?.[mt] || []) {
+      const dish = library.find(d => d.id === item.dishId);
+      if (dish && !sourcePool[mt].find(d => d.id === dish.id)) sourcePool[mt].push(dish);
+    }
+  }
+
+  const enriched = buildEnrichedLoopPool({
+    sourcePool,
+    library,
+    diet: trayState.user?.diet,
+    region: trayState.user?.region,
+    cycleLength: cfg.cycleLength,
+    healthGoal: trayState.user?.healthGoals?.[0],
+  });
+  const { queue: newQueue, pointer: newPointer } = buildRotationState(enriched, library);
+  // Only heal when the rebuild actually gains variety; otherwise keep as-is.
+  if (newQueue.length <= queue.length) return null;
+
+  // PART B (issue 2): a DEGENERATE loop ALSO persists its already-written
+  // plan.days/assignments, so healing only the rotation QUEUE leaves the Plan
+  // grid showing the stale "Thukpa + Chicken 65" 2-dish rotation forever.
+  // Regenerate the current cycle's assignments from the healed queue AND
+  // refill only FUTURE days (beyond today) so the user's next reload shows a
+  // VARIED grid. Today's already-interacted slots are left untouched
+  // (non-destructive); only the loop's own future plan slots are rewritten.
+  const dishMap = toDishMap(library);
+  let newAssignments: MealLoopAssignment[] = ml.assignments;
+  try {
+    newAssignments = assignFromQueue(newQueue, cfg, 0, []);
+  } catch {
+    newAssignments = ml.assignments; // fall back to persisted on any engine error
+  }
+
+  const today = getISODate();
+  const futureDays: Record<string, DayMeals> = {};
+  for (const a of newAssignments) {
+    if (a.date <= today) continue; // never touch today/past slots
+    let day = futureDays[a.date];
+    if (!day) { day = emptyDayMeals(); futureDays[a.date] = day; }
+    // One loop card per slot — overwrite the stale multi-card rotation.
+    if (day[a.mealType].length === 0) {
+      const item = buildLoopTrayItem(a, dishMap);
+      if (item) day[a.mealType].push(item);
+    }
+  }
+
+  if (Object.keys(futureDays).length > 0) {
+    const tray = getTrayStore<TrayStore>();
+    if (tray) {
+      const cur = tray.getState();
+      tray.setState({ plan: { ...cur.plan, days: mergeDays(cur.plan.days, futureDays) } });
+      try { tray.getState().rebuildPlanIndex(); } catch { /* index rebuild is best-effort */ }
+    }
+  }
+
+  return {
+    ...ml,
+    sourceDishIds: (Object.values(enriched) as Dish[][]).flat().map(d => d.id),
+    rotationQueue: newQueue,
+    rotationPointer: newPointer,
+    assignments: newAssignments,
+    next_index: Math.min(ml.next_index, newQueue.length),
+    pool_version: ml.pool_version + 1,
+  };
+}
+
 export function reconcileLoopStateWithTray(hydratedState?: { mealLoop: MealLoopState }) {
   if (_reconciled) return;
+  // PART B — before the tray-sync honesty pass, heal a degenerate persisted loop.
+  const healTarget = hydratedState?.mealLoop ?? useLoopStore.getState().mealLoop;
+  if (healTarget) {
+    healDegenerateLoop(healTarget).then((healed) => {
+      if (healed) useLoopStore.setState({ mealLoop: healed });
+    });
+  }
+
   const trayState = useStore.getState();
   const trayLibrary = trayState.trayLibrary;
   const ml = hydratedState?.mealLoop ?? useLoopStore.getState().mealLoop;
@@ -665,6 +778,21 @@ export const useLoopStore = create<LoopStore>()(
             ),
           } : current.mealLoop,
         } as LoopStore;
+      },
+      // PART B — heal a degenerate (2-dish) persisted loop exactly ONCE after
+      // reload, so the stale "Thukpa + Seekh Kebab" rotation no longer survives
+      // rehydration. reconcileLoopStateWithTray is idempotent (module _reconciled
+      // + _healed guards): it never runs per-render and never churns a healthy loop.
+      onRehydrateStorage: () => () => {
+        // Defer past store-creation so `useLoopStore` is defined before we read it
+        // (zustand hydrate runs synchronously inside create(); TDZ otherwise throws).
+        queueMicrotask(() => {
+          try {
+            reconcileLoopStateWithTray();
+          } catch (e) {
+            console.warn('[useLoopStore] heal-on-rehydrate skipped:', e);
+          }
+        });
       },
     }
   )

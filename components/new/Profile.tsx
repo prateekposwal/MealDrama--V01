@@ -9,6 +9,7 @@ import type { Category, Region } from '../../meal/constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import { getRegionKey } from '../../utils/dishSearch';
 import { pickDietRepresentatives, distinctiveTypeFor, enrichSourcePool } from '../../utils/dietQuota';
+import { buildEnrichedLoopPool, poolTargetForCycleLength } from '../../utils/loopPool';
 import { isPureSweetDish } from '../../meal/constants/pairingCatalog';
 import { daysUntil } from '../../utils/dateUTC';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
@@ -250,7 +251,19 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
 
     const handleLoopApply = useCallback((config: any) => {
         const prevLength = mealLoop.config?.cycleLength;
-        applyLoopConfig(config, traySourcePool, dishes);
+        // PATTERN-FIRST: enrich the raw tray pool to the cycle-scaled target so
+        // the Profile Apply never rotates only the ~2 tray dishes. The tray picks
+        // keep the lead; the loop pool fills from diet/region-appropriate library
+        // dishes (Λ3.1 — one canonical builder for every Apply path).
+        const enriched = buildEnrichedLoopPool({
+            sourcePool: traySourcePool,
+            library: dishes,
+            diet: user?.diet,
+            region: user?.region,
+            cycleLength: config.cycleLength,
+            healthGoal: user?.healthGoals?.[0],
+        });
+        applyLoopConfig(config, enriched, dishes);
         window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
         setMealLoopModalOpen(false);
         // Fire notification if cycle length increased — user needs more dishes
@@ -263,7 +276,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                 action: { label: 'Open Tray', route: 'profile' },
             });
         }
-    }, [traySourcePool, applyLoopConfig, dishes, mealLoop.config?.cycleLength]);
+    }, [traySourcePool, applyLoopConfig, dishes, mealLoop.config?.cycleLength, user?.diet, user?.region, user?.healthGoals?.[0]]);
 
     const handleTraySearchSelect = useCallback((dish: Dish) => {
       if (!addSlot) return;
@@ -602,7 +615,7 @@ const eligible = filtered.filter((x:any) =>
                                                     const enriched = enrichSourcePool(pool, library, {
                                                         allowedTypes: types,
                                                         regionKey,
-                                                        target: 12,
+                                                        target: poolTargetForCycleLength((current.config?.cycleLength) || 7),
                                                         priority: (x:any) => ((x.diet||x.type||'')+'').toLowerCase() === distType ? 0 : 1,
                                                     });
                                                     for (const s of ['breakfast','lunch','dinner','snacks'] as const) pool[s] = enriched[s];

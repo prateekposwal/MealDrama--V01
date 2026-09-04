@@ -25,9 +25,10 @@ import { NotificationCenter, checkMealReminder, checkPlanEnding, checkPantryNeed
 import { Toast } from './components/new/Toast';
 import { TabBar, type Tab } from './components/new/TabBar';
 import { useBackNavigation } from './hooks/useBackNavigation';
-import { getRegionKey, goalToDishHealthFilter, dishHealthMatchScore } from './utils/dishSearch';
+import { getRegionKey } from './utils/dishSearch';
 import { isPureSweetDish } from './meal/constants/pairingCatalog';
-import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, enrichSourcePool, allowedTypesForDiet, keepRegionTrayItems } from './utils/dietQuota';
+import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, allowedTypesForDiet, keepRegionTrayItems } from './utils/dietQuota';
+import { buildEnrichedLoopPool, poolTargetForCycleLength, healthMatchFor } from './utils/loopPool';
 
 const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
 
@@ -65,19 +66,6 @@ const TRAY_SLOT_CAP = 6;
 const PLAN_SLOT_CAP = 6;
 /** Per-slot minimum × representatives for distinctive diets (the "more eggs" bar). */
 const DIET_REP_TARGET = 2;
-/**
- * Rotation-pool breadth per slot scales with the loop's cycle length so
- * longer rotations don't repeat dishes. Mapping: 7 days → 5 per slot,
- * 14 days → 10 per slot, 30 days → 15 per slot (capped at 15 so very long
- * loops don't demand an unbounded pool; linear 5×days/7 below the cap).
- */
-const poolTargetForCycleLength = (cycleLength: number) =>
-  Math.min(15, Math.round(5 * cycleLength / 7));
-/** Health-match scorer from a user goal string ("High Protein" → lifts protein dishes). */
-const healthMatchFor = (goal?: string) => {
-  const f = goalToDishHealthFilter(goal);
-  return (d: Dish) => (f && f !== 'all' ? dishHealthMatchScore(d, f) : 0);
-};
 const purgeTrayOverflow = () => {
   useStore.setState((s) => {
     let changed = false;
@@ -786,13 +774,13 @@ const App: React.FC = () => {
               const defaultConfig: MealLoopConfig = {
                 cycleLength: 7, startDate: today, skipDays: [], repeatPattern: 'random',
               };
-              const newPool = enrichSourcePool(trayPool, library.filter(d => !isPureSweetDish(d)), {
-                allowedTypes,
-                regionKey,
-                target: poolTargetForCycleLength(defaultConfig.cycleLength),
-                priority: (d) => (dietPriority[(d.diet || d.type || '').toLowerCase()] ?? 99),
-                // Health focus steers the pool's breadth (ordering only).
-                healthScore: healthMatchFor(preferences.healthGoal),
+              const newPool = buildEnrichedLoopPool({
+                sourcePool: trayPool,
+                library,
+                diet: dietPref,
+                region: preferences.region,
+                cycleLength: defaultConfig.cycleLength,
+                healthGoal: preferences.healthGoal,
               });
               applyLoopConfig(defaultConfig, newPool, library);
               window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config: defaultConfig } }));
@@ -857,25 +845,13 @@ const App: React.FC = () => {
             // every meal/day. Tray picks keep the lead; the remaining slots fill from
             // diet-allowed, region-appropriate library dishes.
             const library = await getDishLibrary().catch(() => []);
-            const dietKey = (user?.diet || 'veg').toLowerCase();
-            const dietPriority: Record<string, number> = {};
-            if (dietKey === 'eggitarian') {
-              dietPriority['eggitarian'] = 0; dietPriority['egg'] = 0;
-              dietPriority['veg'] = 1; dietPriority['vegan'] = 2;
-            } else if (dietKey === 'non-veg') {
-              dietPriority['non-veg'] = 0; dietPriority['eggitarian'] = 1;
-              dietPriority['egg'] = 1; dietPriority['veg'] = 2; dietPriority['vegan'] = 3;
-            } else if (dietKey === 'vegan') {
-              dietPriority['vegan'] = 0; dietPriority['veg'] = 1;
-            } else {
-              dietPriority['veg'] = 0; dietPriority['vegan'] = 1;
-            }
-            const enrichedPool = enrichSourcePool(sourcePool, library.filter(d => !isPureSweetDish(d)), {
-              allowedTypes: allowedTypesForDiet(user?.diet),
-              regionKey: getRegionKey(user?.region) || 'north',
-              target: poolTargetForCycleLength(config.cycleLength),
-              priority: (d) => (dietPriority[(d.diet || d.type || '').toLowerCase()] ?? 99),
-              healthScore: healthMatchFor(user?.healthGoals?.[0]),
+            const enrichedPool = buildEnrichedLoopPool({
+              sourcePool,
+              library,
+              diet: user?.diet,
+              region: user?.region,
+              cycleLength: config.cycleLength,
+              healthGoal: user?.healthGoals?.[0],
             });
             const pool = enrichedPool as SourcePool;
             const sourceDishIds = Object.values(pool).flat().map((d: Dish) => d.id);
