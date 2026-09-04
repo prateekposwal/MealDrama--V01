@@ -65,8 +65,14 @@ const TRAY_SLOT_CAP = 6;
 const PLAN_SLOT_CAP = 6;
 /** Per-slot minimum × representatives for distinctive diets (the "more eggs" bar). */
 const DIET_REP_TARGET = 2;
-/** Rotation-pool breadth per slot — capped tray pools repeated daily otherwise. */
-const POOL_SLOT_TARGET = 12;
+/**
+ * Rotation-pool breadth per slot scales with the loop's cycle length so
+ * longer rotations don't repeat dishes. Mapping: 7 days → 5 per slot,
+ * 14 days → 10 per slot, 30 days → 15 per slot (capped at 15 so very long
+ * loops don't demand an unbounded pool; linear 5×days/7 below the cap).
+ */
+const poolTargetForCycleLength = (cycleLength: number) =>
+  Math.min(15, Math.round(5 * cycleLength / 7));
 /** Health-match scorer from a user goal string ("High Protein" → lifts protein dishes). */
 const healthMatchFor = (goal?: string) => {
   const f = goalToDishHealthFilter(goal);
@@ -764,10 +770,10 @@ const App: React.FC = () => {
 
               // Build source pool from seeded dishes + apply default loop config.
               // Tray items lead (user's curated picks), then the pool is ENRICHED
-              // with more diet-allowed region dishes (to POOL_SLOT_TARGET) so a
-              // 7-day rotation actually varies — a pool capped at the 6-item tray
-              // repeated the same 5 snacks every day (the "repeating again again"
-              // report).
+              // with more diet-allowed region dishes (to the cycle-scaled slot
+              // target: 5 for the 7-day default) so a 7-day rotation actually
+              // varies — a pool capped at the 6-item tray repeated the same 5
+              // snacks every day (the "repeating again again" report).
               const currentTray = useStore.getState().trayLibrary;
               const trayPool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
               for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
@@ -777,17 +783,17 @@ const App: React.FC = () => {
                   if (dish && !trayPool[slot].find(d => d.id === dish.id)) trayPool[slot].push(dish);
                 }
               }
+              const defaultConfig: MealLoopConfig = {
+                cycleLength: 7, startDate: today, skipDays: [], repeatPattern: 'random',
+              };
               const newPool = enrichSourcePool(trayPool, library.filter(d => !isPureSweetDish(d)), {
                 allowedTypes,
                 regionKey,
-                target: POOL_SLOT_TARGET,
+                target: poolTargetForCycleLength(defaultConfig.cycleLength),
                 priority: (d) => (dietPriority[(d.diet || d.type || '').toLowerCase()] ?? 99),
                 // Health focus steers the pool's breadth (ordering only).
                 healthScore: healthMatchFor(preferences.healthGoal),
               });
-              const defaultConfig: MealLoopConfig = {
-                cycleLength: 7, startDate: today, skipDays: [], repeatPattern: 'random',
-              };
               applyLoopConfig(defaultConfig, newPool, library);
               window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config: defaultConfig } }));
               console.log('[App] Auto-seeded tray with', seededDishes.length, 'dishes + applied default loop');
@@ -844,9 +850,38 @@ const App: React.FC = () => {
             setManageTray(true);
           }}
           onApply={async (config: MealLoopConfig) => {
+            // Enrich the tray-grown sourcePool to the cycle-scaled slot target
+            // (5 per slot for 7-day, 10 for 14-day) so the manual Apply path matches
+            // the auto-seed path. The raw pool is capped at whatever sits in today's
+            // tray (often just 2 dishes) and would otherwise repeat the same dishes
+            // every meal/day. Tray picks keep the lead; the remaining slots fill from
+            // diet-allowed, region-appropriate library dishes.
+            const library = await getDishLibrary().catch(() => []);
+            const dietKey = (user?.diet || 'veg').toLowerCase();
+            const dietPriority: Record<string, number> = {};
+            if (dietKey === 'eggitarian') {
+              dietPriority['eggitarian'] = 0; dietPriority['egg'] = 0;
+              dietPriority['veg'] = 1; dietPriority['vegan'] = 2;
+            } else if (dietKey === 'non-veg') {
+              dietPriority['non-veg'] = 0; dietPriority['eggitarian'] = 1;
+              dietPriority['egg'] = 1; dietPriority['veg'] = 2; dietPriority['vegan'] = 3;
+            } else if (dietKey === 'vegan') {
+              dietPriority['vegan'] = 0; dietPriority['veg'] = 1;
+            } else {
+              dietPriority['veg'] = 0; dietPriority['vegan'] = 1;
+            }
+            const enrichedPool = enrichSourcePool(sourcePool, library.filter(d => !isPureSweetDish(d)), {
+              allowedTypes: allowedTypesForDiet(user?.diet),
+              regionKey: getRegionKey(user?.region) || 'north',
+              target: poolTargetForCycleLength(config.cycleLength),
+              priority: (d) => (dietPriority[(d.diet || d.type || '').toLowerCase()] ?? 99),
+              healthScore: healthMatchFor(user?.healthGoals?.[0]),
+            });
+            const pool = enrichedPool as SourcePool;
+            const sourceDishIds = Object.values(pool).flat().map((d: Dish) => d.id);
             if (!navigator.onLine) {
-              enqueue('loop_save', { config, userId: user?.id, sourceDishIds: Object.values(sourcePool).flat().map((d: Dish) => d.id) });
-              applyLoopConfig(config, sourcePool, fetchedDishes);
+              enqueue('loop_save', { config, userId: user?.id, sourceDishIds });
+              applyLoopConfig(config, pool, fetchedDishes);
               setToast({ message: 'Loop config saved locally (offline) — will sync when reconnected', type: 'info' });
               window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
               setShowLoopConfig(false);
@@ -858,12 +893,12 @@ const App: React.FC = () => {
               await api.post('/loop-config', {
                 userId: user?.id,
                 config,
-                sourceDishIds: Object.values(sourcePool).flat().map((d: Dish) => d.id),
+                sourceDishIds,
               });
             } catch (e) {
               console.warn('[LoopConfig] API save failed, saving locally:', e);
             }
-            applyLoopConfig(config, sourcePool, fetchedDishes);
+            applyLoopConfig(config, pool, fetchedDishes);
             window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
             setShowLoopConfig(false);
             setManageTray(false);
