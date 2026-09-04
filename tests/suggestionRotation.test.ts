@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { nextSuggestionBatch, recordSuggestions, resetSuggestionSeen, getSuggestionSeen } from '../plan/utils/suggestionRotation';
 import type { Dish } from '../meal/constants/dishLibrary';
 import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
@@ -53,5 +53,42 @@ describe('suggestionRotation', () => {
     const first = nextSuggestionBatch(real as any[], { userDiet: 'non-veg', regionKey: 'north' });
     expect(first.length).toBeGreaterThan(0);
     expect(first.every(d => !!d.id)).toBe(true);
+  });
+});
+describe('suggestionRotation — daily freshness', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('surfaces a FRESH batch on a new calendar day for the same user (daily rotation)', () => {
+    resetSuggestionSeen('daily');
+    // Day 1 (IST date 2026-09-04)
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T06:00:00Z'));
+    const day1 = nextSuggestionBatch(POOL, { userDiet: 'veg', regionKey: 'north', scope: 'daily' });
+
+    // Next calendar day (IST date 2026-09-05) same user
+    vi.setSystemTime(new Date('2026-09-05T06:00:00Z'));
+    const day2 = nextSuggestionBatch(POOL, { userDiet: 'veg', regionKey: 'north', scope: 'daily' });
+
+    const day1Ids = new Set(day1.map(d => d.id));
+    expect(day1.length).toBeGreaterThan(0);
+    expect(day2.length).toBeGreaterThan(0);
+    for (const d of day2) {
+      expect(day1Ids.has(d.id), d.id).toBe(false); // fresh each day, never a day-over-day repeat
+    }
+  });
+
+  it('keeps rotation history separate per user on the same day', () => {
+    resetSuggestionSeen('userA');
+    resetSuggestionSeen('userB');
+    const a = nextSuggestionBatch(POOL, { userDiet: 'veg', regionKey: 'north', scope: 'userA' });
+    expect(a.length).toBeGreaterThan(0);
+    expect(getSuggestionSeen('userA').length).toBeGreaterThan(0);
+    expect(getSuggestionSeen('userB')).toEqual([]);
+  });
+
+  it('daily rotation is bounded: seen-set never grows past MAX_PER_DAY (48)', () => {
+    resetSuggestionSeen('bounded');
+    for (let i = 0; i < 8; i++) nextSuggestionBatch(POOL, { userDiet: 'veg', regionKey: 'north', scope: 'bounded' });
+    expect(getSuggestionSeen('bounded').length).toBeLessThanOrEqual(48);
   });
 });

@@ -1206,16 +1206,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                             ))
                         ) : hasAiContent ? (
                             (() => {
-                                const AI_SLOT_LABEL: Record<string, string> = {breakfast:'Breakfast',lunch:'Lunch',dinner:'Dinner',snacks:'Snacks'};
-                                const items: Array<{id:string;name:string;region?:string;slotLabel:string}> = [];
-                                for (const [slotKey, slotDishes] of Object.entries(aiSuggestions!)) {
+                                const items: Array<{id:string;name:string;region?:string}> = [];
+                                for (const [, slotDishes] of Object.entries(aiSuggestions!)) {
                                     for (const d of (slotDishes || []).slice(0, 4)) {
-                                        items.push({id:d.id,name:d.name,region:d.region,slotLabel:AI_SLOT_LABEL[slotKey]??slotKey});
+                                        items.push({id:d.id,name:d.name,region:d.region});
                                     }
                                 }
-                                // Record AI-curated ids too, so the rotating
-                                // region strip never re-offers them.
-                                recordSuggestions(items.map(i => i.id));
+                                // Record AI-curated ids too (per-user scope), so
+                                // the daily rotation never re-offers them.
+                                recordSuggestions(items.map(i => i.id), user?.id);
                                 return orderSuggestionsRegionFirst(items, regionKey, dishes).map(d => (
                                     <button key={`ai-${d.id}`} onClick={() => {
                                         const dish = dishes.find(dh => dh.id === d.id);
@@ -1227,7 +1226,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         <div className="h-[40px] flex items-center justify-center">
                                             <p className="text-sm font-bold text-gray-900 leading-tight max-w-[96px] text-center line-clamp-2">{d.name}</p>
                                         </div>
-                                        <span className="text-sm font-bold text-[#FF385C] uppercase tracking-wider bg-[#FFF0F3] px-1.5 py-0.5 rounded-full">{d.slotLabel}</span>
                                     </button>
                                 ));
                             })()
