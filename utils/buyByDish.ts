@@ -9,7 +9,7 @@
 import type { Dish } from '../meal/constants/dishLibrary';
 import type { AggregatedIngredient } from './shareMessages';
 import { buyListFor, StockMap } from './buyList';
-import { getIngredientsForMealOption } from './ingredientUtils';
+import { getIngredientsForMealOption, isPlaceholderIngredients, ensureNameMains } from './ingredientUtils';
 import { aggregateIngredients } from './shareMessages';
 
 /** Generic placeholders that are pipeline NOISE, never a recipe need. */
@@ -33,8 +33,12 @@ export function recipeIngredients(
   const wantEggs = diet !== null && diet !== undefined && /eggitarian|non-veg/i.test(diet);
   const chosen = wantEggs ? (withEgg ?? eggless ?? variants[0]) : (eggless ?? variants[0]);
   const explicit = chosen?.ingredients ?? [];
-  if (explicit.length > 0) {
-    return aggregateIngredients(explicit as AggregatedIngredient[]);
+  // A stub/wrong-recipe explicit list (placeholder gate) is NOT a recipe —
+  // fall through to the inference engine so the dish's main is never lost.
+  // A real but incomplete list keeps its items BUT gets the name-implied
+  // main appended (stir-fry base on Chicken Manchurian → +Chicken).
+  if (explicit.length > 0 && !isPlaceholderIngredients(explicit)) {
+    return aggregateIngredients(ensureNameMains(explicit, dish.id, chosen?.name ?? dish.name, dish.type));
   }
   const inferred = getIngredientsForMealOption(dish.id, dish.variants?.[0]?.id ?? '', library.length ? library : undefined as any);
   return aggregateIngredients(inferred.filter(i => !NOISE_NAMES.has(i.name.toLowerCase())));

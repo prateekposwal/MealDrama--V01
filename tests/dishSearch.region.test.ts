@@ -520,10 +520,10 @@ describe('dishLibrary region-consistency data', () => {
     expect(d.states).toEqual(['Karnataka']);
   });
 
-  it('panch-phoran-tarka is an east dish (West Bengal/Mizoram/Assam)', () => {
+  it('panch-phoran-tarka is a northeast dish (Mizoram/Assam)', () => {
     const d = byId.get('panch-phoran-tarka')!;
-    expect(d.region).toBe('east');
-    expect(d.states).toEqual(['West Bengal', 'Mizoram', 'Assam']);
+    expect(d.region).toBe('northeast');
+    expect(d.states).toEqual(['Mizoram', 'Assam']);
   });
 
   it('amritsari-chole is a north dish (Punjab/Uttar Pradesh)', () => {
@@ -532,10 +532,10 @@ describe('dishLibrary region-consistency data', () => {
     expect(d.states).toEqual(['Punjab', 'Uttar Pradesh']);
   });
 
-  it('kadhi-khakra is a west dish (Gujarat/Rajasthan)', () => {
+  it('kadhi-khakra is a north dish (Rajasthan)', () => {
     const d = byId.get('kadhi-khakra')!;
-    expect(d.region).toBe('west');
-    expect(d.states).toEqual(['Gujarat', 'Rajasthan']);
+    expect(d.region).toBe('north');
+    expect(d.states).toEqual(['Rajasthan']);
   });
 
   it('falooda appears exactly once and is the pan-India (all) representation', () => {

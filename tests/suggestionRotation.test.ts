@@ -92,3 +92,81 @@ describe('suggestionRotation — daily freshness', () => {
     expect(getSuggestionSeen('bounded').length).toBeLessThanOrEqual(48);
   });
 });
+
+describe('suggestionRotation — regression locks (Bug 1)', () => {
+  const T = { userDiet: 'veg', regionKey: 'north', maxPerSlot: 6 } as const;
+
+  afterEach(() => { vi.useRealTimers(); resetSuggestionSeen('bug1'); });
+
+  // T1: date-advance — a fresh calendar day surfaces zero overlap with day D.
+  it('T1: advancing the IST date to D+1 yields zero id overlap and records the new day', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T06:00:00Z')); // IST day 2026-09-04
+    const day1 = nextSuggestionBatch(POOL, { ...T, scope: 'bug1' });
+    expect(day1.length).toBeGreaterThan(0);
+
+    vi.setSystemTime(new Date('2026-09-05T06:00:00Z')); // IST day 2026-09-05
+    const day2 = nextSuggestionBatch(POOL, { ...T, scope: 'bug1' });
+
+    const day1Ids = new Set(day1.map(d => d.id));
+    expect(day2.length).toBeGreaterThan(0);
+    for (const d of day2) expect(day1Ids.has(d.id), d.id).toBe(false);
+
+    const day2Ids = day2.map(d => d.id);
+    expect(getSuggestionSeen('bug1', '2026-09-05').sort()).toEqual([...day2Ids].sort());
+  });
+
+  // T2: timezone boundary — IST +5:30 rolls the calendar day at 18:30 UTC.
+  it('T2: getISODate rolls the IST day at the 18:30Z boundary (UTC+5:30)', async () => {
+    const { getISODate } = await import('../utils/dateUTC');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T18:29:59Z'));
+    expect(getISODate()).toBe('2026-09-04');
+    vi.setSystemTime(new Date('2026-09-04T18:30:00Z'));
+    expect(getISODate()).toBe('2026-09-05');
+    expect(getISODate()).toBe('2026-09-05');
+  });
+
+  it('T2b: recordSuggestions keys the correct IST day across the 18:30Z boundary', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T18:29:59Z'));
+    recordSuggestions(['a', 'b'], 'bug1');
+    expect(getSuggestionSeen('bug1', '2026-09-04')).toEqual(['a', 'b']);
+
+    resetSuggestionSeen('bug1');
+    vi.setSystemTime(new Date('2026-09-04T18:30:00Z'));
+    recordSuggestions(['a', 'b'], 'bug1');
+    expect(getSuggestionSeen('bug1', '2026-09-04')).toEqual([]);
+    expect(getSuggestionSeen('bug1', '2026-09-05')).toEqual(['a', 'b']);
+  });
+
+  // T3: refill when pool is exhausted, and 7-day window expiry frees old ids.
+  it('T3a: fully-rotated pool refills through the backfill path (non-empty)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-04T06:00:00Z'));
+    const pool1 = [dish({ id: 'only-1', name: 'Only 1', region: 'north', category: ['lunch'], type: 'veg' })];
+    const batch = nextSuggestionBatch(pool1, { ...T, scope: 'bug1' });
+    expect(batch.length).toBe(1); // backfill path returns the pool member
+    expect(getSuggestionSeen('bug1').length).toBe(1);
+  });
+
+  it('T3b: after 7 days (MAX_DAYS window) the oldest-day ids are pruned and re-suggestible', () => {
+    vi.useFakeTimers();
+    resetSuggestionSeen('bug1');
+    // No-op throws if a date is mis-written; seed an 8-day spread so the
+    // prune window (last 7 dates) drops the oldest day.
+    const dates: string[] = [];
+    for (let i = 1; i <= 8; i++) dates.push(`2026-09-${String(i).padStart(2, '0')}`);
+    dates.forEach((d, i) => {
+      vi.setSystemTime(new Date(`${d}T06:00:00Z`));
+      recordSuggestions([`stale-${i}`], 'bug1');
+    });
+    // The seen-map now spans 8 consecutive days. Reading the OLDEST day must
+    // be pruned out of the freshness window.
+    vi.setSystemTime(new Date('2026-09-09T06:00:00Z'));
+    expect(getSuggestionSeen('bug1', '2026-09-01')).toEqual([]);
+
+    // And the newest day (day 8) is still retained within the window.
+    expect(getSuggestionSeen('bug1', '2026-09-08')).toEqual(['stale-7']);
+  });
+});

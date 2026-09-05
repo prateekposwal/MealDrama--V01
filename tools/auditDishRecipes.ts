@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
 import { getIngredientsForMealOption } from '../utils/ingredientUtils';
+import { regionForState, statesMatchRegion } from '../utils/regionConstants';
 
 const GENERIC = new Set(['salt', 'pepper', 'corariander leaves', 'coriander leaves', 'coriander', 'water', 'sugar', 'oil', 'ghee']);
 
@@ -42,6 +43,26 @@ export function auditResolved(): Array<{ id: string; name: string; variant: stri
     for (const v of d.variants ?? []) {
       const names = resolvedNames(d, v);
       if (!realRecipe(names)) gaps.push({ id: d.id, name: d.name, variant: v.name ?? v.id, has: names.slice(0, 8) });
+    }
+  }
+  return gaps;
+}
+
+/** REGION/STATE audit — every dish's `states[]` entry must belong to the
+ *  dish's `region` per the canonical STATE_REGION map, or be an unknown key.
+ *  A wrongly-tagged Goan dish tagged 'south' surfaces here. */
+export function auditRegionStates(): Array<{ id: string; name: string; region: string; state: string; expects: string | null }> {
+  const gaps: Array<{ id: string; name: string; region: string; state: string; expects: string | null }> = [];
+  for (const d of DISH_LIBRARY) {
+    for (const s of d.states ?? []) {
+      const expects = regionForState(s);
+      if (!expects) {
+        gaps.push({ id: d.id, name: d.name, region: d.region, state: s, expects: null });
+        continue;
+      }
+      if (d.region !== 'all' && expects !== d.region) {
+        gaps.push({ id: d.id, name: d.name, region: d.region, state: s, expects });
+      }
     }
   }
   return gaps;

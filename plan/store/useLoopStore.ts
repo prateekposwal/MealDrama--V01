@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
 import type { MealType, MealLoopState, MealLoopConfig, MealLoopAssignment, RotationQueueItem, DayMeals } from '../../types/tray';
+import type { MealOption } from '../../app/store/useStore';
 import { EMPTY_LOOP_STATE, SLOT_TIME_DEFAULTS } from '../../types/tray';
 import { buildLoopAssignments as buildAssignments, buildRotationQueue, assignFromQueue, handleMidCycleAdd, buildRotationState, autoFillLoop as autoFillLoopEngine } from '../utils/mealLoopEngine';
 import { dishToMeal } from '../../utils/dishToMeal';
@@ -17,7 +18,7 @@ import type { SourcePool } from '../utils/mealLoopEngine';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import type { TrayItem } from '../../types/tray';
 import { nativeStorage } from '../../app/utils/nativeStorage';
-import { slotKey, getExistingItemsInRange, getDishIdsInRange, getBySourceInRange, type SlotKey } from '../utils/planIndex';
+import { slotKey, extendPlanIndex, getExistingItemsInRange, getDishIdsInRange, getBySourceInRange, type SlotKey } from '../utils/planIndex';
 import { toDishMap } from '../../utils/dishMap';
 import { PersistentMap, rehydrateMap } from '../../app/utils/PersistentMap';
 
@@ -351,6 +352,7 @@ export const useLoopStore = create<LoopStore>()(
         const sourceDishIds = (Object.values(pool) as Dish[][]).flat().map(d => d.id);
 
         let trayUpdater: ((prev: TrayStore) => Partial<TrayStore>) | null = null;
+        let trayLibraryUpdater: ((prev: ReturnType<typeof useStore.getState>) => Partial<ReturnType<typeof useStore.getState>>) | null = null;
         let enqueuePayload: { config: MealLoopConfig; sourceDishIds: string[]; assignments: MealLoopAssignment[] } | null = null;
 
         set((s: LoopStore) => {
@@ -383,8 +385,45 @@ export const useLoopStore = create<LoopStore>()(
 
               enqueuePayload = { config, sourceDishIds, assignments: [...ml.assignments, ...dedupedNew] };
               trayUpdater = (prev: TrayStore) => ({
-                plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
+                plan: {
+                  ...prev.plan,
+                  days: mergeDays(prev.plan.days, newDays),
+                  _planIndex: extendPlanIndex(prev.plan._planIndex, newDays),
+                },
               });
+
+              // Auto-fill the tray from the enriched pool up to the cycle-scaled
+              // per-slot target. Only fill on cycle-length INCREASE (a longer
+              // rotation needs more dishes); never displace manual picks and
+              // never duplicate existing tray ids.
+              const lengthGrew = config.cycleLength > ml.config.cycleLength;
+              if (lengthGrew) {
+                const targetPerSlot = poolTargetForCycleLength(config.cycleLength);
+                const currentTray = useStore.getState().trayLibrary;
+                const newTrayEntries: Partial<Record<MealType, MealOption[]>> = {};
+                for (const slot of ['breakfast', 'lunch', 'dinner', 'snacks'] as const) {
+                  const trayItems = currentTray[slot] ?? [];
+                  const existingSet = new Set(trayItems.map(item => item.dishId ?? item.id));
+                  const poolDishes = (pool[slot] ?? []).filter((d: Dish) => !existingSet.has(d.id));
+                  const toAdd = poolDishes.slice(0, Math.max(0, targetPerSlot - trayItems.length));
+                  if (toAdd.length > 0) {
+                    newTrayEntries[slot] = toAdd.map((d: Dish) => ({
+                      id: d.id, dishId: d.id, name: d.name,
+                      icon: d.icon,
+                      sourceRegion: d.region,
+                    }));
+                  }
+                }
+                if (Object.keys(newTrayEntries).length > 0) {
+                  trayLibraryUpdater = (prevTray) => {
+                    const merged = { ...prevTray.trayLibrary };
+                    for (const slot of ['breakfast', 'lunch', 'dinner', 'snacks'] as const) {
+                      merged[slot] = [...(merged[slot] ?? []), ...(newTrayEntries[slot] ?? [])];
+                    }
+                    return { trayLibrary: merged };
+                  };
+                }
+              }
 
               return {
                 mealLoop: {
@@ -418,7 +457,11 @@ export const useLoopStore = create<LoopStore>()(
 
             enqueuePayload = { config, sourceDishIds: newIds, assignments: result.assignments };
             trayUpdater = (prev: TrayStore) => ({
-              plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
+              plan: {
+                ...prev.plan,
+                days: mergeDays(prev.plan.days, newDays),
+                _planIndex: extendPlanIndex(prev.plan._planIndex, newDays),
+              },
             });
 
             return {
@@ -457,7 +500,11 @@ export const useLoopStore = create<LoopStore>()(
 
           enqueuePayload = { config, sourceDishIds, assignments: newAssignments };
           trayUpdater = (prev: TrayStore) => ({
-            plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
+            plan: {
+              ...prev.plan,
+              days: mergeDays(prev.plan.days, newDays),
+              _planIndex: extendPlanIndex(prev.plan._planIndex, newDays),
+            },
             completions: newCompletions,
             skipped: newSkipped,
           });
@@ -479,6 +526,7 @@ export const useLoopStore = create<LoopStore>()(
           window.dispatchEvent(new Event('pantry:invalidate'));
         }
         if (trayUpdater) getTrayStore<TrayStore>().setState(trayUpdater);
+        if (trayLibraryUpdater) useStore.setState(trayLibraryUpdater);
       },
 
       detectLoopPoolChange: (pool: SourcePool, dishes?: Dish[]) => {
@@ -598,7 +646,11 @@ export const useLoopStore = create<LoopStore>()(
           }
 
           trayUpdater = (prev: TrayStore) => ({
-            plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
+            plan: {
+              ...prev.plan,
+              days: mergeDays(prev.plan.days, newDays),
+              _planIndex: extendPlanIndex(prev.plan._planIndex, newDays),
+            },
           });
 
           useStore.getState().setToast({ message: '🔄 Loop refreshed! Future days updated.', type: 'success' });
@@ -665,7 +717,11 @@ export const useLoopStore = create<LoopStore>()(
           }
 
           trayUpdater = (prev: TrayStore) => ({
-            plan: { ...prev.plan, days: mergeDays(prev.plan.days, newDays) },
+            plan: {
+              ...prev.plan,
+              days: mergeDays(prev.plan.days, newDays),
+              _planIndex: extendPlanIndex(prev.plan._planIndex, newDays),
+            },
           });
 
           return {

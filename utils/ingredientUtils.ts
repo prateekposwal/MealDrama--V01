@@ -613,7 +613,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     if (idLower.includes('toor dal') || idLower.includes('arhar') || idLower.includes('tur dal')) {
         result.push({ name: 'Toor Dal', quantity: 80, unit: 'g', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('moong dal') || idLower.includes('moong beans')) {
+    if (idLower.includes('moong')) {
         result.push({ name: 'Moong Dal', quantity: 80, unit: 'g', category: 'proteins', inStock: false });
     }
     if (idLower.includes('masoor dal') || idLower.includes('red lentil')) {
@@ -637,16 +637,16 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     if (dishType !== 'vegan' && idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('chicken') || idLower.includes('meat')) {
+    if (idLower.includes('chicken') || idLower.includes('meat') || idLower.includes('kozhi')) {
         result.push({ name: 'Chicken', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
     if (idLower.includes('paneer')) {
         result.push({ name: 'Paneer', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('mutton') || idLower.includes('lamb')) {
+    if (idLower.includes('mutton') || idLower.includes('lamb') || idLower.includes('gosht') || idLower.includes('bakra')) {
         result.push({ name: 'Mutton', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('fish')) {
+    if (idLower.includes('fish') || idLower.includes('meen') || idLower.includes('machher') || idLower.includes('kadal')) {
         result.push({ name: 'Fish', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
     }
     
@@ -666,13 +666,46 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     if (idLower.includes('pav')) {
         result.push({ name: 'Pav', quantity: 2, unit: 'pcs', category: 'breads', inStock: false });
     }
-    // INF-07: Aloo/Potato inference
+    // INF-07: Aloo/Potato inference — sane count (a dish uses ~3 potatoes, NOT 0.5pc)
     if (idLower.includes('aloo') || idLower.includes('potato')) {
-        result.push({ name: 'Potatoes', quantity: 0.5, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Potatoes', quantity: 3, unit: 'pc', category: 'produce', inStock: false });
     }
-    // INF-07: Gobhi/Cauliflower inference
-    if (idLower.includes('gobhi') || idLower.includes('cauliflower')) {
-        result.push({ name: 'Cauliflower', quantity: 0.33, unit: 'pc', category: 'produce', inStock: false });
+    // INF-07: Gobhi/Cauliflower inference — bulk veg → grams (NOT 0.33pc)
+    if (idLower.includes('gobhi') || idLower.includes('gobi') || idLower.includes('cauliflower')) {
+        result.push({ name: 'Cauliflower', quantity: 200, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-PALAK: Spinach inference (palak dishes + palak soups)
+    if (idLower.includes('palak') || idLower.includes('spinach')) {
+        result.push({ name: 'Spinach', quantity: 150, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-BROCCOLI: Broccoli inference (roasted/curried broccoli mains)
+    if (idLower.includes('broccoli')) {
+        result.push({ name: 'Broccoli', quantity: 200, unit: 'g', category: 'produce', inStock: false });
+    }
+    // INF-GAJAR: Carrot inference ("gajar-ka-halwa" etc.)
+    if (idLower.includes('gajar') || idLower.includes('carrot')) {
+        result.push({ name: 'Carrot', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
+    }
+    // INF-SWEET-POTATO: Sweet Potato inference — "sweet" alone must NOT route a
+    // savoury sweet-potato dish to the sugar/milk dessert fIller.
+    if (idLower.includes('sweet') && idLower.includes('potato')) {
+        result.push({ name: 'Sweet Potato', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
+    }
+    // INF-MATAR: Green Peas inference — any dish named Matar/Peas carries green peas.
+    // Token-delimited so "tamatar" (ta-MATAR) and "black-eyed peas" (a pulse) don't false-fire.
+    {
+        const _peasHay = `${idLower} ${(dishName || '').toLowerCase()}`.replace(/_/g, '-');
+        const _isPulsePeas = /(?:^|[\s-])black[\s-]?eyed[\s-]peas?(?:\b|[\s-]|$)/.test(_peasHay)
+            || /(?:^|[\s-])lobiya(?:\b|[\s-]|$)/.test(_peasHay)
+            || /(?:^|[\s-])tamatar(?:\b|[\s-]|$)/.test(_peasHay);
+        const _hasGreenPeas = !_isPulsePeas && (
+            /(?:^|[\s-])green[\s-]+peas?(?:\b|[\s-]|$)/.test(_peasHay)
+            || /(?:^|[\s-])matar(?:\b|[\s-]|$)/.test(_peasHay)
+            || /(?:^|[\s-])peas?(?:\b|[\s-]|$)/.test(_peasHay)
+        );
+        if (_hasGreenPeas && !result.find(i => /^green peas|peas$/i.test(i.name))) {
+            result.push({ name: 'Green Peas', quantity: 100, unit: 'g', category: 'produce', inStock: false });
+        }
     }
     // INF-08: Sarson ka Saag inference (Punjabi specialty)
     if (idLower.includes('sarson') || idLower.includes('saag')) {
@@ -799,6 +832,10 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
     if (idLower.includes('ilish') || idLower.includes('bhetki') || idLower.includes('rohu') || idLower.includes('salmon') || idLower.includes('trout')) {
         result.push({ name: 'Fish', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
+    }
+    // INF-SALMON: a dish named after the fish itself should carry that fish
+    if (idLower.includes('salmon') && !result.find(i => /salmon|fish/i.test(i.name))) {
+        result.push({ name: 'Salmon', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
     // INF-19: Tofu / Soya protein inference
     if (idLower.includes('tofu')) {
@@ -1327,13 +1364,151 @@ const LIGHT_BANNED = /chutney|ghee|oil|yogurt|curd|potato|spice|besan|flour|rice
  *  completeness chain fills the true ingredients (the repeating data gap). */
 const PLACEHOLDER_NAMES = new Set(['salt', 'pepper', 'coriander leaves', 'coriander', 'water', 'rice', 'oil']);
 
+// Base aromatics / oils that do NOT constitute a dish's MAIN ingredient. A list
+// made only of these (no protein/veg/produce/grain) is a base-only stub missing
+// the actual dish — treat it as a placeholder so inference can fill the main.
+// Mirrors the audit tool's "a recipe can't be two generic items" spirit.
+const BASE_NO_MAIN_NAMES = new Set([
+  'salt', 'pepper', 'coriander', 'coriander leaves', 'water', 'sugar', 'oil', 'ghee', 'butter',
+  'mustard seeds', 'turmeric', 'green chilli', 'green chili', 'red chilli', 'red chili',
+  'red chili powder', 'red chilli powder', 'garam masala', 'cumin', 'cumin seeds',
+  'onion', 'onions', 'tomato', 'tomatoes', 'ginger-garlic paste', 'ginger', 'garlic',
+  'curry leaves', 'spice', 'spices', 'whole spices', 'black pepper',
+]);
+
+// Wrong-recipe class: seasonings / fats / liquids / beverage-fillers / baking
+// bases that NEVER constitute a dish's main. A "recipe" made ONLY of these
+// (e.g. bubble-tea ingredients pasted onto Tofu Pasta, or a cookie list pasted
+// where no protein/grain/produce main appears) is filler — route it to
+// inference so the dish's actual main is restored. Legit lists that carry a
+// real main (Chicken, Paneer, Rice, Spinach…) fail this `every()` and pass.
+const NO_MAIN_NAMES = new Set([
+  ...BASE_NO_MAIN_NAMES,
+  'bay leaf', 'cloves', 'cardamom', 'cinnamon', 'star anise', 'fennel', 'saunf', 'hing', 'asafoetida',
+  'olive oil', 'coconut oil', 'green chili', 'chili', 'chilli powder', 'chili powder',
+  'biryani masala', 'chana masala', 'kitchen king', 'chicken masala', 'paneer masala',
+  'lemon juice', 'lime juice', 'vinegar', 'soy sauce', 'chilli sauce', 'schezwan sauce',
+  'tomato ketchup', 'mustard', 'mayonnaise', 'cream', 'yogurt', 'curd', 'sour cream',
+  'milk', 'tea', 'masala chai', 'coffee', 'coffee powder', 'hot water', 'ice', 'cocoa',
+  'chocolate', 'vanilla', 'vanilla extract', 'baking powder', 'baking soda', 'yeast',
+  'jaggery', 'honey', 'maple syrup', 'wintermelon syrup', 'syrup', 'tapioca pearls', 'rose water',
+  'breadcrumbs', 'flour', 'maida', 'semolina', 'besan', 'gram flour', 'corn flour',
+  'bread', 'pav', 'toast', 'bun', 'biscuits', 'rusk',
+]);
+
+/** main names whose presence proves a list is a real (non-filler) recipe. */
+function hasMainCategoryItem(items: Array<{ name: string }>): boolean {
+  return items.some(i => !NO_MAIN_NAMES.has((i.name || '').trim().toLowerCase()));
+}
+
 export function isPlaceholderIngredients(items: Array<{ name: string }>): boolean {
     if (!items || items.length === 0) return false;
     // A "recipe" can't be 1-2 items (kallu→"Coconut Sap", pasta→"Rice,Salt");
     // and any fully-generic list — the 3-item soup template included — is
     // filler, not a recipe.
     if (items.length <= 2) return true;
-    return items.every(i => PLACEHOLDER_NAMES.has((i.name || '').trim().toLowerCase()));
+    if (items.every(i => PLACEHOLDER_NAMES.has((i.name || '').trim().toLowerCase()))) return true;
+    // Base-only stub: every line is an aromatic/oil with NO main ingredient.
+    if (items.length >= 3 && items.every(i => BASE_NO_MAIN_NAMES.has((i.name || '').trim().toLowerCase()))) {
+        return true;
+    }
+    // Wrong-recipe class: THREE OR MORE lines but not ONE main-capable item
+    // (bubble-tea list on Tofu Pasta, sugar/milk/cardamom "recipe" on Moong
+    // Dal Halwa). Route to inference so the main is restored by name-mapping.
+    if (items.length >= 3 && !hasMainCategoryItem(items)) {
+        return true;
+    }
+    return false;
+}
+
+// ─── Main-ingredient guarantee (from the dish NAME) ─────────────────────────
+// Every dish must resolve WITH its namesake main (Tofu Pasta → Tofu + Pasta,
+// Aloo Matar → Potatoes + Green Peas, Chicken Manchurian → Chicken). The
+// inference engine already maps name tokens → mains; this pass appends any
+// inferred main (proteins / produce / grains) missing from the resolved list,
+// so a base-only or wrong-recipe explicit recipe can never ship a mainless
+// dish. Two guards keep it honest:
+//  • mainsMatchDish — a main is only appended if the dish's OWN name/slug
+//    implies it (prevents "seven-colour-TEA" → Potatoes via the 'sev' rule);
+//  • applied AFTER the light filter so a sweet/dal main added back can't be
+//    stripped again (Moong Dal survives on Moong Dal Halwa).
+const MAIN_CATEGORIES = new Set<IngredientCategory>(['proteins', 'produce', 'grains']);
+
+/** Spell/alias variants so a slug token maps to the inferred main name. */
+const MAIN_ALIASES: Record<string, string[]> = {
+  'cauliflower': ['gobhi', 'gobi'],
+  'potatoes': ['aloo'],
+  'green peas': ['matar'],
+  'okra': ['bhindi'],
+  'spinach': ['palak'],
+  'chickpeas': ['chana', 'chole', 'kadala'],
+  'masoor dal': ['red lentil'],
+  'moong dal': ['moong'],
+  'mushrooms': ['mushroom'],
+  'fish': ['machher', 'meen', 'ilish', 'rohu', 'bangda', 'kadal'],
+  'mutton': ['gosht'],
+  'carrot': ['gajar'],
+  'eggs': ['anda'],
+};
+
+function singularize(word: string): string {
+  return word
+    .replace(/ies$/, 'y')
+    .replace(/oes$/, 'o')
+    .replace(/es$/, 'e')
+    .replace(/s$/, '');
+}
+
+function mainImpliedByDish(main: Ingredient, slug: string, name: string): boolean {
+  const hay = `${slug.replace(/-/g, ' ')} ${name.toLowerCase()}`;
+  const tokens = main.name.toLowerCase().split(/[\s,/+]+/).filter(Boolean);
+  const candidates = new Set<string>();
+  for (const t of tokens) {
+    if (t.length < 3) continue;
+    candidates.add(t);
+    // "Potatoes" → "potato", "Peas" → "pea", "Chickpeas" → "chickpea" so a
+    // slug saying "potato"/"pea" implies the plural main.
+    const sing = singularize(t);
+    if (sing !== t && sing.length >= 3) candidates.add(sing);
+  }
+  for (const c of candidates) {
+    if (hay.includes(c)) return true;
+  }
+  return (MAIN_ALIASES[main.name.toLowerCase()] ?? []).some(a => hay.includes(a));
+}
+
+/** Strip negation/qualifier words from a variant name so "without Eggs" never
+ *  implies Chicken-egg rules (Banana Bread without Eggs ≠ an egg dish). */
+function sanitizeVariantForMain(variantName: string): string {
+  return variantName
+    .replace(/\b(?:eggless|with eggs?|without eggs?|without butter|without brown sugar|no brown sugar|no sugar|vegan|vegetarian)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Append any main ingredients the dish's own NAME implies that the resolved
+ *  recipe is missing. Name-overlap is enough to count as present (Chicken
+ *  Wings satisfies "Chicken"). Explicit-path AND post-light-filter safe. */
+export function ensureNameMains(
+  resolved: Ingredient[],
+  dishId: string,
+  variantName: string,
+  dishType?: Dish['type'],
+): Ingredient[] {
+  const cleanName = sanitizeVariantForMain(variantName);
+  const inferred = inferIngredientsFromDishId(dishId, cleanName || undefined, dishType);
+  const out = [...resolved];
+  const present = new Set(out.map(i => i.name.toLowerCase()));
+  for (const m of inferred) {
+    if (!MAIN_CATEGORIES.has(m.category)) continue;
+    if (!mainImpliedByDish(m, dishId, cleanName)) continue;
+    const key = m.name.toLowerCase();
+    const isPresent = [...present].some(p => p.includes(key) || key.includes(p));
+    if (isPresent) continue;
+    out.push(m);
+    present.add(key);
+  }
+  return out;
 }
 
 export function isLightCategory(dish: { name?: string; tags?: string[] }): boolean {
@@ -1349,6 +1524,38 @@ function lightFilter(items: Ingredient[]): Ingredient[] {
     return items.filter(i => LIGHT_ALLOWED.test(i.name.toLowerCase()) && !LIGHT_BANNED.test(i.name.toLowerCase()));
 }
 
+/** Soup/stew/broth pantry fill — protein + the produce the soup is named after
+ *  (never a nameless broth: Palak Soup → Spinach, Carrot Soup → Carrot). */
+function soupPantryFill(name: string): Ingredient[] {
+    const protein: Ingredient[] = /chicken|kozhi/.test(name)
+        ? [{ name: 'Chicken', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+        : /mutton|yakhni|paya|lamb/.test(name)
+            ? [{ name: 'Mutton', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+            : /pork|phagshapa/.test(name)
+                ? [{ name: 'Pork', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+                : [];
+    const namedProduce: Ingredient[] = /palak|spinach/.test(name)
+        ? [{ name: 'Spinach', quantity: 100, unit: 'g', category: 'produce', inStock: false }]
+        : /carrot|gajar/.test(name)
+            ? [{ name: 'Carrot', quantity: 1, unit: 'pc', category: 'produce', inStock: false }]
+            : /pumpkin|kaddu/.test(name)
+                ? [{ name: 'Pumpkin', quantity: 100, unit: 'g', category: 'produce', inStock: false }]
+                : /sweet.?potato|shakarkand/.test(name)
+                    ? [{ name: 'Sweet Potato', quantity: 1, unit: 'pc', category: 'produce', inStock: false }]
+                    : /broccoli/.test(name)
+                        ? [{ name: 'Broccoli', quantity: 100, unit: 'g', category: 'produce', inStock: false }]
+                        : [];
+    return [
+        ...protein,
+        ...namedProduce,
+        { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce', inStock: false },
+        { name: 'Tomato', quantity: 2, unit: 'pc', category: 'produce', inStock: false },
+        { name: 'Water', quantity: 2, unit: 'cup', category: 'pantry', inStock: false },
+        { name: 'Black Pepper', quantity: 0.5, unit: 'tsp', category: 'spices', inStock: false },
+        { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce', inStock: false },
+    ] as Ingredient[];
+}
+
 /** Light dish with nothing after filtering → a minimal role-based fill is
  *  better than empty (charg/lassi/soup are never groceries-empty). */
 function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }): Ingredient[] {
@@ -1356,8 +1563,29 @@ function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }): 
     // Only generic-ish tokens (water/sugar/lemon) don't make a pantry fill —
     // fall through to the role-based list so chang/lassi/soup are never hollow.
     const substantive = filtered.some(i => !['water', 'sugar', 'lemon', 'tea leaves', 'coconut', 'milk', 'ice'].includes(i.name.toLowerCase()));
-    if (filtered.length >= 3 && substantive) return filtered;
     const name = (dish.name || '').toLowerCase();
+    // A SOUP/STEW/BROTH always gets the soup pantry fill — the generic light
+    // filter can otherwise return "Sugar/Cardamom/Raisin" (sweet filler from a
+    // name like "sweet potato") on a soup that needs produce instead.
+    if (/soup|shorba|rasam|charu|saar|broth|stew|thenthuk|thukpa/.test(name)) {
+        return soupPantryFill(name);
+    }
+    // A rice-based sweet (kheer/payasam/haalbai/pudding) carries its rice main.
+    if (/kheer|payasam|payesh|phirni|haalbai|pudding/.test(name) && (/\brice\b|vermicelli|seviya|semoovina/.test(name) || items.some(i => /rice|vermicelli/i.test(i.name)))) {
+        const dai: Ingredient[] = [
+            { name: /vermicelli|seviya|semoovina/.test(name) ? 'Vermicelli' : 'Basmati Rice', quantity: 0.5, unit: 'cup', category: 'grains', inStock: false },
+            { name: 'Milk', quantity: 2, unit: 'cup', category: 'dairy', inStock: false },
+            { name: 'Sugar', quantity: 3, unit: 'tbsp', category: 'pantry', inStock: false },
+            { name: 'Cardamom', quantity: 2, unit: 'pods', category: 'spices', inStock: false },
+            { name: 'Raisins', quantity: 1, unit: 'tbsp', category: 'pantry', inStock: false },
+            { name: 'Almonds', quantity: 1, unit: 'tbsp', category: 'pantry', inStock: false },
+        ];
+        if (/coconut|haalbai/.test(name) || items.some(i => /coconut/i.test(i.name))) {
+            dai.push({ name: 'Coconut', quantity: 3, unit: 'tbsp', category: 'produce', inStock: false });
+        }
+        return dai;
+    }
+    if (filtered.length >= 3 && substantive) return filtered;
     if (/lassi|chaas|buttermilk/.test(name)) {
         return [
             { name: 'Yogurt', quantity: 1, unit: 'cup', category: 'dairy', inStock: false },
@@ -1400,21 +1628,7 @@ function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }): 
                     ];
     }
     if (/soup|shorba|rasam|charu|saar|broth|stew|thukpa|thenthuk|noodle/.test(name)) {
-        const protein: Ingredient[] = /chicken/.test(name)
-            ? [{ name: 'Chicken', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
-            : /mutton|yakhni|paya|lamb/.test(name)
-                ? [{ name: 'Mutton', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
-                : /pork|phagshapa/.test(name)
-                    ? [{ name: 'Pork', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
-                    : [];
-        return [
-            ...protein,
-            { name: 'Onion', quantity: 1, unit: 'pc', category: 'produce', inStock: false },
-            { name: 'Tomato', quantity: 2, unit: 'pc', category: 'produce', inStock: false },
-            { name: 'Water', quantity: 2, unit: 'cup', category: 'pantry', inStock: false },
-            { name: 'Black Pepper', quantity: 0.5, unit: 'tsp', category: 'spices', inStock: false },
-            { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce', inStock: false },
-        ] as Ingredient[];
+        return soupPantryFill(name);
     }
     if (/coffee|espresso|americano|macchiato|cortado/.test(name)) {
         return [
@@ -1458,13 +1672,17 @@ export function getIngredientsForMealOption(
         }
         if (!variant) variant = dish.variants[0];
         if (variant) {
-            const r: Ingredient[] = [...(variant.ingredients || [])];
+            let r: Ingredient[] = [...(variant.ingredients || [])];
 
             // EXPLICIT recipe wins — trust it fully. But a PLACEHOLDER filler
             // (Salt/Pepper/Coriander) is not a recipe → fall through so the
             // inference + completeness chain fills the real ingredients.
             if (r.length > 0 && !isPlaceholderIngredients(r)) {
                 if (categorySelections) r.push(...getIngredientsFromCategorySelections(categorySelections));
+                // A real-but-incomplete recipe still MUST carry the dish's main
+                // (e.g. the stir-fry base list on Chicken Manchurian's dry
+                // variant). Infer the name-implied mains and append any missing.
+                r = ensureNameMains(r, dishId, resolveDisplayName(dish.name, variant), dish.type);
                 INGREDIENT_CACHE.set(cacheKey, r);
                 return r;
             }
@@ -1504,7 +1722,11 @@ export function getIngredientsForMealOption(
                 }
             }
             if (categorySelections) r.push(...getIngredientsFromCategorySelections(categorySelections));
-            const finalVariant = isLightCategory(dish) ? lightFilterWithFallback(r, dish) : r;
+            // Guarantee the dish's namesake main is present even after the
+            // inference + completeness chain (base-only/sabzi placeholders).
+            // Applied AFTER the light filter so the main can't be re-stripped.
+            const filtered = isLightCategory(dish) ? lightFilterWithFallback(r, dish) : r;
+            const finalVariant = ensureNameMains(filtered, dishId, variantInclusiveName, dish.type);
             INGREDIENT_CACHE.set(cacheKey, finalVariant);
             return finalVariant;
         }
@@ -1800,9 +2022,19 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
     if ((nameLower.includes('bhindi') || nameLower.includes('sabzi')) && !existingNames.has('tomatoes'))
         result.push({ name: 'Tomatoes', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
     if ((nameLower.includes('aloo') || nameLower.includes('potato')) && !existingNames.has('potatoes'))
-        result.push({ name: 'Potatoes', quantity: 0.5, unit: 'pc', category: 'produce', inStock: false });
-    if (nameLower.includes('gobhi') || nameLower.includes('cauliflower'))
-        result.push({ name: 'Cauliflower', quantity: 0.33, unit: 'pc', category: 'produce', inStock: false });
+        result.push({ name: 'Potatoes', quantity: 3, unit: 'pc', category: 'produce', inStock: false });
+    if (nameLower.includes('gobhi') || nameLower.includes('cauliflower') && !existingNames.has('cauliflower'))
+        result.push({ name: 'Cauliflower', quantity: 200, unit: 'g', category: 'produce', inStock: false });
+    // INF-MATAR: green peas main-ingredient (mirrors inferIngredientsFromDishId) — token-delimited
+    if (!(/(?:^|[\s-])black[\s-]?eyed[\s-]peas?(?:\b|[\s-]|$)/.test(nameLower)
+          || /(?:^|[\s-])lobiya(?:\b|[\s-]|$)/.test(nameLower)
+          || /(?:^|[\s-])tamatar(?:\b|[\s-]|$)/.test(nameLower))
+        && (/(?:^|[\s-])matar(?:\b|[\s-]|$)/.test(nameLower)
+            || /(?:^|[\s-])green[\s-]+peas?(?:\b|[\s-]|$)/.test(nameLower)
+            || /(?:^|[\s-])peas?(?:\b|[\s-]|$)/.test(nameLower))
+        && !existingNames.has('green peas')) {
+        result.push({ name: 'Green Peas', quantity: 100, unit: 'g', category: 'produce', inStock: false });
+    }
 
     if ((nameLower.includes('dahi') || nameLower.includes('bhalla') || nameLower.includes('chaat')) && !existingNames.has('yogurt'))
         result.push({ name: 'Yogurt', quantity: 100, unit: 'g', category: 'dairy', inStock: false });

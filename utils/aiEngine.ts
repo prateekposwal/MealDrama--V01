@@ -7,7 +7,8 @@
  * DIET_FILTER, region ordering). No external AI service is involved.
  */
 import { DISH_LIBRARY, type Dish } from '../meal/constants/dishLibrary';
-import { DIET_FILTER, selectTryThese, getRegionKey } from './dishSearch';
+import { DIET_FILTER, getRegionKey } from './dishSearch';
+import { nextSuggestionBatch } from '../plan/utils/suggestionRotation';
 
 const SLOT_KEYS = ['breakfast', 'lunch', 'dinner', 'snacks'] as const;
 
@@ -44,14 +45,16 @@ function pantryOverlap(dish: Dish, pantry?: string[]): number {
   return Math.min(1, hits / Math.min(pantry.length, 3));
 }
 
-function slotItemsFor(diet: string, regionKey: string): Record<string, Dish[]> {
+function slotItemsFor(diet: string, regionKey: string, scope?: string | null, excludeIds?: string[]): Record<string, Dish[]> {
   const out: Record<string, Dish[]> = {};
   for (const slot of SLOT_KEYS) {
-    const picks = selectTryThese(DISH_LIBRARY, {
+    const picks = nextSuggestionBatch(DISH_LIBRARY, {
       userDiet: diet,
       regionKey,
       plannedSlots: [slot],
       maxPerSlot: 6,
+      scope,
+      excludeIds,
     });
     const aliases = SLOT_ALIASES[slot];
     if (!aliases) continue;
@@ -87,9 +90,11 @@ export async function fetchAISuggestions(
   trayLibrary: Record<string, unknown> | unknown,
   diet: string,
   preferredRegions: string[],
+  scope?: string | null,
+  excludeIds?: string[],
 ): Promise<Record<string, { id: string; name: string; region: string; calories: number; protein: number; slots: string[] }[]> | null> {
   const regionKey = regionKeyFrom(preferredRegions);
-  const perSlot = slotItemsFor(diet, regionKey);
+  const perSlot = slotItemsFor(diet, regionKey, scope, excludeIds);
   const suggestions: Record<string, ReturnType<typeof toSuggestionItem>[]> = {};
   for (const slot of SLOT_KEYS) {
     suggestions[slot] = (perSlot[slot] ?? []).map((d) => toSuggestionItem(d, slot));

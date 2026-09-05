@@ -28,7 +28,7 @@ import { PlateBalanceVisualizer } from '../components/health/PlateBalanceVisuali
 import { scorePlateBalance } from '../utils/nutritionScore';
 import { DISH_HEALTH_MAP, COMPONENT_HEALTH_MAP } from '../app/constants/healthGuidelines';
 import { getRegionKey, selectTryThese, goalToDishHealthFilter, dishHealthMatchScore } from '../utils/dishSearch';
-import { nextSuggestionBatch, recordSuggestions } from '../plan/utils/suggestionRotation';
+import { nextSuggestionBatch } from '../plan/utils/suggestionRotation';
 import { useHouseholdFeedStore, sharedItemsForDate } from '../plan/store/householdFeedStore';
 import { useHouseholdKitchenStore } from '../plan/store/householdKitchenStore';
 import { allowedTypesForDiet } from '../utils/dietQuota';
@@ -603,7 +603,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
       let cancelled = false;
       (async () => {
         setAiLoading(true);
-        const result = await fetchAISuggestions({}, userDiet, (user as any)?.preferredRegions?.length ? (user as any).preferredRegions : [regionKey]);
+        const result = await fetchAISuggestions({}, userDiet, (user as any)?.preferredRegions?.length ? (user as any).preferredRegions : [regionKey], user?.id, addedDishIds);
         if (!cancelled) {
           setAiSuggestions(result);
           setAiLoading(false);
@@ -1212,9 +1212,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                         items.push({id:d.id,name:d.name,region:d.region});
                                     }
                                 }
-                                // Record AI-curated ids too (per-user scope), so
-                                // the daily rotation never re-offers them.
-                                recordSuggestions(items.map(i => i.id), user?.id);
+                                // Return suggestions region-first for display.
                                 return orderSuggestionsRegionFirst(items, regionKey, dishes).map(d => (
                                     <button key={`ai-${d.id}`} onClick={() => {
                                         const dish = dishes.find(dh => dh.id === d.id);
