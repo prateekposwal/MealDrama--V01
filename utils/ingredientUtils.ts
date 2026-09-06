@@ -542,6 +542,11 @@ function aggregateIngredients(
 // FIX-01: Infer ingredients from dishId when dish not found in local catalog
 function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?: string): Ingredient[] {
     const idLower = dishId.toLowerCase();
+    // Token view of the slug — short regional protein words ('nga', 'doh',
+    // 'dim', 'macchi') must not false-fire inside longer tokens
+    // ('baingan', 'pongal', 'jadoh', 'macchiato').
+    const idTokens = new Set(idLower.split(/[^a-z0-9]+/).filter(Boolean));
+    const nonVegDish = dishType !== 'veg' && dishType !== 'vegan';
     const result: Ingredient[] = [];
 
     // Variant-aware protein inference: only run when dishName adds new info beyond dishId
@@ -557,14 +562,23 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
             return boundRe.test(n);
         };
 
-        if (hasKeyword('Chicken') && !hasKeyword('Chickpea') && !n.includes('chick')) {
+        // Regional chicken words (Kundapura koli, Kerala kozhi) in the dish NAME
+        if ((hasKeyword('Chicken') || hasKeyword('Koli') || hasKeyword('Kozhi')) && !hasKeyword('Chickpea') && !n.includes('chick')) {
             result.push({ name: 'Chicken', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
         }
-        if (hasKeyword('Mutton') || hasKeyword('Lamb') || hasKeyword('Goat')) {
+        // Regional mutton words (erachi/botti/nalli) — non-veg contexts only
+        if (hasKeyword('Mutton') || hasKeyword('Lamb') || hasKeyword('Goat')
+            || (nonVegDish && (hasKeyword('Erachi') || hasKeyword('Botti') || hasKeyword('Nalli')))) {
             result.push({ name: 'Mutton', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
         }
-        if (hasKeyword('Fish') || hasKeyword('Prawn') || hasKeyword('Shrimp') || hasKeyword('Seafood')) {
+        // Regional fish words (maach/nga/meen/macchi/nakham) — non-veg contexts only.
+        // Word-boundary safe: 'macchiato' never matches 'macchi', 'pongal' never 'nga'.
+        if (hasKeyword('Fish') || hasKeyword('Prawn') || hasKeyword('Shrimp') || hasKeyword('Seafood')
+            || (nonVegDish && (hasKeyword('Maach') || hasKeyword('Meen') || hasKeyword('Macchi') || hasKeyword('Nga') || hasKeyword('Nakham')))) {
             result.push({ name: 'Fish', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
+        }
+        if (hasKeyword('Crab') || (nonVegDish && hasKeyword('Nandu'))) {
+            result.push({ name: 'Crab', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
         }
         if (hasKeyword('Paneer') || hasKeyword('Cottage Cheese')) {
             result.push({ name: 'Paneer', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
@@ -572,13 +586,14 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
         if ((hasKeyword('Veg') || hasKeyword('Vegetable') || hasKeyword('Mixed')) && !n.includes('non-veg') && !n.includes('meat') && !n.includes('veggie') && !n.includes('vegetarian')) {
             result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
         }
-        if (hasKeyword('Egg') && !n.includes('veggie') && !n.includes('eggless') && !hasKeyword('Eggplant') && !n.includes('baingan') && !n.includes('brinjal')) {
+        if ((hasKeyword('Egg') || hasKeyword('Dim')) && !n.includes('veggie') && !n.includes('eggless') && !hasKeyword('Eggplant') && !n.includes('baingan') && !n.includes('brinjal')) {
             result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
         }
         if (hasKeyword('Beef')) {
             result.push({ name: 'Beef', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
         }
-        if (hasKeyword('Pork')) {
+        // Regional pork words (vawksa, doh) — 'doh' is boundary-safe (jadoh/pudoh never match)
+        if (hasKeyword('Pork') || hasKeyword('Vawksa') || hasKeyword('Doh')) {
             result.push({ name: 'Pork', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
         }
     }
@@ -634,20 +649,26 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
         result.push({ name: 'Mixed Vegetables', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
     }
     // INF-05: Egg inference (from dishId) — skip for vegan dishes
-    if (dishType !== 'vegan' && idLower.includes('egg') && !idLower.includes('veggie') && !idLower.includes('eggless') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
+    if (dishType !== 'vegan' && (idLower.includes('egg') || idTokens.has('dim')) && !idLower.includes('veggie') && !idLower.includes('eggless') && !idLower.includes('eggplant') && !idLower.includes('baingan') && !idLower.includes('brinjal')) {
         result.push({ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('chicken') || idLower.includes('meat') || idLower.includes('kozhi')) {
+    if (idLower.includes('chicken') || idLower.includes('meat') || idLower.includes('kozhi') || idTokens.has('koli')) {
         result.push({ name: 'Chicken', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
     if (idLower.includes('paneer')) {
         result.push({ name: 'Paneer', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('mutton') || idLower.includes('lamb') || idLower.includes('gosht') || idLower.includes('bakra')) {
+    if (idLower.includes('mutton') || idLower.includes('lamb') || idLower.includes('gosht') || idLower.includes('bakra')
+        || (nonVegDish && (idTokens.has('erachi') || idTokens.has('botti') || idTokens.has('nalli')))) {
         result.push({ name: 'Mutton', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('fish') || idLower.includes('meen') || idLower.includes('machher') || idLower.includes('kadal')) {
+    if (idLower.includes('fish') || idLower.includes('meen') || idLower.includes('machher') || idLower.includes('kadal')
+        || (nonVegDish && (idTokens.has('maach') || idTokens.has('nga') || idTokens.has('macchi') || idTokens.has('nakham')))) {
         result.push({ name: 'Fish', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
+    }
+    // Regional pork inference (vawksa/doh) — token-gated so jadoh/pudoh never fire
+    if (idTokens.has('vawksa') || idTokens.has('doh')) {
+        result.push({ name: 'Pork', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
     
     // Grain inference from dishId patterns
@@ -828,7 +849,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     if (idLower.includes('prawn') || idLower.includes('chingri') || idLower.includes('shrimp')) {
         result.push({ name: 'Prawns', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('crab') || idLower.includes('daab-chingri')) {
+    if (idLower.includes('crab') || idLower.includes('daab-chingri') || idTokens.has('nandu')) {
         result.push({ name: 'Crab', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
     if (idLower.includes('ilish') || idLower.includes('bhetki') || idLower.includes('rohu') || idLower.includes('salmon') || idLower.includes('trout')) {
@@ -1446,10 +1467,13 @@ const MAIN_ALIASES: Record<string, string[]> = {
   'masoor dal': ['red lentil'],
   'moong dal': ['moong'],
   'mushrooms': ['mushroom'],
-  'fish': ['machher', 'meen', 'ilish', 'rohu', 'bangda', 'kadal'],
-  'mutton': ['gosht'],
+  'chicken': ['koli', 'kozhi'],
+  'fish': ['machher', 'meen', 'ilish', 'rohu', 'bangda', 'kadal', 'maach', 'macchi', 'nakham'],
+  'mutton': ['gosht', 'erachi', 'botti', 'nalli'],
   'carrot': ['gajar'],
-  'eggs': ['anda'],
+  'eggs': ['anda', 'dim'],
+  'crab': ['nandu'],
+  'pork': ['vawksa', 'doh'],
 };
 
 function singularize(word: string): string {
@@ -1526,15 +1550,29 @@ function lightFilter(items: Ingredient[]): Ingredient[] {
 }
 
 /** Soup/stew/broth pantry fill — protein + the produce the soup is named after
- *  (never a nameless broth: Palak Soup → Spinach, Carrot Soup → Carrot). */
-function soupPantryFill(name: string): Ingredient[] {
-    const protein: Ingredient[] = /chicken|kozhi/.test(name)
+ *  (never a nameless broth: Palak Soup → Spinach, Carrot Soup → Carrot).
+ *  `name` is the VARIANT-inclusive name (a protein living in the variant —
+ *  thukpa-chicken, thenthuk-chicken — must be seen here); `existing` holds the
+ *  pre-filter items so a protein already resolved from the variant's own
+ *  name/id is KEPT, never stripped. Genuine veg soups stay light (no protein).
+ */
+function soupPantryFill(name: string, existing: Ingredient[] = []): Ingredient[] {
+    // Boundary-safe regional alternates — 'macchiato' never matches 'macchi',
+    // 'pongal'/'baingan' never 'nga', 'jadoh'/'pudoh'/'veggie' never 'doh'/'egg'.
+    const hasWord = (w: string) => new RegExp(`(?:^|[\\s-])${w}s?(?:[\\s-]|$)`).test(name);
+    const protein: Ingredient[] = /chicken|kozhi/.test(name) || hasWord('koli')
         ? [{ name: 'Chicken', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
-        : /mutton|yakhni|paya|lamb/.test(name)
+        : /mutton|yakhni|paya|lamb/.test(name) || hasWord('erachi') || hasWord('botti') || hasWord('nalli')
             ? [{ name: 'Mutton', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
-            : /pork|phagshapa/.test(name)
+            : /pork|phagshapa/.test(name) || hasWord('vawksa') || hasWord('doh')
                 ? [{ name: 'Pork', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
-                : [];
+                : /fish|maach|meen|machher/.test(name) || hasWord('nga') || hasWord('macchi') || hasWord('nakham')
+                    ? [{ name: 'Fish', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+                    : /crab/.test(name) || hasWord('nandu')
+                        ? [{ name: 'Crab', quantity: 150, unit: 'g', category: 'proteins', inStock: false }]
+                        : /anda/.test(name) || hasWord('egg') || hasWord('dim')
+                            ? [{ name: 'Eggs', quantity: 2, unit: 'pcs', category: 'proteins', inStock: false }]
+                            : [];
     const namedProduce: Ingredient[] = /palak|spinach/.test(name)
         ? [{ name: 'Spinach', quantity: 100, unit: 'g', category: 'produce', inStock: false }]
         : /carrot|gajar/.test(name)
@@ -1546,6 +1584,12 @@ function soupPantryFill(name: string): Ingredient[] {
                     : /broccoli/.test(name)
                         ? [{ name: 'Broccoli', quantity: 100, unit: 'g', category: 'produce', inStock: false }]
                         : [];
+    // A protein already resolved from the variant's own name/id is REAL — the
+    // fill may add aromatics but must never replace it. Same implication gate
+    // as ensureNameMains (mainImpliedByDish) so a generic dal/lentil inference
+    // (Mixed Dal from a 'lentil' substring) is NOT preserved on a dish whose
+    // name never implies it — only variant-sourced proteins survive the fill.
+    const preserved = existing.filter(i => i.category === 'proteins' && mainImpliedByDish(i, '', name) && !protein.some(p => p.name.toLowerCase() === i.name.toLowerCase()));
     return [
         ...protein,
         ...namedProduce,
@@ -1554,22 +1598,27 @@ function soupPantryFill(name: string): Ingredient[] {
         { name: 'Water', quantity: 2, unit: 'cup', category: 'pantry', inStock: false },
         { name: 'Black Pepper', quantity: 0.5, unit: 'tsp', category: 'spices', inStock: false },
         { name: 'Coriander Leaves', quantity: 0.25, unit: 'cup', category: 'produce', inStock: false },
+        ...preserved,
     ] as Ingredient[];
 }
 
 /** Light dish with nothing after filtering → a minimal role-based fill is
  *  better than empty (charg/lassi/soup are never groceries-empty). */
-function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }): Ingredient[] {
+function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }, variantName?: string): Ingredient[] {
     const filtered = lightFilter(items);
     // Only generic-ish tokens (water/sugar/lemon) don't make a pantry fill —
     // fall through to the role-based list so chang/lassi/soup are never hollow.
     const substantive = filtered.some(i => !['water', 'sugar', 'lemon', 'tea leaves', 'coconut', 'milk', 'ice'].includes(i.name.toLowerCase()));
     const name = (dish.name || '').toLowerCase();
+    // The soup fill reads the VARIANT-inclusive name so a protein that lives in
+    // the variant (thukpa-chicken, thenthuk-chicken) is neither missed nor
+    // stripped; the dish name alone decides WHICH branch (soup/kheer/...).
+    const fillName = (variantName || dish.name || '').toLowerCase();
     // A SOUP/STEW/BROTH always gets the soup pantry fill — the generic light
     // filter can otherwise return "Sugar/Cardamom/Raisin" (sweet filler from a
     // name like "sweet potato") on a soup that needs produce instead.
     if (/soup|shorba|rasam|charu|saar|broth|stew|thenthuk|thukpa/.test(name)) {
-        return soupPantryFill(name);
+        return soupPantryFill(fillName, items);
     }
     // A rice-based sweet (kheer/payasam/haalbai/pudding) carries its rice main.
     if (/kheer|payasam|payesh|phirni|haalbai|pudding/.test(name) && (/\brice\b|vermicelli|seviya|semoovina/.test(name) || items.some(i => /rice|vermicelli/i.test(i.name)))) {
@@ -1629,7 +1678,7 @@ function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }): 
                     ];
     }
     if (/soup|shorba|rasam|charu|saar|broth|stew|thukpa|thenthuk|noodle/.test(name)) {
-        return soupPantryFill(name);
+        return soupPantryFill(fillName, items);
     }
     if (/coffee|espresso|americano|macchiato|cortado/.test(name)) {
         return [
@@ -1726,7 +1775,7 @@ export function getIngredientsForMealOption(
             // Guarantee the dish's namesake main is present even after the
             // inference + completeness chain (base-only/sabzi placeholders).
             // Applied AFTER the light filter so the main can't be re-stripped.
-            const filtered = isLightCategory(dish) ? lightFilterWithFallback(r, dish) : r;
+            const filtered = isLightCategory(dish) ? lightFilterWithFallback(r, dish, variantInclusiveName) : r;
             const finalVariant = ensureNameMains(filtered, dishId, variantInclusiveName, dish.type);
             INGREDIENT_CACHE.set(cacheKey, finalVariant);
             return finalVariant;
