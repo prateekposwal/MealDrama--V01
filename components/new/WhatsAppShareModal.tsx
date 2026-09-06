@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { X, Phone, MessageCircle, Volume2, Check, Copy, Download, Square, Languages } from 'lucide-react';
-import type { ShareLanguage as _Lang6 } from '../../utils/share';
+import type { ShareLanguage as _Lang6 } from '../../utils/shareMessages';
 import { ALL_LANGUAGES, LANG_TTS_MAP, renderSharePreview, messageCharCount, WHATSAPP_LIMIT, SHARE_STRINGS } from '../../utils/shareMessages';
 import type { ShareLanguage } from '../../utils/shareMessages';
 import { useStore } from '../../app/store/useStore';

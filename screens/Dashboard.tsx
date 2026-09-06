@@ -38,7 +38,7 @@ import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { dishToMeal } from '../utils/dishToMeal';
 import { suggestionToMeal, orderSuggestionsRegionFirst } from '../utils/suggestionUtils';
-import { getShareStrings, ShareLanguage, SLOT_LABELS } from '../utils/share';
+import { getShareStrings, ShareLanguage, SLOT_LABELS } from '../utils/shareMessages';
 import { fetchAISuggestions } from '../utils/aiEngine';
 import { classifySuggestion } from '../utils/classifySuggestion';
 import { inferDishHealthCategories } from '../utils/inferDishHealthCategories';

@@ -274,3 +274,58 @@ describe('loop store — cycle-length tray + plan-index refresh', () => {
     });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T16 — undoLoopChange side-effect scope (audit gap 4)
+// undoLoopChange (useLoopStore.ts:576-590) pops undoStack[0] and restores ONLY
+// loop-store fields: config, sourceDishIds, rotationQueue, rotationPointer,
+// analytics. It does NOT revert the trayLibrary auto-fill or the merged
+// future plan.days that applyLoopConfig performed — those side effects stick.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('T16 — undoLoopChange does NOT revert tray/plan side effects', () => {
+  it('restores loop config/rotation, but auto-filled trayLibrary and merged plan.days survive', () => {
+    seedTray(2);
+    const bigPool = makeBigPool(15);
+
+    // 7-day loop first.
+    useLoopStore.getState().applyLoopConfig(configFor(7), bigPool, flatDishes(bigPool));
+    const seven = useLoopStore.getState().mealLoop;
+    const sevenQueue = seven.rotationQueue;
+    const sevenPointer = seven.rotationPointer;
+    expect(seven.config?.cycleLength).toBe(7);
+
+    const trayBeforeIncrease = SLOTS.reduce((sum, s) => sum + useStore.getState().trayLibrary[s].length, 0);
+
+    // Cycle-length INCREASE (7 → 14): auto-fills trayLibrary + merges future plan.days.
+    useLoopStore.getState().applyLoopConfig(configFor(14), makeBigPool(15), flatDishes(makeBigPool(15)));
+
+    const trayAfterIncrease = SLOTS.reduce((sum, s) => sum + useStore.getState().trayLibrary[s].length, 0);
+    expect(trayAfterIncrease).toBeGreaterThan(trayBeforeIncrease); // the fill actually happened
+
+    const planDaysAfterIncrease = Object.keys(useTrayStore.getState().plan.days);
+    expect(planDaysAfterIncrease.length).toBeGreaterThan(0);
+    const futureDate = planDaysAfterIncrease[planDaysAfterIncrease.length - 1]!;
+    const futureLunchAfter = useTrayStore.getState().plan.days[futureDate]!.lunch.length;
+    expect(futureLunchAfter).toBeGreaterThan(0);
+
+    // ─── undo ─────────────────────────────────────────────────────────────
+    useLoopStore.getState().undoLoopChange();
+    const ml = useLoopStore.getState().mealLoop;
+
+    // (a) loop config/rotation restored to the prior (7-day) state.
+    expect(ml.config?.cycleLength).toBe(7);
+    expect(ml.rotationQueue).toBe(sevenQueue);     // exact pre-change queue reference
+    expect(ml.rotationPointer).toBe(sevenPointer);
+
+    // (b) trayLibrary STILL holds the auto-filled items (not reverted).
+    const trayAfterUndo = SLOTS.reduce((sum, s) => sum + useStore.getState().trayLibrary[s].length, 0);
+    expect(trayAfterUndo).toBe(trayAfterIncrease);
+
+    // (c) merged future plan.days slots STILL populated (merge not reverted).
+    const planDaysAfterUndo = Object.keys(useTrayStore.getState().plan.days);
+    expect(planDaysAfterUndo).toEqual(planDaysAfterIncrease);
+    expect(useTrayStore.getState().plan.days[futureDate]!.lunch.length).toBe(futureLunchAfter);
+
+    // (d) no crash — reached here.
+  });
+});

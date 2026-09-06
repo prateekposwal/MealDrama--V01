@@ -19,6 +19,20 @@ describe('SHARE_STRINGS — all 10 languages, native script, default English', (
     }
   });
 
+  it('every language carries the FULL canonical SHARE_STRINGS shape (no silent field loss)', () => {
+    // Canonical shape derives from the English entry at runtime, so a NEW field
+    // added to the shape is automatically required for ALL languages.
+    const KEYS = Object.keys(SHARE_STRINGS.en) as (keyof typeof SHARE_STRINGS.en)[];
+    expect(KEYS.length).toBeGreaterThanOrEqual(21); // guard: shape can only grow
+    for (const lang of LANGS) {
+      const s = SHARE_STRINGS[lang as ShareLanguage];
+      for (const key of KEYS) {
+        expect(typeof s[key], `${lang}.${key}`).toBe('string');
+        expect(s[key].length, `${lang}.${key}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('regional titles are in NATIVE script (not romanized)', () => {
     const hiTitle = SHARE_STRINGS.hi.dailyTitle;
     const knTitle = SHARE_STRINGS.kn.dailyTitle;
@@ -77,6 +91,21 @@ describe('messageCharCount / WHATSAPP_LIMIT', () => {
 });
 
 describe('recipeShareForDish — honest style-guide recipe share', () => {
+  // Same sample input as the English recipe test above — the ONLY thing
+  // that changes for kn/ml is the structural language.
+  const recipeSample = {
+    name: 'Butter Chicken',
+    icon: '🍗',
+    region: 'north',
+    type: 'non-veg',
+    cookingStyle: 'tadka',
+    ingredients: [
+      { name: 'Chicken', quantity: 250, unit: 'g', category: 'proteins' },
+      { name: 'Tomato', quantity: 2, unit: 'pc', category: 'produce' },
+    ],
+    pairings: { sides: ['Roti', 'Rice'], beverages: ['Buttermilk'] },
+  };
+
   it('builds a recipe with ingredients, pairings, style steps and disclaimer', () => {
     const msg = recipeShareForDish({
       name: 'Butter Chicken',
@@ -105,6 +134,52 @@ describe('recipeShareForDish — honest style-guide recipe share', () => {
       ingredients: [{ name: 'Palak', quantity: 100, unit: 'g', category: 'produce' }],
     }, 'hi');
     expect(/[\u0900-\u097F]/.test(msg)).toBe(true); // Devanagari in the local output
+  });
+
+  it('localizes the recipe to KANNADA — its OWN titles, never the English fallback', () => {
+    const msg = recipeShareForDish(recipeSample, 'kn');
+    const kn = SHARE_STRINGS.kn;
+    const en = SHARE_STRINGS.en;
+
+    // Kannada's own structural titles are present…
+    expect(msg).toContain(kn.pantryFor);
+    expect(msg).toContain(kn.recipeTitle);
+    expect(msg).toContain(kn.sentFrom);
+    // …and the English fallback titles are absent.
+    expect(msg).not.toContain(en.pantryFor);
+    expect(msg).not.toContain(en.recipeTitle);
+    expect(msg).not.toContain(en.sentFrom);
+
+    // Dish name + at least one ingredient line pass through as-is.
+    expect(msg).toContain('Butter Chicken');
+    expect(msg).toContain('Chicken — 250g');
+
+    // Kannada script present; message fits WhatsApp.
+    expect(/[\u0C80-\u0CFF]/.test(msg)).toBe(true);
+    expect(messageCharCount(msg)).toBeLessThanOrEqual(WHATSAPP_LIMIT);
+  });
+
+  it('localizes the recipe to MALAYALAM — its OWN titles, never the English fallback', () => {
+    const msg = recipeShareForDish(recipeSample, 'ml');
+    const ml = SHARE_STRINGS.ml;
+    const en = SHARE_STRINGS.en;
+
+    // Malayalam's own structural titles are present…
+    expect(msg).toContain(ml.pantryFor);
+    expect(msg).toContain(ml.recipeTitle);
+    expect(msg).toContain(ml.sentFrom);
+    // …and the English fallback titles are absent.
+    expect(msg).not.toContain(en.pantryFor);
+    expect(msg).not.toContain(en.recipeTitle);
+    expect(msg).not.toContain(en.sentFrom);
+
+    // Dish name + at least one ingredient line pass through as-is.
+    expect(msg).toContain('Butter Chicken');
+    expect(msg).toContain('Chicken — 250g');
+
+    // Malayalam script present; message fits WhatsApp.
+    expect(/[\u0D00-\u0D7F]/.test(msg)).toBe(true);
+    expect(messageCharCount(msg)).toBeLessThanOrEqual(WHATSAPP_LIMIT);
   });
 
   it('returns an empty only-if no ingredients/style (structure still present)', () => {

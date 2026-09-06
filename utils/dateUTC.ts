@@ -79,11 +79,15 @@ export function addDaysISO(iso: string, days: number): string {
  * without locale string parsing ambiguity.
  */
 export function getISTTime(d: Date = new Date()): { hours: number; minutes: number } {
+  // hourCycle: 'h23' (NOT hour12: false) — ECMA-402 lets hour12 override
+  // hourCycle, and hour12:false resolves to locale-default h23 OR h24. Some
+  // ICU builds pick h24, which formats midnight as "24" and breaks the
+  // 18:30Z → 00:00 IST boundary. h23 pins midnight to 00 everywhere.
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: IST_TIMEZONE,
     hour: 'numeric',
     minute: 'numeric',
-    hour12: false,
+    hourCycle: 'h23',
   });
   const parts = formatter.formatToParts(d);
   const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
