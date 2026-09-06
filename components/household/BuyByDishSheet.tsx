@@ -1,6 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { BuyDishGroup, BuySummary, RadarUse, categoryGroups, allMissingItems, applyAssumptions, BUY_CATEGORY_META, serializeAssumptions, parseAssumptions } from '../../utils/buyByDish';
+import { useBackButtonClose } from '../../hooks/useBackButtonClose';
+import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
 
 const ASSUME_KEY = 'md-buy-assumptions';
 function loadAssumptions() {
@@ -41,6 +43,8 @@ export const BuyByDishSheet: React.FC<{
   const [notHave, setNotHave] = useState<Set<string>>(seeds.nh);
   const [lastManual, setLastManual] = useState<string | null>(null);
   useEffect(() => { saveAssumptions(manualHave, notHave); }, [manualHave, notHave]);
+  useLockBodyScroll(open);
+  useBackButtonClose(open, onClose);
   const syncAssumption = (name: string, flag: 'have' | 'notHave' | null) => { onAssumption?.(name, flag); };
 
   // Recompute everything against the "I already have" set — batch buys never
@@ -107,48 +111,48 @@ export const BuyByDishSheet: React.FC<{
         <div className="shrink-0 px-5 pt-4 pb-3 border-b border-gray-100">
           <div className="flex items-center justify-between mb-2">
             <p className="text-base font-black text-gray-900">🛒 Buy · grouped</p>
-            <button onClick={onClose} className="w-8 h-8 rounded-xl bg-gray-100 flex items-center justify-center active:scale-90 transition-all" aria-label="Close"><X size={14} className="text-gray-500" /></button>
+            <button onClick={onClose} className="w-11 h-11 rounded-xl bg-gray-100 flex items-center justify-center active:scale-90 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 shrink-0" aria-label="Close"><X size={18} className="text-gray-500" /></button>
           </div>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="text-sm font-black text-orange-600">❌ {itemsToBuy} to buy</span>
               <span className="text-xs font-bold text-gray-400">· {dishes} dish{dishes === 1 ? '' : 'es'}</span>
-              {itemsHave > 0 && <span className="text-[11px] font-bold text-amber-600 bg-amber-50 rounded-full px-2 py-0.5">🟡 {itemsHave} have</span>}
-              {delta > 0 && <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">🛒 +{delta} bought</span>}
+              {itemsHave > 0 && <span className="text-xs font-bold text-amber-600 bg-amber-50 rounded-full px-2.5 py-1">🟡 {itemsHave} have</span>}
+              {delta > 0 && <span className="text-xs font-bold text-emerald-600 bg-emerald-50 rounded-full px-2.5 py-1">🛒 +{delta} bought</span>}
             </div>
-            <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-0.5">
+            <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
               {(['dish', 'category', 'cart'] as const).map(m => (
                 <button
                   key={m}
                   onClick={() => setView(m)}
-                  className={`px-2 py-1 rounded-lg text-[11px] font-bold active:scale-95 transition-all capitalize ${view === m ? 'bg-white shadow text-gray-900' : 'text-gray-400'}`}
+                  className={`inline-flex items-center min-h-9 px-3 py-2 rounded-lg text-xs font-bold active:scale-95 transition-all capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 ${view === m ? 'bg-white shadow text-gray-900' : 'text-gray-400'}`}
                 >
                   {m === 'cart' ? `Cart (${cart.length})` : m}
                 </button>
               ))}
             </div>
           </div>
-          <p className="text-[10px] font-bold text-gray-400 mt-1.5">Legend: 🟡 = on your pantry list (assumed) — tap 🟡 to say you DON’T have it (moves to buy) · 🟡✓ = you marked have, tap to undo.</p>
+          <p className="text-[11px] font-bold text-gray-500 mt-1.5">Legend: 🟡 = on your pantry list (assumed) — tap 🟡 to say you DON’T have it (moves to buy) · 🟡✓ = you marked have, tap to undo.</p>
           {(itemsHave > 0 || itemsNotHave > 0) && (
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              {itemsHave > 0 && <span className="text-[11px] font-bold text-amber-700 bg-amber-50 rounded-full px-2 py-1">🟡✓ {itemsHave} have</span>}
-              {itemsNotHave > 0 && <span className="text-[11px] font-bold text-orange-600 bg-orange-50 rounded-full px-2 py-1">✗ {itemsNotHave} not have — will buy</span>}
+              {itemsHave > 0 && <span className="inline-flex items-center text-xs font-bold text-amber-700 bg-amber-50 rounded-full px-2.5 py-1.5">🟡✓ {itemsHave} have</span>}
+              {itemsNotHave > 0 && <span className="inline-flex items-center text-xs font-bold text-orange-600 bg-orange-50 rounded-full px-2.5 py-1.5">✗ {itemsNotHave} not have — will buy</span>}
               {lastManual && (
-                <button onClick={undoLast} className="text-[11px] font-black text-gray-500 bg-gray-100 rounded-full px-2 py-1 active:scale-95 transition-all">↩ Undo {lastManual}</button>
+                <button onClick={undoLast} className="inline-flex items-center min-h-8 text-xs font-black text-gray-500 bg-gray-100 rounded-full px-3 py-1.5 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50">↩ Undo {lastManual}</button>
               )}
-              <button onClick={undoAll} className="text-[11px] font-black text-red-500 bg-red-50 rounded-full px-2 py-1 active:scale-95 transition-all">Undo all</button>
+              <button onClick={undoAll} className="inline-flex items-center min-h-8 text-xs font-black text-red-500 bg-red-50 rounded-full px-3 py-1.5 active:scale-95 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50">Undo all</button>
             </div>
           )}
           <button
             onClick={() => missing.length > 0 && onBuyDish('*', missing)}
             disabled={missing.length === 0}
-            className="w-full mt-2 py-2.5 rounded-xl bg-orange-600 text-white text-xs font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-40"
+            className="w-full mt-2 py-3 rounded-xl bg-orange-600 text-white text-xs font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50"
           >
             Buy all missing ({missing.length})
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 12px))' }}>
           {g2.length === 0 && <p className="text-sm font-bold text-gray-400 py-8 text-center">Nothing to buy — kitchen is stocked 🎉</p>}
 
           {view === 'dish' && g2.map(g => (
@@ -161,13 +165,13 @@ export const BuyByDishSheet: React.FC<{
                 {g.hasMissing && (
                   <button
                     onClick={() => onBuyDish(g.key, g.items.filter(i => i.status === 'missing').map(i => ({ name: i.name, quantity: i.quantity, unit: i.unit })))}
-                    className="px-2.5 py-1 rounded-lg bg-orange-600 text-white text-[10px] font-bold active:scale-95 transition-all shrink-0"
+                    className="inline-flex items-center min-h-10 px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold active:scale-95 transition-all shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50"
                   >
                     Mark all bought
                   </button>
                 )}
               </div>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-2">
                 {g.items.map((i, idx) => {
                   const isManual = manualOf(i.name);
                   const isWontBuy = notHaveOf(i.name);
@@ -176,16 +180,17 @@ export const BuyByDishSheet: React.FC<{
                   return (
                     <button key={`${i.name}-${idx}`} onClick={() => clickable && toggleNotHave(i.name)}
                       title={orig === 'staple' ? (isWontBuy ? 'Tap to keep it on the pantry list (undo)' : 'Tap if you DON’T have it — move to buy') : i.status === 'missing' ? (isManual ? 'Tap to undo (no longer have?)' : 'Tap if you already have it') : i.status === 'staple' ? 'On pantry list (assumed)' : 'Logged quantity'}
-                      className={`text-[11px] font-bold rounded-full px-2 py-0.5 border active:scale-95 transition-all ${
+                      aria-pressed={isWontBuy || isManual}
+                      className={`inline-flex items-center justify-center min-h-11 px-3.5 py-2 text-[13px] font-bold leading-tight rounded-full border select-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 ${
                         i.status === 'missing'
                           ? isWontBuy
-                            ? 'bg-white text-orange-700 border-orange-300 ring-1 ring-orange-300'
-                            : 'bg-white text-orange-700 border-orange-200'
+                            ? 'bg-orange-50 text-orange-800 border-orange-400 ring-2 ring-orange-200 shadow-sm font-black'
+                            : 'bg-white text-orange-700 border-orange-300'
                           : isManual
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-200 font-black'
                             : i.status === 'staple'
-                              ? 'bg-amber-50 text-amber-700 border-amber-100 active:ring-1'
-                              : 'bg-white text-gray-400 border-gray-100'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-white text-gray-400 border-gray-200'
                       }`}>
                       {i.status === 'missing' ? '✗' : isManual ? '🟡✓' : i.status === 'staple' ? '🟡' : '✅'} {i.name} {i.quantity}{i.unit ?? ''}{(isManual || isWontBuy) ? ' ↩' : orig === 'staple' ? ' ▾' : ''}
                     </button>
@@ -206,13 +211,13 @@ export const BuyByDishSheet: React.FC<{
                   {cMissing.length > 0 && (
                     <button
                       onClick={() => onBuyDish(`cat:${c.category}`, cMissing.map(i => ({ name: i.name, quantity: i.quantity, unit: i.unit })))}
-                      className="px-2.5 py-1 rounded-lg bg-orange-600 text-white text-[10px] font-bold active:scale-95 transition-all shrink-0"
+                      className="inline-flex items-center min-h-10 px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-bold active:scale-95 transition-all shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50"
                     >
                       Mark bought
                     </button>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-2">
                   {c.items.map((i, idx) => {
                     const isManual = manualOf(i.name);
                     const isWontBuy = notHaveOf(i.name);
@@ -223,7 +228,8 @@ export const BuyByDishSheet: React.FC<{
                     return (
                       <button key={`${i.name}-${idx}`} onClick={() => clickable && toggleNotHave(i.name)}
                         title={(() => { const o = origStatus(groupKeyFor, i.name); return o === 'staple' ? (isWontBuy ? 'Undo: keep on pantry list' : 'Tap if you DON’T have it — moves to buy') : i.status === 'missing' ? (isManual ? 'Tap to undo' : 'Tap if you already have it') : i.status === 'staple' ? 'On pantry list (assumed)' : 'Logged qty'; })()}
-                        className={`text-[11px] font-bold rounded-full px-2 py-0.5 border active:scale-95 transition-all ${i.status === 'missing' ? (isWontBuy ? 'bg-white text-orange-700 border-orange-300 ring-1 ring-orange-300' : 'bg-white text-orange-700 border-orange-200') : isManual ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : i.status === 'staple' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-white text-gray-400 border-gray-100'}`}>
+                        aria-pressed={isWontBuy || isManual}
+                        className={`inline-flex items-center justify-center min-h-11 px-3.5 py-2 text-[13px] font-bold leading-tight rounded-full border select-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 ${i.status === 'missing' ? (isWontBuy ? 'bg-orange-50 text-orange-800 border-orange-400 ring-2 ring-orange-200 shadow-sm font-black' : 'bg-white text-orange-700 border-orange-300') : isManual ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-200 font-black' : i.status === 'staple' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-white text-gray-400 border-gray-200'}`}>
                         {i.status === 'missing' ? '✗' : isManual ? '🟡✓' : i.status === 'staple' ? '🟡' : '✅'} {i.name} {i.quantity}{i.unit ?? ''}{(isManual || isWontBuy) ? ' ↩' : ''}
                       </button>
                     );
