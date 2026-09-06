@@ -300,6 +300,7 @@ function pushUndo(ml: MealLoopState): MealLoopState['undoStack'] {
   return [{
     config: ml.config, sourceDishIds: ml.sourceDishIds,
     rotationQueue: ml.rotationQueue, rotationPointer: ml.rotationPointer,
+    assignments: ml.assignments, next_index: ml.next_index,
     analytics: ml.analytics,
   }, ...ml.undoStack].slice(0, 5);
 }
@@ -583,6 +584,7 @@ export const useLoopStore = create<LoopStore>()(
             mealLoop: {
               ...s.mealLoop, config: prev.config, sourceDishIds: prev.sourceDishIds,
               rotationQueue: prev.rotationQueue, rotationPointer: prev.rotationPointer,
+              assignments: prev.assignments, next_index: prev.next_index,
               analytics: prev.analytics, undoStack: s.mealLoop.undoStack.slice(1),
             },
           };

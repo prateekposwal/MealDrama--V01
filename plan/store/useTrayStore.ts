@@ -387,6 +387,10 @@ export const useTrayStore = create<TrayStore>()(
        * 4. Debounce PATCH → offline queue → revert on error
        */
         swapMealInSlot: (date, mealType, itemId, newMeal) => {
+          // One-line guard: a missing day/target must no-op, not fall through to
+          // the post-set code where `defaults` is still undefined (TypeError at
+          // the offlineQueue payload). Mirrors the set-callback's !day/!target.
+          if (!get().plan.days[date]?.[mealType]?.find(i => i.id === itemId)) return;
          let oldMealId = '';
          let oldName = '';
          let oldIcon: string | undefined;
@@ -476,6 +480,7 @@ export const useTrayStore = create<TrayStore>()(
                 itemId,
                 oldMealId,
                 newMealId: newMeal.id,
+                oldName,
                 timestamp: Date.now(),
                 // C1: Store full old item state for complete undo
                 oldItemState: {
@@ -497,6 +502,13 @@ export const useTrayStore = create<TrayStore>()(
                   itemQtys: oldItemQtys,
                   start_time: oldStartTime,
                   end_time: oldEndTime,
+                  // FIX A (Issue 2): capture the 3 fields swap itself writes
+                  // (title @swapTitle, smartVersion: 1) so the undo spread
+                  // {...item, ...oldItemState} restores the complete
+                  // pre-swap state — including the custom title.
+                  title: target.title,
+                  titleOwnership: target.titleOwnership,
+                  smartVersion: target.smartVersion,
                 },
               };
               const next = [newEntry, ...s.swapHistory];
@@ -825,8 +837,9 @@ export const useTrayStore = create<TrayStore>()(
 
       // ─── Undo Last Swap ─────────────────────────────────────────────────
       undoSwap: () => {
+        const lastSwap = get().swapHistory[0];
+
         set((s) => {
-          const lastSwap = s.swapHistory[0];
           if (!lastSwap) return s;
           const day = s.plan.days[lastSwap.date];
           if (!day) return s;
@@ -847,7 +860,38 @@ export const useTrayStore = create<TrayStore>()(
           return {
             plan: { ...s.plan, days: { ...s.plan.days, [lastSwap.date]: { ...day, [lastSwap.mealType]: updatedItems } } },
             swapHistory: s.swapHistory.length <= 1 ? [] : s.swapHistory.slice(1),
+            // Mirror swapMealInSlot's optimistic saveStatus for the reverted item.
+            saveStatus: { ...s.saveStatus, [lastSwap.itemId]: 'saving' },
           };
+        });
+
+        if (!lastSwap) return;
+        // FIX A (Issue 2): reverse the loop-store remap swapMealInSlot applied.
+        // Only when the swap actually changed the dish id AND the loop is configured.
+        if (lastSwap.oldMealId === lastSwap.newMealId) return;
+        const loopState = useLoopStore.getState();
+        const ml = loopState.mealLoop;
+        if (!ml.config) return;
+
+        // The forward remap updated only dishId in rotationQueue (dishName kept),
+        // so the reverse also restores dishName to the pre-swap name.
+        const oldDishName = lastSwap.oldName ?? lastSwap.oldItemState?.name ?? '';
+        const updatedQueue = ml.rotationQueue.map(item =>
+          item.dishId === lastSwap.newMealId
+            ? { ...item, dishId: lastSwap.oldMealId, dishName: oldDishName }
+            : item
+        );
+        const updatedAssignments = ml.assignments.map(a =>
+          a.dishId === lastSwap.newMealId
+            ? { ...a, dishId: lastSwap.oldMealId, dishName: oldDishName }
+            : a
+        );
+        const updatedSourceIds = ml.sourceDishIds.map(id =>
+          id === lastSwap.newMealId ? lastSwap.oldMealId : id
+        );
+
+        useLoopStore.setState({
+          mealLoop: { ...ml, rotationQueue: updatedQueue, assignments: updatedAssignments, sourceDishIds: updatedSourceIds },
         });
       },
 

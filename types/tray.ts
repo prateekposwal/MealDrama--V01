@@ -145,6 +145,8 @@ export interface SwapRecord {
   itemId: string;
   oldMealId: string;
   newMealId: string;
+  /** Pre-swap dish name — deterministic source for undoing the loop-store remap */
+  oldName: string;
   timestamp: number;
   // C1: Full snapshot of old item state for complete undo
   oldItemState?: Partial<TrayItem>;
@@ -223,6 +225,8 @@ export interface MealLoopState {
     sourceDishIds: string[];
     rotationQueue: RotationQueueItem[];
     rotationPointer: number;
+    assignments: MealLoopAssignment[];
+    next_index: number;
     analytics: MealLoopState['analytics'];
     planDaysSnapshot?: Record<string, DayMeals>;
   }>;

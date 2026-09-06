@@ -172,6 +172,22 @@ describe('Store-level loop actions', () => {
       expect(useLoopStore.getState().mealLoop.config?.cycleLength).toBe(3);
     });
 
+    it('Issue 3 — undoLoopChange restores the snapshotted assignments + next_index (3-day list survives a 5-day change)', () => {
+      const pool = { breakfast: [], lunch: DISHES, snacks: [], dinner: [] };
+      useLoopStore.getState().applyLoopConfig(BASE_CONFIG, pool, DISHES); // 3-day loop
+      const pre = useLoopStore.getState().mealLoop;
+
+      const newConfig: MealLoopConfig = { ...BASE_CONFIG, cycleLength: 5 };
+      useLoopStore.getState().applyLoopConfig(newConfig, pool, DISHES);
+
+      useLoopStore.getState().undoLoopChange();
+
+      const ml = useLoopStore.getState().mealLoop;
+      expect(ml.assignments).toEqual(pre.assignments); // was: 5-day merged list survives (bug)
+      expect(ml.next_index).toBe(pre.next_index);
+      expect(ml.assignments.every(a => new Set(ml.rotationQueue.map(q => q.dishId)).has(a.dishId))).toBe(true);
+    });
+
     it('does nothing when undo stack is empty', () => {
       const before = useLoopStore.getState().mealLoop;
       useLoopStore.getState().undoLoopChange();
