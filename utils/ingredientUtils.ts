@@ -766,8 +766,9 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
         result.push({ name: 'Rice', quantity: 1, unit: 'cup', category: 'grains', inStock: false });
         result.push({ name: 'Moong Dal', quantity: 50, unit: 'g', category: 'proteins', inStock: false });
     }
-    // INF-15: Fruit dish inference (fruit chaat, fruit cream, pachadi, payesh)
-    if (idLower.includes('fruit')) {
+    // INF-15: Fruit dish inference (fruit chaat, fruit cream, pachadi, payesh).
+    // 'dry fruit' is nuts/raisins, NOT fresh fruit (pav-bhaji dry-fruit variant).
+    if (idLower.includes('fruit') && !/dry[\s-]?fruit/.test(idLower)) {
         result.push({ name: 'Apple', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
         result.push({ name: 'Banana', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
         result.push({ name: 'Orange', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
