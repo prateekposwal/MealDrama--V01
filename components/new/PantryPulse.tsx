@@ -681,20 +681,20 @@ const PantryPulse: React.FC = () => {
                                                             unit: ev.unit,
                                                             source: 'bought',
                                                         })}
-                                                        className="w-6 h-6 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center active:scale-90"
+                                                        className="w-11 h-11 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center active:scale-90"
                                                         aria-label={`Re-buy ${ev.name}`}
                                                     >
-                                                        <Plus size={12} />
+                                                        <Plus size={16} />
                                                     </button>
                                                     <button
                                                         onClick={() => {
                                                             usePantryInventoryStore.getState().removePurchase(ev.name, ev.purchasedAt);
                                                             useStore.getState().setToast({ message: `Removed ${ev.name} ${ev.quantity}${ev.unit}`, type: 'info' });
                                                         }}
-                                                        className="w-6 h-6 rounded-lg border border-red-100 bg-red-50 text-red-500 flex items-center justify-center active:scale-90"
+                                                        className="w-11 h-11 rounded-lg border border-red-100 bg-red-50 text-red-500 flex items-center justify-center active:scale-90"
                                                         aria-label={`Remove mistaken purchase ${ev.name}`}
                                                     >
-                                                        <X size={12} />
+                                                        <X size={16} />
                                                     </button>
                                                 </span>
                                             </div>
@@ -753,7 +753,7 @@ const PantryPulse: React.FC = () => {
                     <div className="flex gap-1 flex-1">
                         {(['tomorrow', 'week'] as const).map(v => (
                         <button key={v} onClick={() => setSubView(v)}
-                            className={`flex-1 py-2 rounded-xl text-xs font-bold tracking-wider transition-all active:scale-95 ${
+                            className={`flex-1 min-h-11 py-2 flex items-center justify-center rounded-xl text-xs font-bold tracking-wider transition-all active:scale-95 ${
                                 subView === v ? 'bg-[#FF385C] text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:text-gray-600'
                             }`}
                         >{v === 'tomorrow' ? 'Tomorrow' : 'This Week'}</button>
@@ -761,7 +761,7 @@ const PantryPulse: React.FC = () => {
                     </div>
                     {householdId && householdId !== 'null' && householdId !== 'undefined' && (
                         <button onClick={() => onViewModeChange(viewMode === 'household' ? 'meals' : 'household')}
-                            className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold tracking-wider transition-all active:scale-95 ${
+                            className={`shrink-0 min-h-11 min-w-11 px-3 py-2 flex items-center justify-center rounded-xl text-xs font-bold tracking-wider transition-all active:scale-95 ${
                                 viewMode === 'household' ? 'bg-[#FF385C] text-white shadow-sm' : 'bg-gray-100 text-gray-500 hover:text-gray-600'
                             }`}
                         >👥</button>
@@ -882,7 +882,7 @@ const PantryPulse: React.FC = () => {
                                 >
                                     <button
                                         onClick={() => setChecked(item.name, !checked)}
-                                        className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-all flex-shrink-0 ${checked ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200 hover:border-gray-300'}`}
+                                        className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-all flex-shrink-0 ${checked ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200 hover:border-gray-300'}`}
                                     >
                                         {checked && <Check size={16} />}
                                     </button>
@@ -890,7 +890,7 @@ const PantryPulse: React.FC = () => {
                                     {!checked && (
                                         <button
                                             onClick={() => buyItem(item)}
-                                            className="w-8 h-8 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center transition-all flex-shrink-0 hover:border-emerald-300 active:scale-90"
+                                            className="w-11 h-11 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center transition-all flex-shrink-0 hover:border-emerald-300 active:scale-90"
                                             aria-label={`Add ${item.name} to stock`}
                                         >
                                             <ShoppingCart size={14} />
@@ -932,12 +932,12 @@ const PantryPulse: React.FC = () => {
                                 >
                                     <button
                                         onClick={() => toggleItem(item.id)}
-                                        className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all flex-shrink-0 ${checked ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-gray-400'}`}
+                                        className={`w-11 h-11 rounded-full border flex items-center justify-center transition-all flex-shrink-0 ${checked ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-gray-400'}`}
                                     >
                                         {checked && <Check size={14} className="text-white" />}
                                     </button>
                                     <span className={`flex-1 text-sm font-medium truncate ${checked ? 'line-through text-gray-400' : 'text-gray-800'}`}>{item.name}</span>
-                                    <button onClick={() => removeItem(item.id)} className="p-1 rounded-full hover:bg-gray-100 transition-all">
+                                    <button onClick={() => removeItem(item.id)} className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all">
                                         <X size={12} className="text-gray-300" />
                                     </button>
                                 </div>
