@@ -110,6 +110,82 @@ export function auditProduceFruit(): Array<{ id: string; name: string; variant: 
   return gaps;
 }
 
+
+// ─── PRIORITIZED BACKLOG (data-debt driver) ───────────────────────────────────
+// Ranks every raw-empty variant by PROVABLE deficit so the next data session
+// fixes the worst first. Classes (a..c), scored per variant:
+//   a — infra-red: dish is non-veg/eggitarian but resolves NO protein
+//   b — weak recipe: <4 non-generic items, or nothing but generic pantry/spices
+//   c — name implies a distinctive ingredient that did NOT resolve
+// Ordering: class a first, then flag count, then fewest resolved items.
+const PROTEIN_NAME = /chicken|mutton|fish|prawn|crab|egg|\bpork\b|paneer|tofu|soya|beef/i;
+const GENERIC_ONLY = /^(oil|ghee|spices|salt|turmeric|cumin seeds|red chili powder|coriander( leaves)?)$/;
+
+/** Distinctive ingredient tokens — dish/variant NAME implies these, generic
+ *  inference won't add them. Dish-identity words (dosa/idli/paratha…) are
+ *  deliberately absent: the dish being named after itself is not a deficit. */
+const NAME_IMPLIED: Array<[RegExp, string[]]> = [
+  [/cashew/i, ['cashew']], [/tamarind/i, ['tamarind']], [/coconut/i, ['coconut']], [/paneer/i, ['paneer']],
+  [/chicken/i, ['chicken']], [/mutton|gosht|erachi|botti/i, ['mutton']], [/prawn|chingri|shrimp/i, ['prawn']],
+  [/fish|maach|meen|ilish|bhetki|rohu/i, ['fish']], [/egg\b|dim\b/i, ['egg']], [/pork|vawksa|\bdoh\b/i, ['pork']],
+  [/pumpkin|kaddu/i, ['pumpkin']], [/banana|kela/i, ['banana']], [/jackfruit|kathal/i, ['jackfruit']],
+  [/mango|aam/i, ['mango']], [/curry leaves|karipatta/i, ['curry leaves']], [/mustard|sarson/i, ['mustard']],
+  [/poppy|posto/i, ['poppy']], [/kokum/i, ['kokum']], [/bamboo/i, ['bamboo']], [/drumstick/i, ['drumstick']],
+  [/bitter gourd|karela/i, ['bitter gourd']], [/bottle gourd|lauki|doodhi/i, ['bottle gourd']],
+  [/ridge gourd|turai/i, ['ridge gourd']], [/snake gourd|padwal/i, ['snake gourd']], [/ivy gourd|dondakaya/i, ['ivy gourd']],
+  [/brinjal|baingan|eggplant/i, ['eggplant', 'brinjal']], [/okra|bhindi/i, ['okra']], [/spinach|palak/i, ['spinach']],
+  [/fenugreek|methi/i, ['fenugreek']], [/amaranth|chaulai/i, ['amaranth']], [/sorrel/i, ['sorrel']],
+  [/colocasia|arbi|arvi/i, ['colocasia']], [/raw banana|plantain/i, ['raw banana', 'plantain']], [/peas?|matar/i, ['peas']],
+  [/cauliflower|gobhi/i, ['cauliflower']], [/carrot|gajar/i, ['carrot']], [/potato|aloo/i, ['potato']],
+  [/tomato|tamatar/i, ['tomato']], [/onion/i, ['onion']], [/rice/i, ['rice']], [/dal|daal|lentil/i, ['dal', 'lentil']],
+  [/chickpea|chole|chana|kadala/i, ['chickpea', 'chana']], [/rajma/i, ['rajma']], [/semolina|rava|sooji/i, ['semolina', 'rava', 'sooji']],
+  [/ragi/i, ['ragi']], [/bajra/i, ['bajra']], [/jowar/i, ['jowar']], [/saffron|kesar/i, ['saffron', 'kesar']],
+  [/cardamom|elaichi/i, ['cardamom']], [/clove|laung/i, ['clove']], [/cinnamon|dalchini/i, ['cinnamon']],
+  [/bean|moong/i, ['moong']], [/soya|soy/i, ['soya']], [/noodle/i, ['noodle']], [/sev/i, ['sev']],
+  [/pav/i, ['pav']], [/papad/i, ['papad']], [/gulab|jamun/i, ['gulab jamun']], [/jalebi/i, ['jalebi']],
+  [/kulfi/i, ['kulfi']], [/faluda/i, ['faluda']], [/halwa/i, ['halwa']], [/kheer|payasam/i, ['kheer', 'payasam']],
+  [/shrikhand/i, ['shrikhand']], [/sambar/i, ['sambar']], [/rasam/i, ['rasam']], [/soup|shorba/i, ['soup']],
+  [/biryani/i, ['biryani']], [/bonda/i, ['bonda']], [/tikki/i, ['tikki']], [/cutlet/i, ['cutlet']],
+  [/kebab/i, ['kebab']], [/tandoori/i, ['tandoori']], [/tikka/i, ['tikka']], [/kofta/i, ['kofta']],
+  [/korma/i, ['korma']], [/stew/i, ['stew']], [/pulao/i, ['pulao']], [/khichdi/i, ['khichdi']],
+];
+
+export function auditPriorityBacklog(limit = 200): Array<{ id: string; name: string; variant: string; region: string; type: string; classes: string[]; resolvedCount: number }> {
+  const out: Array<{ id: string; name: string; variant: string; region: string; type: string; classes: string[]; resolvedCount: number }> = [];
+  for (const d of DISH_LIBRARY) {
+    for (const v of d.variants ?? []) {
+      const rawNames = (v.ingredients ?? []).map(i => i.name);
+      if (realRecipe(rawNames)) continue; // only raw-empty/placeholder variants
+      const resolved = resolvedIngredients(d, v);
+      const names = resolved.map(i => i.name.toLowerCase());
+      const nonGeneric = resolved.filter(i => !GENERIC.has(i.name.toLowerCase()));
+      const classes: string[] = [];
+      if ((d.type === 'non-veg' || d.type === 'eggitarian')) {
+        const hasProtein = resolved.some(i => i.category === 'proteins') || names.some(n => PROTEIN_NAME.test(n));
+        if (!hasProtein) classes.push('a');
+      }
+      if (nonGeneric.length < 4 || (resolved.length > 0 && resolved.every(i => GENERIC_ONLY.test(i.name.toLowerCase())))) {
+        classes.push('b');
+      }
+      const hay = `${d.name} ${v.name ?? ''}`.toLowerCase();
+      for (const [re, keys] of NAME_IMPLIED) {
+        if (!re.test(hay)) continue;
+        if (!keys.some(k => hay.includes(k.toLowerCase()))) continue;
+        if (!keys.some(k => names.some(n => n.includes(k.toLowerCase())))) { classes.push('c'); break; }
+      }
+      if (classes.length > 0) {
+        out.push({ id: d.id, name: d.name, variant: v.name ?? v.id, region: d.region, type: d.type, classes, resolvedCount: resolved.length });
+      }
+    }
+  }
+  const weight = (c: string) => c === 'a' ? 0 : c === 'b' ? 1 : 2;
+  return out
+    .sort((x, y) => (Math.min(...y.classes.map(weight)) - Math.min(...x.classes.map(weight)))
+      || (y.classes.length - x.classes.length)
+      || (x.resolvedCount - y.resolvedCount))
+    .slice(0, limit);
+}
+
 export function auditDishRecipesLabel(): string {
   const raw = auditRawVariants();
   const resolved = auditResolved();
