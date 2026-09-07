@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import DishImage from './DishImage';
+import { Hint } from './Hint';
 import { getRegionKey, DIET_FILTER } from '../../utils/dishSearch';
 
 interface BlankSlotProps {
@@ -96,29 +97,32 @@ export const BlankSlot: React.FC<BlankSlotProps> = ({
       {/* Smart Suggestion Chips */}
       <div className="flex gap-2 flex-wrap" role="list" aria-label="Meal suggestions">
         {suggestions.map(({ dish, pantryMatch }) => (
+          <div key={dish.id} className="flex items-center" role="listitem">
             <button
-                key={dish.id}
-                onClick={() => onAddMeal(date, slot, dish)}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 bg-white transition-all active:scale-95 text-left hover:border-[#FF385C]/40 focus:outline-none focus:ring-2 focus:ring-[#FF385C]/30"
-            role="listitem"
-            aria-label={`Add ${dish.name} to ${slot}`}
+              onClick={() => onAddMeal(date, slot, dish)}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-200 bg-white transition-all active:scale-95 text-left hover:border-[#FF385C]/40 focus:outline-none focus:ring-2 focus:ring-[#FF385C]/30"
+              aria-label={`Add ${dish.name} to ${slot}`}
             >
-            <DishImage name={dish.name} slot={slot} size="sm" />
-            <div className="min-w-0 flex-1">
+              <DishImage name={dish.name} slot={slot} size="sm" />
+              <div className="min-w-0 flex-1">
                 <span className="text-xs font-bold block leading-tight truncate text-gray-800">
-                    {dish.name}
+                  {dish.name}
                 </span>
                 <span className="text-sm font-medium capitalize text-gray-400">
-                {dish.region}
-              </span>
-            </div>
+                  {dish.region}
+                </span>
+              </div>
+              {pantryMatch > 0 && (
+                <span className="shrink-0 text-[11px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded-full" aria-label="Uses pantry staples">
+                  🥘 {pantryMatch}
+                </span>
+              )}
+              <Sparkles size={10} className="text-[#FF385C] flex-shrink-0" aria-hidden="true" />
+            </button>
             {pantryMatch > 0 && (
-              <span className="shrink-0 text-[11px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 px-1.5 py-0.5 rounded-full" title="Uses pantry staples">
-                🥘 {pantryMatch}
-              </span>
+              <Hint id="pantry-staples" text="Cooked from ingredients you already have." className="shrink-0" />
             )}
-            <Sparkles size={10} className="text-[#FF385C] flex-shrink-0" aria-hidden="true" />
-          </button>
+          </div>
         ))}
 
         {/* More button */}

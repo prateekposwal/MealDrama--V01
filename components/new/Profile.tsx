@@ -41,7 +41,8 @@ const CollapsibleSection: React.FC<{
   badge?: string;
   summary?: string;
   color?: string;
-}> = ({ title, defaultOpen = false, children, badge, summary, color = 'gray' }) => {
+  headerExtra?: React.ReactNode;
+}> = ({ title, defaultOpen = false, children, badge, summary, color = 'gray', headerExtra }) => {
   const [open, setOpen] = useState(defaultOpen);
   const colorMap: Record<string, { bg: string; text: string; chevron: string }> = {
     rose: { bg: 'bg-[#FF385C]/5', text: 'text-[#FF385C]', chevron: 'text-[#FF385C]/40' },
@@ -56,19 +57,22 @@ const CollapsibleSection: React.FC<{
   if (!c) return null;
   return (
     <div className={`${styles.bg} rounded-2xl border border-gray-100/80 overflow-hidden`}>
-      <button
-        onClick={() => setOpen(!open)}
-          className="w-full flex items-start justify-between px-5 py-5 active:opacity-70 transition-opacity"
+      <div className="w-full flex items-start justify-between px-5 py-5">
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex items-start justify-between gap-3 flex-1 min-w-0 text-left active:opacity-70 transition-opacity"
         >
           <div className="flex flex-col items-start gap-1">
             <div className="flex items-center gap-2">
               <span className={`text-sm font-black uppercase tracking-widest ${styles.text}`}>{title}</span>
-            {badge && <span className="text-xs font-bold text-[#FF385C] bg-[#FF385C]/10 px-2 py-0.5 rounded-full">{badge}</span>}
+              {badge && <span className="text-xs font-bold text-[#FF385C] bg-[#FF385C]/10 px-2 py-0.5 rounded-full">{badge}</span>}
+            </div>
+            {!open && summary && <span className="text-xs text-gray-500">{summary}</span>}
           </div>
-          {!open && summary && <span className="text-xs text-gray-500">{summary}</span>}
-        </div>
-        {open ? <ChevronDown size={14} className={`${styles.chevron} mt-0.5`} /> : <ChevronRight size={14} className={`${styles.chevron} mt-0.5`} />}
-      </button>
+          {open ? <ChevronDown size={14} className={`${styles.chevron} mt-0.5`} /> : <ChevronRight size={14} className={`${styles.chevron} mt-0.5`} />}
+        </button>
+        {headerExtra && <div className="ml-2 shrink-0">{headerExtra}</div>}
+      </div>
       {open && <div className="px-5 pb-4">{children}</div>}
     </div>
   );
@@ -688,7 +692,7 @@ const eligible = filtered.filter((x:any) =>
                     <div className="mt-3"><ProfileAIInsights /></div>
                 </CollapsibleSection>
 
-                <CollapsibleSection title="Your Tray" defaultOpen={true} color="rose">
+                <CollapsibleSection title="Your Tray" defaultOpen={true} color="rose" headerExtra={<Hint id="profile-tray-pool" text="Your tray is the dish pool your loop rotates. More dishes = more variety." />}>
                     {(() => {
                         const activeSlots = (['breakfast', 'lunch', 'snacks', 'dinner'] as const).filter(s => plannedSlots.includes(s.charAt(0).toUpperCase() + s.slice(1)));
                         const trayTab = activeSlots.includes(overviewSlot as any) ? overviewSlot : activeSlots[0] || 'breakfast';
@@ -1119,6 +1123,7 @@ const eligible = filtered.filter((x:any) =>
                                         <p className="text-sm font-black text-blue-800">Loop Progress</p>
                                         <p className="text-sm text-blue-600">Your meal automation stats</p>
                                     </div>
+                                    <Hint id="profile-loop-progress" trigger="tap" className="ml-auto" text="Cycles = weeks completed · Meals Filled = auto-filled slots · Skipped = loop skips." />
                                 </div>
                                 <div className="grid grid-cols-3 gap-4">
                                     <div className="text-center">

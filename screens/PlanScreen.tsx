@@ -26,6 +26,7 @@ import { useBackButtonClose } from '../hooks/useBackButtonClose';
 import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
+import { Hint } from '../components/new/Hint';
 import TrayScreen from '../components/new/TrayScreen';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import PullToRefresh from '../components/new/PullToRefresh';
@@ -266,6 +267,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     useBackButtonClose(showNavPicker, () => setShowNavPicker(false));
     const [showLoopModal, setShowLoopModal] = useState(false);
     const [expandedDay, setExpandedDay] = useState<string | null>(null);
+    const planHeaderRef = useRef<HTMLDivElement | null>(null);
 
     const getMeals = useTrayStore(s => s.getMeals);
     const addMealToSlot = useTrayStore(s => s.addMealToSlot);
@@ -746,7 +748,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             {/* ─── Header ─── */}
             <header className="px-4 pt-10 pb-4">
                 <div className="flex items-center justify-between">
-                    <div>
+                    <div ref={planHeaderRef}>
                         <h1 className="text-2xl font-black tracking-tight">Meal Plan</h1>
                         <div className="flex items-center gap-2 mt-1">
                             <Calendar size={12} className="text-[#FF385C]" />
@@ -851,6 +853,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     )}
                 </div>
             </header>
+
+            <Hint id="plan-autofill" trigger="first-visit" anchorRef={planHeaderRef} placement="bottom" text="Empty slots fill automatically from your tray loop — that's why dishes appear." />
 
             {/* ─── Tab Nav ─── */}
             <div className="px-4 mb-4">
@@ -1064,18 +1068,21 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 const filledSlots = upcomingMealMap.totals.filledSlots;
                 const totalSlots = upcomingMealMap.totals.totalSlots;
                 return (
-                <div className="fixed bottom-24 left-4 z-40 max-w-[260px]">
-                    <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-2xl px-4 py-3 shadow-lg flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                <div className="fixed bottom-24 left-4 z-40 max-w-[320px]">
+                    <div className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-2xl px-4 py-3 shadow-lg flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
                             <span className="text-xs font-bold text-gray-900">{filledSlots}/{totalSlots} slots filled</span>
                             <span className="text-xs text-gray-500">{totalPlannedMeals} meals</span>
                         </div>
-                        <button
-                            onClick={() => window.dispatchEvent(new CustomEvent('navigate:profile'))}
-                            className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-gray-900 text-white active:scale-95 transition-all inline-flex items-center gap-1"
-                        >
-                            Set up
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                            <Hint id="plan-slots-filled" trigger="tap" text="Slots = your planned meals. 'Set up' opens tray & loop settings." />
+                            <button
+                                onClick={() => window.dispatchEvent(new CustomEvent('navigate:profile'))}
+                                className="text-xs font-bold px-2.5 py-1.5 rounded-lg bg-gray-900 text-white active:scale-95 transition-all inline-flex items-center gap-1"
+                            >
+                                Set up
+                            </button>
+                        </div>
                     </div>
                 </div>
                 );
@@ -1108,12 +1115,15 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                 <div className="px-4 text-center py-16">
                     <p className="text-sm font-bold text-gray-500">No upcoming days in this week</p>
                     {isPlanEnding ? (
-                        <button
-                            onClick={() => setShowLoopModal(true)}
-                            className="mt-4 inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#FF385C] text-white font-bold text-sm active:scale-95 transition-all"
-                        >
-                            <Calendar size={16} /> Extend Plan
-                        </button>
+                        <div className="mt-4 flex items-center justify-center gap-2">
+                            <button
+                                onClick={() => setShowLoopModal(true)}
+                                className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#FF385C] text-white font-bold text-sm active:scale-95 transition-all"
+                            >
+                                <Calendar size={16} /> Extend Plan
+                            </button>
+                            <Hint id="plan-extend" trigger="tap" text="Your loop has run out of days — extend the cycle to keep auto-filling." />
+                        </div>
                     ) : (
                         <p className="text-xs mt-1 text-gray-500">Try a different week</p>
                     )}

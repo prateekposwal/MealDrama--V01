@@ -17,6 +17,7 @@ import type { SuggestionMeal } from '../app/lib/trayApi';
 import { SwapCustomizeModal } from '../components/meal/SwapCustomizeModal';
 import QuickAddModal from '../components/new/QuickAddModal';
 import { useBackendDishes } from '../hooks/useBackendDishes';
+import { Hint, HintProvider } from '../components/new/Hint';
 import { ChevronLeft, ChevronRight, Sparkles, CheckCircle2, ShoppingBasket, Loader2, AlertCircle, RefreshCw, Clock, X } from 'lucide-react';
 import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import { dishToMeal } from '../utils/dishToMeal';
@@ -71,6 +72,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     const [addDishOpen, setAddDishOpen] = useState(false);
     const [addAnotherToast, setAddAnotherToast] = useState<string | null>(null);
     const [validationToast, setValidationToast] = useState<string | null>(null);
+    const nextSlotCtaRef = useRef<HTMLButtonElement | null>(null);
 
     const ADD_DISH_DUMMY: TrayItem = {
         id: '__add_dish__', meal_id: '__add_dish__', name: '', icon: '',
@@ -448,7 +450,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
     }, [slotTimes, currentSlot.mealType]);
 
     return (
-        <>
+        <HintProvider>
         <div className="min-h-screen flex flex-col bg-white">
             {/* Header */}
             <div className="sticky top-0 z-20 px-6 pt-4 pb-3 bg-white">
@@ -618,6 +620,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         </button>
                 )}
                 <button
+                    ref={nextSlotCtaRef}
                     onClick={handleNextSlot}
                     disabled={isLoading || !!error || (timeValidation !== null && !timeValidation.valid)}
                     className={`w-full py-4 rounded-[20px] font-bold text-base flex items-center justify-center gap-2 transition-all ${
@@ -644,6 +647,9 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
                         'Complete setup'
                     )}
                 </button>
+                {validationToast && (
+                    <Hint id="tray-add-3" trigger="first-visit" anchorRef={nextSlotCtaRef} placement="top" text="Each slot needs 3+ dishes so the loop can rotate without repeats." />
+                )}
             </div>
 
             {/* Add Another toast */}
@@ -741,7 +747,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             .scrollbar-hide::-webkit-scrollbar { display: none; }
             .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         `}</style>
-        </>
+        </HintProvider>
     );
 };
 

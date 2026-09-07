@@ -5,7 +5,8 @@ import { suggestionCache, type SuggestionMeal } from '../../app/lib/trayApi';
 import { DISH_LIBRARY } from '../../meal/constants/dishLibrary';
 import { Sparkles, Loader2, AlertCircle, Plus, Info } from 'lucide-react';
 import DishImage from '../new/DishImage';
-import { scoreItem, formatRecommendation } from '../../utils/scoringEngine';
+import { Hint } from '../new/Hint';
+import { scoreItem } from '../../utils/scoringEngine';
 import { useAsyncGuard, requestDedupCache } from '../../utils/asyncGuard';
 import { useStore } from '../../app/store/useStore';
 import { fetchAISuggestions } from '../../utils/aiEngine';
@@ -213,17 +214,14 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
             )}
             {scoredSuggestions.map(({ suggestion: meal, scored }) => {
               const chipPreview = formatChipPreview(meal);
-              const recommendation = formatRecommendation(meal.name, scored.reasons ?? []);
               const pct = scored.percentage ?? 90;
               const reason = scored.reasons?.[0] ?? 'recommended';
 
               return (
-                <div key={meal.id} className="shrink-0 w-44">
-
+                <div key={meal.id} className="relative shrink-0 w-44" role="listitem">
                   <button
                     onClick={() => handleAdd(meal)}
-                    className="w-full p-3 rounded-xl border transition-all active:scale-95 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C] bg-white border-gray-200 hover:border-[#FF385C]/30"
-                    role="listitem"
+                    className="w-full p-3 pr-12 rounded-xl border transition-all active:scale-95 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C] bg-white border-gray-200 hover:border-[#FF385C]/30"
                     aria-label={`Add ${meal.name} to ${mealType}`}
                   >
                     <div className="flex items-start justify-between">
@@ -235,7 +233,7 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
                           : pct >= 60 ? 'bg-amber-100 text-amber-700'
                           : 'bg-gray-100 text-gray-500'
                         }`}
-                        title={recommendation}
+                        aria-label={`${pct}% match`}
                       >
                         {pct}%
                       </span>
@@ -253,13 +251,18 @@ export const SmartSuggestionChips: React.FC<SmartSuggestionChipsProps> = React.m
                       </div>
                     )}
                     {/* Reason preview */}
-                    <div className="flex items-center gap-1 mt-1.5">
+                    <div className="flex items-center gap-1 mt-1.5 pr-6">
                       <Info size={8} className="text-gray-300" />
                       <span className="text-sm text-gray-400 truncate leading-tight">
                         {reason}
                       </span>
                     </div>
                   </button>
+                  <Hint
+                    id="suggestion-reason"
+                    text="Why this dish? Matches your region, diet & pantry."
+                    className="absolute top-1 right-1"
+                  />
                 </div>
               );
             })}
