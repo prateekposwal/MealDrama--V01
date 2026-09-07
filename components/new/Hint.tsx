@@ -4,6 +4,7 @@ import { Info } from 'lucide-react';
 import { useHintStore } from '../../hooks/useHintStore';
 import { useFirstVisitHint } from '../../hooks/useFirstVisitHint';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
+import { track } from '../../utils/analytics';
 
 // Shared open-state: the provider's openId is the SINGLE authority for which
 // bubble is live (one at a time). Backdrop / Escape / Android-back dismissal
@@ -90,6 +91,7 @@ export const Hint: React.FC<HintProps> = ({
   const bubbleId = `hint-${id}`;
 
   const dismiss = useCallback(() => {
+    track('hint_dismissed', { id });
     if (trigger === 'first-visit') {
       firstVisit.dismiss();
     } else {
@@ -115,6 +117,11 @@ export const Hint: React.FC<HintProps> = ({
     ctx?.registerDismiss(id, dismiss);
     return () => ctx?.unregisterDismiss(id);
   }, [active, id, ctx, dismiss]);
+
+  // Analytics: this hint became the live bubble (open moment).
+  useEffect(() => {
+    if (active) track('hint_open', { id });
+  }, [active, id]);
 
   // Screen unmount with a live bubble must not leave the backdrop stuck.
   // ctxRef keeps the cleanup stable across openId changes (no open/close loop).

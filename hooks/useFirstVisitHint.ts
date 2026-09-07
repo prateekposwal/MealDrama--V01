@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHintStore } from './useHintStore';
+import { track } from '../utils/analytics';
 
 // Once-per-session auto-nudge: the first time a screen (placement) mounts and
 // the hint is unseen, open it. Never re-opens in the same session; NEVER marks
@@ -18,6 +19,7 @@ export function useFirstVisitHint(id: string) {
       if (sessionShown.has(id) || openRef.current) return;
       sessionShown.add(id);
       setOpen(true);
+      track('hint_auto_shown', { id });
     }, 600);
     return () => clearTimeout(t);
   }, [id]);

@@ -1,0 +1,106 @@
+// Offline-first analytics: buffer to localStorage, dispatch a CustomEvent,
+// fire-and-forget flush to the server when reachable. Never throws.
+
+const KEY = 'md-events';
+const CAP = 200;
+const API_BASE_KEY = 'md:api_base';
+const DEFAULT_API_BASE = 'http://10.243.22.253:3001/api/v1';
+
+export interface AnalyticsEvent {
+  name: string;
+  props?: Record<string, unknown>;
+  ts: number;
+}
+
+let buffer: AnalyticsEvent[] | null = null;
+let flushing = false;
+let flushEnabled = true;
+
+function isEvent(x: unknown): x is AnalyticsEvent {
+  return !!x
+    && typeof x === 'object'
+    && typeof (x as AnalyticsEvent).name === 'string'
+    && typeof (x as AnalyticsEvent).ts === 'number';
+}
+
+function load(): AnalyticsEvent[] {
+  if (buffer) return buffer;
+  try {
+    const raw = typeof window !== 'undefined' ? window.localStorage.getItem(KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : [];
+    buffer = Array.isArray(parsed) ? parsed.filter(isEvent) : [];
+  } catch {
+    buffer = [];
+  }
+  return buffer;
+}
+
+function save() {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(KEY, JSON.stringify(buffer));
+    }
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function flushTarget(): string {
+  try {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem(API_BASE_KEY);
+      if (stored) return stored.endsWith('/api/v1') ? `${stored}/events` : `${stored}/events`;
+    }
+  } catch {
+    /* fallthrough to default */
+  }
+  return `${DEFAULT_API_BASE}/events`;
+}
+
+/** Enable/disable network flush (local-only keeps buffer + CustomEvent). */
+export function setFlushEnabled(enabled: boolean): void {
+  flushEnabled = enabled;
+}
+
+async function flush(): Promise<void> {
+  if (!flushEnabled || flushing) return;
+  const buf = load();
+  if (buf.length === 0) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  if (typeof fetch !== 'function') return;
+  flushing = true;
+  try {
+    const toSend = buf.slice();
+    const res = await fetch(flushTarget(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ events: toSend }),
+    });
+    if (res.ok) {
+      const remaining = buffer ? buffer.filter(e => !toSend.includes(e)) : [];
+      buffer = remaining;
+      save();
+    }
+  } catch {
+    /* unreachable — keep buffer for the next flush */
+  } finally {
+    flushing = false;
+  }
+}
+
+export function track(eventName: string, props?: Record<string, unknown>): void {
+  try {
+    const ev: AnalyticsEvent = { name: eventName, props, ts: Date.now() };
+    const buf = load();
+    buf.push(ev);
+    if (buf.length > CAP) buf.splice(0, buf.length - CAP);
+    buffer = buf;
+    save();
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('md:event', { detail: { name: eventName, props, ts: ev.ts } }));
+    }
+    void flush();
+  } catch {
+    /* never throw */
+  }
+}

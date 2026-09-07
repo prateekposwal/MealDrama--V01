@@ -144,6 +144,7 @@ app.get('/', (req: Request, res: Response) => {
       health: '/health',
       auth: '/api/v1/auth',
       households: '/api/v1/households',
+      events: '/api/v1/events',
     },
   });
 });
@@ -178,6 +179,7 @@ app.use('/api/v1/variants', require('./routes/variants').default);
 app.use('/api/v1/custom-dishes', require('./routes/custom-dishes').default);
 app.use('/api/v1/loop-config', require('./routes/loopConfig').default);
 app.use('/api/v1/tts', require('./routes/tts').default);
+app.use('/api/v1/events', require('./routes/events').default);
 app.use('/api/v1/households', require('./routes/pantry').default);
 app.use('/api/v1/households', require('./routes/householdFeed').default);
 app.use('/api/v1/households', require('./routes/sharedPlan').default);
