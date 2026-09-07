@@ -24,6 +24,8 @@ import { getISODate } from './utils/dateUTC';
 import { NotificationCenter, checkMealReminder, checkPlanEnding, checkPantryNeeds, startNewUserGuide, useNotificationStore } from './app/notifications';
 import { Toast } from './components/new/Toast';
 import { TabBar, type Tab } from './components/new/TabBar';
+import { HintProvider } from './components/new/Hint';
+import { notifyLoopUndo } from './utils/undoToasts';
 import { useBackNavigation } from './hooks/useBackNavigation';
 import { getRegionKey } from './utils/dishSearch';
 import { isPureSweetDish } from './meal/constants/pairingCatalog';
@@ -858,7 +860,7 @@ const App: React.FC = () => {
             if (!navigator.onLine) {
               enqueue('loop_save', { config, userId: user?.id, sourceDishIds });
               applyLoopConfig(config, pool, fetchedDishes);
-              setToast({ message: 'Loop config saved locally (offline) — will sync when reconnected', type: 'info' });
+              setToast({ message: 'Loop config saved locally (offline) — will sync when reconnected', type: 'info', action: { label: 'Undo', onClick: () => useLoopStore.getState().undoLoopChange() } });
               window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
               setShowLoopConfig(false);
               setManageTray(false);
@@ -876,6 +878,7 @@ const App: React.FC = () => {
             }
             applyLoopConfig(config, pool, fetchedDishes);
             window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
+            notifyLoopUndo();
             setShowLoopConfig(false);
             setManageTray(false);
             setActiveTab('dashboard');
@@ -921,6 +924,7 @@ const App: React.FC = () => {
 
   return (
     <SwapCustomizeProvider>
+    <HintProvider>
     <div className="min-h-screen bg-white font-sans text-gray-900 max-w-lg mx-auto">
       {toast && <Toast message={toast.message} type={toast.type} action={toast.action} onClose={() => setToast(null)} />}
       {cycleEndNudge && (
@@ -986,6 +990,7 @@ const App: React.FC = () => {
 
       <TabBar activeTab={activeTab as Tab} onTabChange={setActiveTab} />
     </div>
+    </HintProvider>
     </SwapCustomizeProvider>
   );
 };

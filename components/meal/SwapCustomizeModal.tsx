@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { X, Plus, Minus } from 'lucide-react';
 import DishImage from '../new/DishImage';
+import { Hint } from '../new/Hint';
 import { isCarb, classifyEmbeddedCarb } from '../../utils/normalizeMealComponents';
 import { generateMealTitle } from '../../utils/generateMealTitle';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
@@ -185,6 +186,8 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
     return () => clearTimeout(timer);
   }, [isOpen, item.meal_id, item.id, dishes]);
 
+  const headerAnchorRef = React.useRef<HTMLDivElement | null>(null);
+
   const handleApply = useCallback(() => {
     const u: Partial<TrayItem> = {};
     if (style) u.style = style;
@@ -211,17 +214,19 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
         <div className="flex items-center gap-3 px-5 pt-4 pb-4 border-b border-gray-100 shrink-0">
           <DishImage name={item.name} slot={item.name} size="xl" className="shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div ref={headerAnchorRef} className="flex items-center gap-2">
               <p className="text-lg sm:text-xl font-bold text-gray-900 leading-tight line-clamp-2">{item.name}</p>
               {onSwapDish && (
                 <button onClick={() => { onSwapDish(); onClose(); }}
                   className="shrink-0 w-7 h-7 rounded-full bg-[#FF385C]/10 text-[#FF385C] flex items-center justify-center active:scale-90 transition-all hover:bg-[#FF385C]/20 text-sm font-bold"
-                  title="Swap this dish">↻</button>
+                  aria-label="Swap this dish">↻</button>
               )}
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90 transition-all shrink-0"><X size={14} /></button>
         </div>
+
+        <Hint id="meal-card-tap" trigger="first-visit" anchorRef={headerAnchorRef} placement="bottom" text="Tap any meal on your plan to customize pairings here — the ↻ button swaps the whole dish for another from your tray." />
 
         {/* Style — collapsible */}
         <div className="px-6 pt-3 pb-2 border-b border-gray-100 bg-gray-50/30 shrink-0">

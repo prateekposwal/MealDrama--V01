@@ -1,8 +1,9 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { BuyDishGroup, BuySummary, RadarUse, categoryGroups, allMissingItems, applyAssumptions, BUY_CATEGORY_META, serializeAssumptions, parseAssumptions } from '../../utils/buyByDish';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 import { useLockBodyScroll } from '../../hooks/useLockBodyScroll';
+import { Hint } from '../new/Hint';
 
 const ASSUME_KEY = 'md-buy-assumptions';
 function loadAssumptions() {
@@ -46,6 +47,47 @@ export const BuyByDishSheet: React.FC<{
   useLockBodyScroll(open);
   useBackButtonClose(open, onClose);
   const syncAssumption = (name: string, flag: 'have' | 'notHave' | null) => { onAssumption?.(name, flag); };
+
+  // Tap-to-learn hints: header ⓘ triggers + per-chip long-press (never
+  // intercepting the chip's normal tap — a fired long-press suppresses only
+  // its own release-click). Seen is written on dismissal, never on show.
+  const CHIP_STATE_HINT = "Chips show pantry state: tap a missing item (✗) to say you already have it (🟡✓); tap a pantry staple (🟡) to say you DON'T have it — it moves to buy. Tap again to undo. Hold a chip for its exact meaning.";
+  const SHEET_ACTIONS_HINT = "Three tabs switch the view (dish groups / categories / summed cart). Mark all bought logs a dish's missing items as purchased; Buy all missing adds every missing item to one cart.";
+  const [chipHintOpen, setChipHintOpen] = useState(false);
+  const [chipHintText, setChipHintText] = useState(CHIP_STATE_HINT);
+  const chipAnchor = useRef<HTMLButtonElement | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+  const cancelChipLongPress = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  };
+  useEffect(() => cancelChipLongPress, []);
+  const startChipLongPress = (el: HTMLButtonElement, text: string) => {
+    cancelChipLongPress();
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      chipAnchor.current = el;
+      setChipHintText(text);
+      setChipHintOpen(true);
+    }, 500);
+  };
+  const chipWasLongPressed = () => {
+    const fired = longPressFired.current;
+    longPressFired.current = false;
+    return fired;
+  };
+  const handleChipHintOpenChange = (open: boolean) => {
+    if (open && !chipAnchor.current) setChipHintText(CHIP_STATE_HINT);
+    if (!open) chipAnchor.current = null;
+    setChipHintOpen(open);
+  };
+  const chipTitleText = (status: string, orig: string, isManual: boolean, isWontBuy: boolean): string => {
+    if (orig === 'staple') return isWontBuy ? 'Tap to keep it on the pantry list (undo)' : 'Tap if you DON\'t have it — move to buy';
+    if (status === 'missing') return isManual ? 'Tap to undo (no longer have?)' : 'Tap if you already have it';
+    if (status === 'staple') return 'On pantry list (assumed)';
+    return 'Logged quantity';
+  };
 
   // Recompute everything against the "I already have" set — batch buys never
   // re-purchase something the user just marked as hand.
@@ -132,7 +174,11 @@ export const BuyByDishSheet: React.FC<{
               ))}
             </div>
           </div>
-          <p className="text-[11px] font-bold text-gray-500 mt-1.5">Legend: 🟡 = on your pantry list (assumed) — tap 🟡 to say you DON’T have it (moves to buy) · 🟡✓ = you marked have, tap to undo.</p>
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <p className="flex-1 min-w-0 text-[11px] font-bold text-gray-500">Legend: 🟡 = on your pantry list (assumed) — tap 🟡 to say you DON’T have it (moves to buy) · 🟡✓ = you marked have, tap to undo.</p>
+            <Hint id="buy-sheet-actions" text={SHEET_ACTIONS_HINT} />
+            <Hint id="buy-chip-state" text={chipHintText} open={chipHintOpen} onOpenChange={handleChipHintOpenChange} anchorRef={chipAnchor} />
+          </div>
           {(itemsHave > 0 || itemsNotHave > 0) && (
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
               {itemsHave > 0 && <span className="inline-flex items-center text-xs font-bold text-amber-700 bg-amber-50 rounded-full px-2.5 py-1.5">🟡✓ {itemsHave} have</span>}
@@ -178,8 +224,11 @@ export const BuyByDishSheet: React.FC<{
                   const orig = origStatus(g.key, i.name);
                   const clickable = orig === 'staple' ? true : i.status === 'missing';
                   return (
-                    <button key={`${i.name}-${idx}`} onClick={() => clickable && toggleNotHave(i.name)}
-                      title={orig === 'staple' ? (isWontBuy ? 'Tap to keep it on the pantry list (undo)' : 'Tap if you DON’T have it — move to buy') : i.status === 'missing' ? (isManual ? 'Tap to undo (no longer have?)' : 'Tap if you already have it') : i.status === 'staple' ? 'On pantry list (assumed)' : 'Logged quantity'}
+                    <button key={`${i.name}-${idx}`}
+                      onClick={() => { if (chipWasLongPressed()) return; clickable && toggleNotHave(i.name); }}
+                      onTouchStart={(e) => startChipLongPress(e.currentTarget, chipTitleText(i.status, orig, isManual, isWontBuy))}
+                      onTouchEnd={cancelChipLongPress}
+                      onTouchMove={cancelChipLongPress}
                       aria-pressed={isWontBuy || isManual}
                       className={`inline-flex items-center justify-center min-h-11 px-3.5 py-2 text-[13px] font-bold leading-tight rounded-full border select-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 ${
                         i.status === 'missing'
@@ -221,13 +270,15 @@ export const BuyByDishSheet: React.FC<{
                   {c.items.map((i, idx) => {
                     const isManual = manualOf(i.name);
                     const isWontBuy = notHaveOf(i.name);
-                    const orig = origStatus(c.items[0] ? undefined as any : undefined, i.name);
-                    void orig;
                     const groupKeyFor = g2.find(g => g.items.some(x => x.name === i.name))?.key ?? '';
-                    const clickable = (() => { const o = origStatus(groupKeyFor, i.name); return o === 'staple' ? true : i.status === 'missing'; })();
+                    const orig = origStatus(groupKeyFor, i.name);
+                    const clickable = orig === 'staple' ? true : i.status === 'missing';
                     return (
-                      <button key={`${i.name}-${idx}`} onClick={() => clickable && toggleNotHave(i.name)}
-                        title={(() => { const o = origStatus(groupKeyFor, i.name); return o === 'staple' ? (isWontBuy ? 'Undo: keep on pantry list' : 'Tap if you DON’T have it — moves to buy') : i.status === 'missing' ? (isManual ? 'Tap to undo' : 'Tap if you already have it') : i.status === 'staple' ? 'On pantry list (assumed)' : 'Logged qty'; })()}
+                      <button key={`${i.name}-${idx}`}
+                        onClick={() => { if (chipWasLongPressed()) return; clickable && toggleNotHave(i.name); }}
+                        onTouchStart={(e) => startChipLongPress(e.currentTarget, chipTitleText(i.status, orig, isManual, isWontBuy))}
+                        onTouchEnd={cancelChipLongPress}
+                        onTouchMove={cancelChipLongPress}
                         aria-pressed={isWontBuy || isManual}
                         className={`inline-flex items-center justify-center min-h-11 px-3.5 py-2 text-[13px] font-bold leading-tight rounded-full border select-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-all active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 ${i.status === 'missing' ? (isWontBuy ? 'bg-orange-50 text-orange-800 border-orange-400 ring-2 ring-orange-200 shadow-sm font-black' : 'bg-white text-orange-700 border-orange-300') : isManual ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-1 ring-emerald-200 font-black' : i.status === 'staple' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-white text-gray-400 border-gray-200'}`}>
                         {i.status === 'missing' ? '✗' : isManual ? '🟡✓' : i.status === 'staple' ? '🟡' : '✅'} {i.name} {i.quantity}{i.unit ?? ''}{(isManual || isWontBuy) ? ' ↩' : ''}

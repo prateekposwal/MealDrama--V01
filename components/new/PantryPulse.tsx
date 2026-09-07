@@ -34,6 +34,7 @@ import { BuyByDishSheet } from '../household/BuyByDishSheet';
 import { useHouseholdFeedStore } from '../../plan/store/householdFeedStore';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import PullToRefresh from './PullToRefresh';
+import { Hint } from './Hint';
 import { usePantryStore } from '../../app/store/pantryStore';
 import { usePantryInventoryStore, groupPurchasesByDay } from '../../app/store/pantryInventoryStore';
 import {
@@ -90,6 +91,7 @@ const PantryPulse: React.FC = () => {
     // ─── Buy-by-dish (reacts to every purchase via the entries selector) ───
     const [showBuySheet, setShowBuySheet] = useState(false);
     const [preBuySummary, setPreBuySummary] = useState<BuySummary | null>(null);
+    const buyPillRef = React.useRef<HTMLButtonElement | null>(null);
     const buyData = (() => {
       const today = getISODate();
       const day = useTrayStore.getState().plan.days?.[today];
@@ -634,15 +636,18 @@ const PantryPulse: React.FC = () => {
                                 }
                             } catch { /* storage unavailable */ }
                             return (
+                                <>
                                 <button
+                                    ref={buyPillRef}
                                     onClick={() => { setPreBuySummary(buyData.summary); setShowBuySheet(true); }}
                                     className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-amber-50 text-orange-600 border-amber-200 active:scale-95 transition-all shrink-0"
                                     aria-label="Buy before cook today"
-                                    title="Buy before cook · today"
                                 >
                                     🛒 {buyData.summary.itemsToBuy}
                                     <span className="hidden md:inline"> · today {new Date(`${getISODate()}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
                                 </button>
+                                <Hint id="pulse-buy-pill" trigger="first-visit" anchorRef={buyPillRef} text="Tap to open the grouped buy list — everything today's meals still need." />
+                                </>
                             );
                         })()}
                         <button onClick={() => {if(!(sharePhone||user?.cookContact)){useStore.getState().setToast({message:'Enter a phone number in Profile first',type:'info'});return;}setShowShareModal(true);}}

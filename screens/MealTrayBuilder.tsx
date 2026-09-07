@@ -6,6 +6,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useStore } from '../app/store/useStore';
+import { notifySwapUndo } from '../utils/undoToasts';
 import { useTrayStore, MealType, TrayItem, DayMeals } from '../plan/store/useTrayStore';
 import type { TrayStore } from '../plan/store/useTrayStore';
 import { useLoopStore } from '../plan/store/useLoopStore';
@@ -290,6 +291,7 @@ export const MealTrayBuilder: React.FC<MealTrayBuilderProps> = ({ user: userProp
             const dish = dishes.find(d => d.id === updates.meal_id);
             if (dish) {
                 swapMealInSlot(today, currentSlot.mealType, itemId, dishToMeal(dish));
+                notifySwapUndo(dish.name);
                 removeFromTray(currentSlot.mealType, currentItem.meal_id);
                 addToTray(currentSlot.mealType, {
                     id: dish.id,

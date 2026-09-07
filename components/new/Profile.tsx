@@ -30,6 +30,8 @@ import ExpenseList from '../household/ExpenseList';
 import ActivityFeed from '../household/ActivityFeed';
 import { FamilyPlans } from '../household/FamilyPlans';
 import ProfileAIInsights from './ProfileAIInsights';
+import { Hint } from './Hint';
+import { notifyLoopUndo } from '../../utils/undoToasts';
 
 // ─── Collapsible Section ─────────────────────────────────────────────────────
 const CollapsibleSection: React.FC<{
@@ -130,6 +132,7 @@ const [cookInput, setCookInput] = useState(user?.cookContact || '');
   const notifications = useNotificationStore(s => s.enabled);
   const setNotifications = useNotificationStore(s => s.setEnabled);
 const [mealLoopModalOpen, setMealLoopModalOpen] = useState(false);
+    const loopRefreshRef = React.useRef<HTMLButtonElement | null>(null);
 const [showTrayOverview, setShowTrayOverview] = useState(false);
 const [overviewSlot, setOverviewSlot] = useState<MealType>('breakfast');
 const [addSlot, setAddSlot] = useState<MealType | null>(null);
@@ -265,6 +268,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
         });
         applyLoopConfig(config, enriched, dishes);
         window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config } }));
+        notifyLoopUndo();
         setMealLoopModalOpen(false);
         // Fire notification if cycle length increased — user needs more dishes
         if (prevLength && config.cycleLength > prevLength) {
@@ -1079,15 +1083,30 @@ const eligible = filtered.filter((x:any) =>
                                     Manage
                                 </button>
                                 {mealLoop.config && (
-                                    <button
-                                        onClick={() => {
-                                            useLoopStore.getState().refreshLoop(dishes);
-                                        }}
-                                        disabled={mealLoop.refreshing}
-                                        className="w-7 h-7 rounded-full flex items-center justify-center bg-[#FF385C]/5 text-[#FF385C] hover:bg-[#FF385C]/10 disabled:opacity-30 active:scale-90 transition-all"
-                                    >
-                                        <RefreshCw size={11} className={mealLoop.refreshing ? 'animate-spin' : ''} />
-                                    </button>
+                                    <>
+                                        {mealLoop.undoStack.length > 0 && (
+                                            <button
+                                                onClick={() => {
+                                                    useLoopStore.getState().undoLoopChange();
+                                                    window.dispatchEvent(new CustomEvent('loop_updated', { detail: { config: useLoopStore.getState().mealLoop.config } }));
+                                                    useStore.getState().setToast({ message: 'Loop change undone', type: 'success' });
+                                                }}
+                                                className="w-7 h-7 rounded-full flex items-center justify-center bg-amber-50 text-amber-600 hover:bg-amber-100 disabled:opacity-30 active:scale-90 transition-all"
+                                                aria-label="Undo latest loop change"
+                                            >↩</button>
+                                        )}
+                                        <button
+                                            ref={loopRefreshRef}
+                                            onClick={() => {
+                                                useLoopStore.getState().refreshLoop(dishes);
+                                            }}
+                                            disabled={mealLoop.refreshing}
+                                            className="w-7 h-7 rounded-full flex items-center justify-center bg-[#FF385C]/5 text-[#FF385C] hover:bg-[#FF385C]/10 disabled:opacity-30 active:scale-90 transition-all"
+                                        >
+                                            <RefreshCw size={11} className={mealLoop.refreshing ? 'animate-spin' : ''} />
+                                        </button>
+                                        <Hint id="profile-loop-refresh" trigger="first-visit" anchorRef={loopRefreshRef} placement="bottom" text="Refresh re-rolls upcoming rotations from your tray — your saved plan and Undo stay available here." />
+                                    </>
                                 )}
                             </div>
                         </div>

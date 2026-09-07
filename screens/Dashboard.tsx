@@ -47,6 +47,8 @@ import { getIngredientsForMealOption } from '../utils/ingredientUtils';
 import { planIngredients, planDishIds, familyDishIds, buyListFor, StockMap } from '../utils/buyList';
 import { dishBuyGroups, buySummary, radarUses, recipeIngredients, type BuyDishGroup, type BuySummary } from '../utils/buyByDish';
 import { BuyByDishSheet } from '../components/household/BuyByDishSheet';
+import { Hint } from '../components/new/Hint';
+import { notifySwapUndo } from '../utils/undoToasts';
 import { daysUntil } from '../utils/dateUTC';
 import { usePantryInventoryStore } from '../app/store/pantryInventoryStore';
 import { useNotificationStore } from '../app/notifications/notificationStore';
@@ -479,6 +481,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const [showSlotPicker, setShowSlotPicker] = useState(false);
     const [showBuySheet, setShowBuySheet] = useState(false);
     const [preBuySummary, setPreBuySummary] = useState<BuySummary | null>(null);
+    const buyPillRef = useRef<HTMLButtonElement | null>(null);
     useLockBodyScroll(showSlotPicker);
     useBackButtonClose(showSlotPicker, () => setShowSlotPicker(false));
     const [addDishOpen, setAddDishOpen] = useState(false);
@@ -624,6 +627,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             const newDish = dishes.find(d => d.id === updates.meal_id);
             if (newDish) {
               swapMealInSlot(date, mealType, itemId, dishToMeal(newDish));
+              notifySwapUndo(newDish.name);
               // Apply remaining chip overrides after swap
               const { meal_id, ...chipUpdates } = updates;
               if (Object.keys(chipUpdates).length > 0) {
@@ -647,6 +651,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             const dish = dishes.find(d => d.id === newMealId);
             if (!dish) return;
             swapMealInSlot(date, mealType, itemId, dishToMeal(dish));
+            notifySwapUndo(dish.name);
             if (chipOverrides) {
                 updateItemInline(date, mealType, itemId, chipOverrides);
             }
@@ -1151,16 +1156,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                 if (evPush) useNotificationStore.getState().addNotification({ type: 'pantry_buy', ...evPush });
                             } catch { /* storage unavailable */ }
                             return (
+                                <>
                                 <button
+                                    ref={buyPillRef}
                                     onClick={() => { setPreBuySummary(buyData.summary); setShowBuySheet(true); }}
                                     className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-amber-50 text-orange-600 border-amber-200 active:scale-95 transition-all"
                                     aria-label="Buy before cook today"
-                                    title="Buy before cook · today"
                                 >
                                     🛒 {buyData.summary.itemsToBuy}
                                     <span className="hidden sm:inline">Buy before cook</span>
                                     <span className="hidden md:inline"> · today</span>
                                 </button>
+                                <Hint id="dashboard-buy-pill" trigger="first-visit" anchorRef={buyPillRef} text="Tap to open the grouped buy list — everything the cook still needs for today's meals." />
+                                </>
                             );
                         } catch {
                             return null;
