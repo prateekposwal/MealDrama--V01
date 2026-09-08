@@ -37,6 +37,7 @@ import { SLOTS } from '../plan/utils/continuity';
 import { slotKey } from '../plan/utils/planIndex';
 import { getRegionKey } from '../utils/dishSearch';
 import { buildEnrichedLoopPool } from '../utils/loopPool';
+import { allowedTypesForDiet } from '../utils/dietQuota';
 import { getSkipUndoWindowExpiry, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
 import { getISODate, getISTDayOfWeek, parseISODate, daysBetweenISO, addDaysISO } from '../utils/dateUTC';
 import { computeStyleWarnings } from '../meal/constants/dishStyles';
@@ -342,6 +343,7 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const traySourcePool = useMemo((): SourcePool => {
         const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
         const seen = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
+        const allowed = new Set(allowedTypesForDiet(user?.diet));
         const trayLibrary = useStore.getState().trayLibrary;
         for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
             for (const option of trayLibrary[mt]) {
@@ -353,12 +355,13 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
                 for (const item of planDays[date]?.[mt] || []) {
                     const dish = dishes.find(d => d.id === item.meal_id);
-                    if (dish && !seen[mt].has(dish.id)) { seen[mt].add(dish.id); pool[mt].push(dish); }
+                    // Diet guard: a contaminated plan day must not feed the rotation pool.
+                    if (dish && allowed.has(dish.type) && !seen[mt].has(dish.id)) { seen[mt].add(dish.id); pool[mt].push(dish); }
                 }
             }
         }
         return pool;
-    }, [planDays, dishes]);
+    }, [planDays, dishes, user?.diet]);
 
     const handleLoopApply = useCallback((config: any) => {
         // PATTERN-FIRST: enrich the raw tray pool to the cycle-scaled target so

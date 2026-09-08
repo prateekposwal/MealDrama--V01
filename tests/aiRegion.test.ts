@@ -58,6 +58,34 @@ describe('orderSuggestionsRegionFirst (pure)', () => {
     expect(ordered).toHaveLength(3);
   });
 
+  it('VEG gate: non-veg AND eggitarian suggestions are excluded in BOTH diet casings (library-resolved)', () => {
+    const library = [
+      dish('nv-1', 'Butter Chicken', 'north'),
+      dish('eg-1', 'Egg Curry', 'north'),
+      dish('v-1', 'Palak Paneer', 'north'),
+    ];
+    // Library dishes default to type 'veg' — force real types for the gate.
+    (library[0] as any).type = 'non-veg';
+    (library[1] as any).type = 'eggitarian';
+    const items = [
+      { id: 'nv-1', name: 'Butter Chicken', region: 'north' },
+      { id: 'eg-1', name: 'Egg Curry', region: 'north' },
+      { id: 'v-1', name: 'Palak Paneer', region: 'north' },
+    ];
+    expect(orderSuggestionsRegionFirst(items, 'north', library, 'Veg').map(i => i.id)).toEqual(['v-1']);
+    expect(orderSuggestionsRegionFirst(items, 'north', library, 'veg').map(i => i.id)).toEqual(['v-1']);
+  });
+
+  it('VEG gate name-inference fallback: egg/meat names excluded without a library', () => {
+    const named = [
+      { id: 'a1', name: 'Chicken Biryani', region: 'north' },
+      { id: 'a2', name: 'Egg Bhurji', region: 'north' },
+      { id: 'a3', name: 'Dal Tadka', region: 'north' },
+    ];
+    expect(orderSuggestionsRegionFirst(named, 'north', undefined, 'Veg').map(i => i.id)).toEqual(['a3']);
+    expect(orderSuggestionsRegionFirst(named, 'north', undefined, 'veg').map(i => i.id)).toEqual(['a3']);
+  });
+
   it('normalizes a raw regionKey via getRegionKey (North India → north)', () => {
     const ordered = orderSuggestionsRegionFirst([
       item('far-idli', 'Idli', 'south'),

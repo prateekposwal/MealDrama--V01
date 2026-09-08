@@ -166,7 +166,9 @@ export function enrichSourcePool<P extends DietSourcePool>(
   const rank = priority ?? ((d: Dish) => (d.region === regionKey ? 0 : (d.region === 'all' ? 1 : 2)));
   const hs = healthScore ?? (() => 0);
   for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
-    const items = [...(pool[slot] ?? [])];
+    // Diet-validate the LEADING items too (a persisted tray/pool can carry
+    // diet-invalid dishes), then fill to target from diet-allowed candidates.
+    const items = [...(pool[slot] ?? [])].filter(d => allowedTypes.includes(((d.type || '') as string).toLowerCase()));
     const seen = new Set<string>(items.map(d => (d.name || '').trim().toLowerCase()));
     // Qualified fill candidates beyond the tray's picks.
     const eligible = (library as any[])

@@ -15,7 +15,7 @@ import { useStore } from '../app/store/useStore';
 import { useTrayStore } from '../plan/store/useTrayStore';
 import { useLoopStore } from '../plan/store/useLoopStore';
 import { getRegionKey } from './dishSearch';
-import { pickDietRepresentativesWithSlots, distinctiveTypeFor } from './dietQuota';
+import { pickDietRepresentativesWithSlots, distinctiveTypeFor, allowedTypesForDiet } from './dietQuota';
 import { getTraySlotCap } from './loopPool';
 import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
 import { getISODate } from './dateUTC';
@@ -237,5 +237,44 @@ export async function healTrayDietGaps(force = false): Promise<void> {
     }
   } catch (e) {
     console.warn('[dietHeal] skipped:', e);
+  }
+}
+
+/**
+ * PLAN-side REMOVE-invalid pass for ALL diets INCLUDING veg: a veg user's tray
+ * is veg but their persisted Plan grid can carry non-veg/eggitarian cards.
+ * Strips resolvable diet-invalid plan-day items; custom/unresolvable items are
+ * never touched. Idempotent; safe to run on every startup and after a diet change.
+ */
+export async function healPLANDietGaps(force = false): Promise<void> {
+  try {
+    const user = useStore.getState().user as any;
+    const diet = user?.diet;
+    if (!diet) return; // no diet set -> no constraint -> nothing to heal
+    const allowed = allowedTypesForDiet(diet);
+    const days = useTrayStore.getState().plan.days as Record<string, any> | undefined;
+    if (!days || Object.keys(days).length === 0) return;
+    let changed = false;
+    const nextDays: Record<string, any> = {};
+    for (const date of Object.keys(days)) {
+      const day = days[date] ?? {};
+      const nextDay: any = {};
+      for (const slot of SLOTS) {
+        const meals: any[] = day[slot] ?? [];
+        const kept = meals.filter((m: any) => {
+          const d = resolveDish(DISH_LIBRARY, m);
+          if (!d) return true; // custom/unresolvable — protect
+          return allowed.includes(superiorTypeOf(d));
+        });
+        if (kept.length !== meals.length) { changed = true; nextDay[slot] = kept; }
+      }
+      if (Object.keys(nextDay).length > 0) nextDays[date] = { ...day, ...nextDay };
+    }
+    if (changed) {
+      useTrayStore.setState((s: any) => ({ plan: { ...s.plan, days: { ...s.plan.days, ...nextDays } } }));
+      console.log('[dietHeal] plan diet gaps removed');
+    }
+  } catch (e) {
+    console.warn('[dietHeal] healPLANDietGaps skipped:', e);
   }
 }

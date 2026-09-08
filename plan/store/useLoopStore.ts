@@ -25,6 +25,7 @@ import { PersistentMap, rehydrateMap } from '../../app/utils/PersistentMap';
 import { getTrayStore } from './_boot';
 import type { TrayStore } from './useTrayStore';
 import { buildEnrichedLoopPool, poolTargetForCycleLength } from '../../utils/loopPool';
+import { allowedTypesForDiet } from '../../utils/dietQuota';
 
 export interface LoopStore {
   mealLoop: MealLoopState;
@@ -311,6 +312,10 @@ function buildLoopTrayItem(
 ): TrayItem | null {
   const dish = dishMap.get(a.dishId);
   if (!dish) return null;
+  // Diet gate: a veg user must never get a non-veg/eggitarian loop card even
+  // when a stale persisted queue/assignment resolves to one.
+  const allowed = allowedTypesForDiet(useStore.getState().user?.diet);
+  if (!allowed.includes((dish.type || '').toLowerCase())) return null;
   const meal = dishToMeal(dish);
   const defaults = applySmartDefaults(meal, a.mealType, undefined, { useSmartSuggestions: true });
   const timeDef = getTimeDef(a.mealType);
@@ -325,6 +330,28 @@ function buildLoopTrayItem(
     dessert: defaults.dessert, itemQtys: defaults.itemQtys,
     start_time: timeDef.start, end_time: timeDef.end, source: 'loop',
   };
+}
+
+/** Diet-valid id set: keeps ids whose (resolvable) dish type is allowed for the
+ *  user's diet; unresolvable ids (custom dishes) are always kept. */
+/** Diet-filtered pool: keep only dishes whose id survives dietValidIdSet. */
+function filterDietPool(pool: SourcePool, valid: Set<string>): SourcePool {
+  const out: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
+  for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+    out[mt] = (pool[mt] || []).filter(d => valid.has(d.id));
+  }
+  return out;
+}
+
+function dietValidIdSet(ids: string[], dishes?: Dish[]): Set<string> {
+  const allowed = allowedTypesForDiet(useStore.getState().user?.diet);
+  if (!dishes) return new Set(ids);
+  const out = new Set<string>();
+  for (const id of ids) {
+    const d = dishes.find(x => x.id === id);
+    if (!d || allowed.includes((d.type || '').toLowerCase())) out.add(id);
+  }
+  return out;
 }
 
 export const useLoopStore = create<LoopStore>()(
@@ -441,11 +468,21 @@ export const useLoopStore = create<LoopStore>()(
 
             const oldIds = ml.sourceDishIds;
             const newIds = (Object.values(pool) as Dish[][]).flat().map(d => d.id);
+            // Diet guard: stale persisted queues/assignments or a pool rebuilt
+            // from a contaminated plan must not re-enter the rotation.
+            const validOld = dietValidIdSet(oldIds, dishes);
+            const validNew = dietValidIdSet(newIds, dishes);
+            const cleanPool = filterDietPool(pool, validNew);
             const result = handleMidCycleAdd(
-              oldIds, newIds, pool, config,
-              ml.rotationQueue, ml.next_index, ml.assignments, dishes,
+              oldIds.filter(id => validOld.has(id)),
+              newIds.filter(id => validNew.has(id)),
+              cleanPool, config,
+              ml.rotationQueue.filter(q => validOld.has(q.dishId)),
+              ml.next_index,
+              ml.assignments.filter(a => validOld.has(a.dishId)),
+              dishes,
             );
-            const { queue: rebuiltQueue, pointer: rebuiltPointer } = buildRotationState(pool, dishes);
+            const { queue: rebuiltQueue, pointer: rebuiltPointer } = buildRotationState(cleanPool, dishes);
 
             const newDays: Record<string, DayMeals> = {};
             for (const a of result.assignments) {
@@ -456,7 +493,7 @@ export const useLoopStore = create<LoopStore>()(
               if (item) day[a.mealType].push(item);
             }
 
-            enqueuePayload = { config, sourceDishIds: newIds, assignments: result.assignments };
+            enqueuePayload = { config, sourceDishIds: newIds.filter(id => validNew.has(id)), assignments: result.assignments };
             trayUpdater = (prev: TrayStore) => ({
               plan: {
                 ...prev.plan,
@@ -467,7 +504,7 @@ export const useLoopStore = create<LoopStore>()(
 
             return {
               mealLoop: {
-                ...ml, config, sourceDishIds: newIds, pool_version: result.pool_version,
+                ...ml, config, sourceDishIds: newIds.filter(id => validNew.has(id)), pool_version: result.pool_version,
                 rotationQueue: result.queue, rotationPointer: Math.min(rebuiltPointer, result.queue.length),
                 next_index: Math.min(result.assignments.length, result.queue.length),
                 assignments: result.assignments,
@@ -542,13 +579,22 @@ export const useLoopStore = create<LoopStore>()(
           if (!hasChanges) return s;
           const cfg = s.mealLoop.config;
           if (!cfg) return s;
+          // Diet guard: a pool/persisted queue carrying diet-invalid dishes
+          // must not merge into the rotation for a veg user.
+          const validOld = dietValidIdSet(oldIds, dishes);
+          const validNew = dietValidIdSet(newIds, dishes);
+          const cleanPool = filterDietPool(pool, validNew);
           const result = handleMidCycleAdd(
-            oldIds, newIds, pool, cfg,
-            s.mealLoop.rotationQueue, s.mealLoop.next_index,
-            s.mealLoop.assignments, dishes,
+            oldIds.filter(id => validOld.has(id)),
+            newIds.filter(id => validNew.has(id)),
+            cleanPool, cfg,
+            s.mealLoop.rotationQueue.filter(q => validOld.has(q.dishId)),
+            s.mealLoop.next_index,
+            s.mealLoop.assignments.filter(a => validOld.has(a.dishId)),
+            dishes,
           );
 
-          const addedIds = newIds.filter(id => !oldSet.has(id));
+          const addedIds = newIds.filter(id => validNew.has(id) && !oldSet.has(id));
           if (addedIds.length > 0 && dishes) {
             const addedNames = addedIds.map(id => dishMap.get(id)?.name ?? id).join(', ');
             const firstAdded = addedIds[0];
@@ -561,7 +607,7 @@ export const useLoopStore = create<LoopStore>()(
 
           return {
             mealLoop: {
-              ...s.mealLoop, sourceDishIds: newIds, pool_version: result.pool_version,
+              ...s.mealLoop, sourceDishIds: newIds.filter(id => validNew.has(id)), pool_version: result.pool_version,
               rotationQueue: result.queue, rotationPointer: Math.min(s.mealLoop.rotationPointer, result.queue.length),
               assignments: result.assignments,
               next_index: Math.min(result.assignments.length, result.queue.length),
@@ -614,11 +660,15 @@ export const useLoopStore = create<LoopStore>()(
           const { plan } = trayState;
           const currentDishIds = getDishIdsInRange(plan._planIndex, plan.days, cfg.startDate, loopEndStr);
 
+          const valid = dietValidIdSet(
+            (['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]).flatMap(mt => [...currentDishIds[mt]]),
+            dishes,
+          );
           const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
           for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
             for (const id of currentDishIds[mt]) {
               const dish = dishMap.get(id);
-              if (dish) pool[mt].push(dish);
+              if (dish && valid.has(id)) pool[mt].push(dish);
             }
           }
           const { queue: newQueue, pointer: newPointer } = buildRotationState(pool, dishes);

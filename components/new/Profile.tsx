@@ -8,7 +8,7 @@ import type { Dish, DishVariant, Weight } from '../../meal/constants/dishLibrary
 import type { Category, Region } from '../../meal/constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
 import { getRegionKey } from '../../utils/dishSearch';
-import { pickDietRepresentatives, distinctiveTypeFor, enrichSourcePool } from '../../utils/dietQuota';
+import { pickDietRepresentatives, distinctiveTypeFor, enrichSourcePool, allowedTypesForDiet } from '../../utils/dietQuota';
 import { buildEnrichedLoopPool, poolTargetForCycleLength } from '../../utils/loopPool';
 import { isPureSweetDish } from '../../meal/constants/pairingCatalog';
 import { daysUntil } from '../../utils/dateUTC';
@@ -227,6 +227,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
     const traySourcePool = useMemo((): SourcePool => {
         const pool: SourcePool = { breakfast: [], lunch: [], snacks: [], dinner: [] };
         const seen = { breakfast: new Set(), lunch: new Set(), snacks: new Set(), dinner: new Set() };
+        const allowed = new Set(allowedTypesForDiet(user?.diet));
 
         // FIX 2: Use trayLibrary as primary source — plan.days may be empty on first load
         for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
@@ -239,13 +240,14 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
             }
         }
 
-        // Also include dishes from existing plan days
+        // Also include dishes from existing plan days (diet-valid only — a
+        // contaminated plan must not feed the rotation pool)
         for (const date of Object.keys(plan.days)) {
             for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as MealType[]) {
                 const meals = plan.days[date]?.[mt] || [];
                 for (const item of meals) {
                     const dish = dishes.find(d => d.id === item.meal_id);
-                    if (dish && !seen[mt].has(dish.id)) {
+                    if (dish && allowed.has(dish.type) && !seen[mt].has(dish.id)) {
                         seen[mt].add(dish.id);
                         pool[mt].push(dish);
                     }
@@ -254,7 +256,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
         }
 
         return pool;
-    }, [trayLibrary, plan.days, dishes]);
+    }, [trayLibrary, plan.days, dishes, user?.diet]);
 
     const handleLoopApply = useCallback((config: any) => {
         const prevLength = mealLoop.config?.cycleLength;
@@ -652,7 +654,10 @@ const eligible = filtered.filter((x:any) =>
                                                     window.dispatchEvent(new CustomEvent('loop_updated', {detail:{config:current.config}}));
                                                     // Tray must reflect the new diet too — the loop
                                                     // rebuild alone leaves egg-free slots in place.
-                                                    import('../../utils/dietHeal').then(m => m.healTrayDietGaps(true));
+                                                    import('../../utils/dietHeal').then(m => {
+                                                        m.healTrayDietGaps(true);
+                                                        m.healPLANDietGaps(true);
+                                                    });
                                                 });
                                             });
                                         }

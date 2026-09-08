@@ -142,6 +142,52 @@ describe('Store-level loop actions', () => {
       const state = useLoopStore.getState();
       expect(state.mealLoop.refreshing).toBe(false);
     });
+
+    it('diet re-entry: a veg user gets no non-veg dishes in refreshed future days', () => {
+      const nonVeg = makeDish('nv-1', 'Butter Chicken');
+      (nonVeg as any).type = 'non-veg';
+      const veg = makeDish('v1', 'Palak Paneer');
+      const pool = { breakfast: [], lunch: [nonVeg, veg], snacks: [], dinner: [] };
+
+      // A CONTAMINATED future plan day inside the loop range: the non-veg
+      // dish sits in plan.days (e.g. left over from a pre-diet-change plan),
+      // but refreshLoop must filter it out before building the rotation.
+      const future = '2026-06-05';
+      const seedDay: any = {
+        breakfast: [],
+        lunch: [
+          { id: nonVeg.id, meal_id: nonVeg.id, name: nonVeg.name, icon: nonVeg.icon },
+          { id: veg.id, meal_id: veg.id, name: veg.name, icon: veg.icon },
+        ],
+        snacks: [],
+        dinner: [],
+      };
+      useTrayStore.setState({
+        plan: { period: 'week', days: { [future]: seedDay }, _planIndex: buildPlanIndex({ [future]: seedDay } as any) },
+      });
+
+      // Set the config directly so this test isolates refreshLoop (the
+      // initial apply path is out of scope for the re-entry guard).
+      useLoopStore.getState().setMealLoop(BASE_CONFIG, [veg.id], []);
+      useLoopStore.getState().refreshLoop([nonVeg, veg]);
+
+      const state = useLoopStore.getState();
+      expect(state.mealLoop.assignments.some(a => a.dishId === nonVeg.id)).toBe(false);
+      expect(state.mealLoop.rotationQueue.some(q => q.dishId === nonVeg.id)).toBe(false);
+      expect(state.mealLoop.sourceDishIds).not.toContain(nonVeg.id);
+
+      // Days WRITTEN by the refresh carry no non-veg card (pre-existing
+      // contaminated days are healPLANDietGaps' job, not refresh's).
+      const after = useTrayStore.getState().plan.days as any;
+      for (const date of Object.keys(after)) {
+        if (date === future) continue;
+        for (const mt of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+          for (const m of (after[date]?.[mt] ?? []) as any[]) {
+            expect(m.id).not.toBe(nonVeg.id);
+          }
+        }
+      }
+    });
   });
 
   describe('undoLoopChange', () => {

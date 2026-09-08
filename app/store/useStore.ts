@@ -102,6 +102,7 @@ export interface User {
   email?: string;
   phone?: string;
   region?: string;
+  /** Lowercase canonical diet key ('veg' | 'non-veg' | 'eggitarian' | 'vegan') — normalized by updateProfile. */
   diet?: 'veg' | 'non-veg' | 'eggitarian' | 'vegan';
   spiceLevel?: 'mild' | 'medium' | 'hot';
   onboardingComplete?: boolean;
@@ -470,9 +471,13 @@ export const useStore = create<StoreState>()(
       updateProfile: (updates: Partial<User>) => {
         if (import.meta.env.DEV) console.log('[Store] updateProfile called, updates:', Object.keys(updates));
         set((state) => {
+          // Normalize diet to the lowercase canonical form at the ONE write path
+          // (onboarding/Profile pass 'Veg'; the predicates expect 'veg').
+          const next = { ...updates };
+          if (next.diet !== undefined) next.diet = String(next.diet).toLowerCase() as User['diet'];
           const newUser = {
             ...(state.user ?? {}),
-            ...updates,
+            ...next,
           } as User;
           return {
             ...state,

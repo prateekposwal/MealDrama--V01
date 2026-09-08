@@ -8,6 +8,8 @@ import { useBackendDishes } from '../../hooks/useBackendDishes';
 import { dishToMeal } from '../../utils/dishToMeal';
 import { getISODate } from '../../utils/dateUTC';
 import { toDishMap } from '../../utils/dishMap';
+import { allowedTypesForDiet } from '../../utils/dietQuota';
+import { useStore } from '../../app/store/useStore';
 
 const _autoFillFilled = new Set<string>();
 
@@ -48,6 +50,9 @@ export function useLoopAutoFill(date: string, mealType: MealType) {
 
     const dish = dishMap.get(assignment.dishId);
     if (!dish) return;
+    // Diet gate: never auto-fill a slot with a diet-invalid dish.
+    const allowed = allowedTypesForDiet(useStore.getState().user?.diet);
+    if (!allowed.includes((dish.type || '').toLowerCase())) return;
 
     addMealToSlot(date, mealType, dishToMeal(dish));
     _autoFillFilled.add(overrideKey);

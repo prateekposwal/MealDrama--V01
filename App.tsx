@@ -3,7 +3,7 @@ import { useStore } from './app/store/useStore';
 import { useTrayStore, seedTodayFromTray } from './plan/store/useTrayStore';
 import { usePantryStore } from './app/store/pantryStore';
 import { useLoopStore } from './plan/store/useLoopStore';
-import { healTrayDietGaps } from './utils/dietHeal';
+import { healTrayDietGaps, healPLANDietGaps } from './utils/dietHeal';
 import { useHouseholdFeedStore } from './plan/store/householdFeedStore';
 import { useHouseholdKitchenStore } from './plan/store/householdKitchenStore';
 import api, { setAuthReady } from './lib/api';
@@ -137,6 +137,46 @@ const purgeLoopDietViolations = () => {
   }
 };
 
+// Plan-days purge: a veg user's PLAN grid must match their diet even when
+// persisted plan.days hold pre-change leftovers. Resolvable diet-invalid items
+// are dropped; custom/unresolvable items are never touched.
+const purgePlanDietViolations = () => {
+  try {
+    const valid = allowedTypesForDiet(useStore.getState().user?.diet);
+    const typeOf = (item: any) => {
+      const id = item?.meal_id ?? item?.dishId ?? item?.id;
+      if (!id) return undefined;
+      const dish = DISH_LIBRARY.find(d => d.id === id);
+      return dish ? dish.type : undefined;
+    };
+    const isInvalid = (item: any) => {
+      const t = typeOf(item);
+      return t !== undefined && !valid.includes(t);
+    };
+    useTrayStore.setState((s: any) => {
+      const days = s.plan?.days;
+      if (!days || Object.keys(days).length === 0) return {};
+      let changed = false;
+      const nextDays: any = {};
+      for (const date of Object.keys(days)) {
+        const day = days[date];
+        if (!day) continue;
+        const nextDay: any = {};
+        for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+          const items = day[slot] || [];
+          const kept = items.filter((m: any) => !isInvalid(m));
+          if (kept.length !== items.length) { changed = true; nextDay[slot] = kept; }
+        }
+        if (Object.keys(nextDay).length > 0) nextDays[date] = { ...day, ...nextDay };
+      }
+      if (!changed) return {};
+      return { plan: { ...s.plan, days: { ...days, ...nextDays } } };
+    });
+  } catch (e) {
+    console.warn('[App] purgePlanDietViolations skipped:', e);
+  }
+};
+
 const purgeLoopDupes = () => {
   const norm = (s: string) => (s || '').trim().toLowerCase();
   try {
@@ -260,11 +300,13 @@ const App: React.FC = () => {
         purgeTrayOverflow();
         purgeLoopDupes();
         purgeLoopDietViolations();
+        purgePlanDietViolations();
         purgePlanDayDupes();
         seedTodayFromTray();
         // Heal stale trays: rebuild-time quota fixes never reached installs
         // hydrated BEFORE those fixes (trays with zero egg dishes persist).
         void healTrayDietGaps();
+        void healPLANDietGaps();
         const hhId = useStore.getState().householdId;
         if (hhId) useStore.getState().refreshHousehold();
         setIsHydrated(true);
@@ -565,7 +607,7 @@ const App: React.FC = () => {
             try {
               updateProfile({
                 region: payload.region,
-                diet: payload.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
+                diet: payload.diet ? payload.diet.toLowerCase() as "veg" | "non-veg" | "vegan" | "eggitarian" : undefined,
                 spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
                 cookContact: payload.cookContact,
                 plannedSlots: payload.plannedSlots,
@@ -616,6 +658,7 @@ const App: React.FC = () => {
       // auth hydrated (user null → heal bails). A logged-in user must get
       // their diet reps (eggs in north snacks, etc.) without a restart.
       void healTrayDietGaps(true);
+      void healPLANDietGaps(true);
     }} />
     </Suspense>;
   }
@@ -635,7 +678,7 @@ const App: React.FC = () => {
               console.log('[App] Onboarding complete, calling updateProfile');
               updateProfile({
                 region: preferences.region,
-                 diet: preferences.diet as "veg" | "non-veg" | "vegan" | "eggitarian" | undefined,
+                 diet: preferences.diet ? preferences.diet.toLowerCase() as "veg" | "non-veg" | "vegan" | "eggitarian" : undefined,
                 spiceLevel: spiceLevelFromNumber(preferences.spiceLevel),
                 cookContact: preferences.cookContact,
                 plannedSlots: preferences.plannedSlots,

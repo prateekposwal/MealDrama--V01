@@ -97,13 +97,21 @@ export function orderSuggestionsRegionFirst<T extends SuggestionLike>(
   // Defensive: a wrong-arg-order call used to pass userDiet as `items` (a
   // string) → "items.filter is not a function". Never trust the array.
   const list = Array.isArray(items) ? items : [];
-  // Step 1: optional diet filtering
+  // Step 1: optional diet filtering — normalized casings, and the VEG gate
+  // excludes BOTH non-veg and eggitarian (an egg curry is not a veg dish).
   const filtered = diet
     ? list.filter((item) => {
-        const dishDiet = inferDietFromName(item.name);
-        if (diet === 'non-veg') return true; // include all
-        if (diet === 'eggitarian') return true; // include all
-        if (diet === 'veg') return dishDiet !== 'non-veg'; // exclude non-veg
+        const normDiet = (diet || '').toLowerCase();
+        if (normDiet === 'non-veg') return true; // include all
+        if (normDiet === 'eggitarian') return true; // include all
+        if (normDiet === 'veg') {
+          // Prefer the real library type when the item resolves to a dish.
+          const real = library?.find(d => d.id === item.id)
+            ?? library?.find(d => d.name.toLowerCase() === (item.name || '').toLowerCase());
+          if (real?.type) return ['veg', 'vegan'].includes(real.type);
+          const dishDiet = inferDietFromName(item.name);
+          return dishDiet !== 'non-veg' && dishDiet !== 'eggitarian';
+        }
         return true;
       })
     : list;
