@@ -871,44 +871,48 @@ const PantryPulse: React.FC = () => {
                             </span>
                         </div>
                     </div>
-                    <div className="px-4 grid grid-cols-2 gap-3">
+                    <div className="px-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {group.items.map(item => {
                             const checked = checkedItems[item.name] ?? false;
                             const mealSources = item.sources;
                             return (
                                 <div
                                     key={item.id}
-                                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] hover:scale-[1.02] hover:shadow-md ${checked ? 'border-green-200 bg-green-50/50' : 'border-gray-100 bg-white'}`}
+                                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] motion-reduce:active:scale-100 overflow-hidden hover:scale-[1.02] hover:shadow-md ${checked ? 'border-green-200 bg-green-50/50' : 'border-gray-100 bg-white'}`}
                                 >
                                     <button
                                         onClick={() => setChecked(item.name, !checked)}
-                                        className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-all flex-shrink-0 ${checked ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200 hover:border-gray-300'}`}
+                                        className={`w-11 h-11 rounded-xl border flex items-center justify-center transition-all flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 ${checked ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200 hover:border-gray-300'}`}
+                                        aria-label={checked ? `Remove ${item.name} from check` : `Mark ${item.name} as in kitchen`}
                                     >
                                         {checked && <Check size={16} />}
                                     </button>
 
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-baseline gap-2">
+                                            <span className={`font-bold text-sm block leading-snug truncate min-w-0 flex-1 ${checked ? 'line-through text-gray-400' : 'text-gray-900'}`} title={item.name}>
+                                                {item.name}
+                                            </span>
+                                            <span className="text-[13px] text-gray-400 font-medium shrink-0">
+                                                {item.totalQuantity} {item.unit}
+                                            </span>
+                                        </div>
+                                        {!checked && mealSources.length > 0 && (
+                                            <span className="text-[11px] text-orange-500 block mt-1 font-medium truncate" title={mealSources.join(', ')}>
+                                                🍽️ {mealSources.length <= 2 ? mealSources.join(', ') : `${mealSources.slice(0, 2).join(', ')} +${mealSources.length - 2} more`}
+                                            </span>
+                                        )}
+                                    </div>
+
                                     {!checked && (
                                         <button
                                             onClick={() => buyItem(item)}
-                                            className="w-11 h-11 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center transition-all flex-shrink-0 hover:border-emerald-300 active:scale-90"
+                                            className="w-11 h-11 rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-600 flex items-center justify-center transition-all flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF385C]/50 hover:border-emerald-300 active:scale-90"
                                             aria-label={`Add ${item.name} to stock`}
                                         >
                                             <ShoppingCart size={14} />
                                         </button>
                                     )}
-                                    <div className="flex-1 min-w-0">
-                                        <span className={`font-bold text-sm block leading-snug ${checked ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-                                            {item.name}
-                                        </span>
-                                        <span className="text-sm text-gray-400 font-medium">
-                                            {item.totalQuantity} {item.unit}
-                                        </span>
-                                        {!checked && mealSources.length > 0 && (
-                                            <span className="text-xs text-orange-500 block mt-0.5 font-medium truncate">
-                                                🍽️ {mealSources.length <= 2 ? mealSources.join(', ') : `${mealSources.slice(0, 2).join(', ')} +${mealSources.length - 2} more`}
-                                            </span>
-                                        )}
-                                    </div>
                                 </div>
                             );
                         })}
