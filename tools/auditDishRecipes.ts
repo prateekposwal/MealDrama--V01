@@ -117,7 +117,7 @@ export function auditProduceFruit(): Array<{ id: string; name: string; variant: 
 //   a — infra-red: dish is non-veg/eggitarian but resolves NO protein
 //   b — weak recipe: <4 non-generic items, or nothing but generic pantry/spices
 //   c — name implies a distinctive ingredient that did NOT resolve
-// Ordering: class a first, then flag count, then fewest resolved items.
+// Ordering: class c first (the weighted sort ships c before a), then flag count, then fewest resolved items.
 const PROTEIN_NAME = /chicken|mutton|fish|prawn|crab|egg|\bpork\b|paneer|tofu|soya|beef/i;
 const GENERIC_ONLY = /^(oil|ghee|spices|salt|turmeric|cumin seeds|red chili powder|coriander( leaves)?)$/;
 
