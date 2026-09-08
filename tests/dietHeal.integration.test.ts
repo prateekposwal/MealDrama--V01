@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { healTrayDietGaps, reconcileStaleRegionalReps } from '../utils/dietHeal';
 import { useStore } from '../app/store/useStore';
 import { useTrayStore } from '../plan/store/useTrayStore';
+import { useLoopStore } from '../plan/store/useLoopStore';
 import { DISH_LIBRARY, type Dish } from '../meal/constants/dishLibrary';
 import { getISODate } from '../utils/dateUTC';
 
@@ -178,5 +179,36 @@ describe('healTrayDietGaps — realistic persisted-state scenarios', () => {
     const after = useStore.getState().trayLibrary.dinner as any[];
     expect(after.some(m => m.id === 'andhra')).toBe(false);        // far rep gone
     expect(after.some(m => m.id === 'anda-curry-north')).toBe(true); // local egg arrived
+  });
+
+  it('LOOP-AWARE CAP: a 14-day tray (cap 10) gains reps by ADDING, never removing a dish the old 6-cap would swap out', async () => {
+    setUser('eggitarian');
+    useLoopStore.getState().setMealLoop(
+      { cycleLength: 14, startDate: '2026-06-01', skipDays: [], repeatPattern: 'random' },
+      [], [],
+    );
+    const lunchBase = vegOnlyTray('lunch');
+    expect(lunchBase.length).toBeGreaterThanOrEqual(6);
+    useStore.setState({ trayLibrary: {
+      breakfast: vegOnlyTray('breakfast'), lunch: lunchBase,
+      snacks: vegOnlyTray('snacks'), dinner: vegOnlyTray('dinner'),
+    } } as any);
+
+    await healTrayDietGaps(true);
+
+    const afterLunch = useStore.getState().trayLibrary.lunch as any[];
+    expect(hasDiet(afterLunch, 'eggitarian')).toBe(true);
+    // Every original dish survived — reps were ADDED under the 10 cap, not
+    // swapped in over the old hard-coded 6 cap.
+    for (const m of lunchBase) {
+      expect(
+        afterLunch.some((x: any) => (x.dishId ?? x.id) === (m.dishId ?? m.id)),
+        `${m.name} was removed by the healer`,
+      ).toBe(true);
+    }
+    expect(afterLunch.length).toBeGreaterThanOrEqual(lunchBase.length + 1);
+    expect(afterLunch.length).toBeLessThanOrEqual(10);
+    // Restore the default (config-less) loop for any follow-on tests.
+    useLoopStore.setState({ mealLoop: { ...useLoopStore.getState().mealLoop, config: null } });
   });
 });

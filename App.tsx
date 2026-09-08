@@ -30,7 +30,7 @@ import { useBackNavigation } from './hooks/useBackNavigation';
 import { getRegionKey } from './utils/dishSearch';
 import { isPureSweetDish } from './meal/constants/pairingCatalog';
 import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, allowedTypesForDiet, keepRegionTrayItems } from './utils/dietQuota';
-import { buildEnrichedLoopPool, poolTargetForCycleLength, healthMatchFor } from './utils/loopPool';
+import { buildEnrichedLoopPool, poolTargetForCycleLength, healthMatchFor, getTraySlotCap } from './utils/loopPool';
 
 const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
 
@@ -64,11 +64,14 @@ const purgeTrayClones = () => {
 // same dish multiple times, and old assignments repeat dishes within a day.
 // Keep-first per (slot, name) in the queue and per (date, name) in
 // assignments so legacy persisted data heals itself on startup.
-const TRAY_SLOT_CAP = 6;
 const PLAN_SLOT_CAP = 6;
 /** Per-slot minimum × representatives for distinctive diets (the "more eggs" bar). */
 const DIET_REP_TARGET = 2;
-const purgeTrayOverflow = () => {
+// Cap is loop-config-derived (7-day → 5, 14-day → 10, 30-day → 15, via
+// getTraySlotCap) so a legit cycle-scaled rotation pool survives reload. The
+// legacy overflow intent is unchanged: trim ONLY when a slot exceeds the cap.
+export const purgeTrayOverflow = () => {
+  const traySlotCap = getTraySlotCap(useLoopStore.getState().mealLoop.config?.cycleLength);
   useStore.setState((s) => {
     let changed = false;
     const next: typeof s.trayLibrary = { ...s.trayLibrary };
@@ -76,7 +79,7 @@ const purgeTrayOverflow = () => {
       const tray = s.trayLibrary[slotKey] || [];
       // Cap keep-first — legacy builds stacked distinct dishes across
       // repeated rebuilds (13-lunch trays).
-      if (tray.length > TRAY_SLOT_CAP) { changed = true; next[slotKey] = tray.slice(0, TRAY_SLOT_CAP); }
+      if (tray.length > traySlotCap) { changed = true; next[slotKey] = tray.slice(0, traySlotCap); }
     }
     return changed ? { trayLibrary: next } : {};
   });

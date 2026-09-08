@@ -7,7 +7,8 @@ import type { User } from '../app/store/useStore';
 import type { MealLoopConfig, MealType } from '../types/tray';
 import type { SourcePool } from '../plan/utils/mealLoopEngine';
 import { buildPlanIndex } from '../plan/utils/planIndex';
-import { poolTargetForCycleLength } from '../utils/loopPool';
+import { poolTargetForCycleLength, getTraySlotCap } from '../utils/loopPool';
+import { purgeTrayOverflow } from '../App';
 import { getExistingItemsInRange } from '../plan/utils/planIndex';
 
 const SLOTS = ['breakfast', 'lunch', 'snacks', 'dinner'] as const;
@@ -327,5 +328,67 @@ describe('T16 — undoLoopChange does NOT revert tray/plan side effects', () => 
     expect(useTrayStore.getState().plan.days[futureDate]!.lunch.length).toBe(futureLunchAfter);
 
     // (d) no crash — reached here.
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T17 — reload tray-trim is loop-config-aware (the 14-day data-loss bug).
+// purgeTrayOverflow hard-capped every slot at 6, so a persisted 14-day loop
+// (target 10/slot via poolTargetForCycleLength) lost ~40% of its rotation pool
+// on EVERY reload. The cap now derives from getTraySlotCap(config?.cycleLength
+// ?? 7). These tests lock the 14-day survival AND the 7-day default behavior
+// the old constant protected.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('T17 — purgeTrayOverflow respects the loop-config cap', () => {
+  it('14-day loop: the legit 10/slot tray survives the reload purge untouched (was sliced 10→6)', () => {
+    seedTray(2);
+    const bigPool = makeBigPool(15);
+    useLoopStore.getState().applyLoopConfig(configFor(7), bigPool, flatDishes(bigPool));
+    useLoopStore.getState().applyLoopConfig(configFor(14), makeBigPool(15), flatDishes(makeBigPool(15)));
+
+    // The purge cap is ONE source of truth with the pool target.
+    const cap = getTraySlotCap(useLoopStore.getState().mealLoop.config?.cycleLength);
+    expect(cap).toBe(poolTargetForCycleLength(14));
+    expect(cap).toBe(10);
+
+    const pre = useStore.getState().trayLibrary;
+    for (const slot of SLOTS) {
+      expect(pre[slot].length, `${slot} pre-purge`).toBeGreaterThanOrEqual(10);
+    }
+
+    purgeTrayOverflow();
+
+    const post = useStore.getState().trayLibrary;
+    for (const slot of SLOTS) {
+      expect(post[slot].length, `${slot} post-purge`).toBeGreaterThanOrEqual(10);
+    }
+  });
+
+  it('7-day config: bloat is trimmed DOWN to the 7-day target (5/slot), not left at the old 6', () => {
+    seedTray(8);
+    const bigPool = makeBigPool(15);
+    useLoopStore.getState().applyLoopConfig(configFor(7), bigPool, flatDishes(bigPool));
+
+    expect(getTraySlotCap(7)).toBe(5);
+
+    purgeTrayOverflow();
+
+    const post = useStore.getState().trayLibrary;
+    for (const slot of SLOTS) {
+      expect(post[slot].length, `${slot} 7-day cap`).toBe(5);
+    }
+  });
+
+  it('no loop config: 7-day default cap (5) applies and an at-target tray is untouched', () => {
+    seedTray(5); // exactly the 7-day target
+    expect(getTraySlotCap(undefined)).toBe(5);
+
+    purgeTrayOverflow();
+
+    const post = useStore.getState().trayLibrary;
+    for (const slot of SLOTS) {
+      expect(post[slot].length, `${slot} untouched`).toBe(5);
+    }
   });
 });

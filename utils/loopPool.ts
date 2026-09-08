@@ -14,6 +14,7 @@
 //
 // API:
 //   poolTargetForCycleLength(cycleLength) -> 5/10/15 per slot (7/14/30-day)
+//   getTraySlotCap(cycleLength?)           -> tray per-slot cap (same mapping; ? defaults to 7-day)
 //   healthMatchFor(goal)                  -> health-match scorer for a goal
 //   dietPriorityFor(diet)                 -> diet -> priority map (veg/egg/non-veg/vegan)
 //   buildEnrichedLoopPool({...})          -> SourcePool enriched to the target
@@ -33,6 +34,17 @@ import type { SourcePool } from '../plan/utils/mealLoopEngine';
  */
 export const poolTargetForCycleLength = (cycleLength: number) =>
   Math.min(15, Math.round(5 * cycleLength / 7));
+
+/**
+ * Reload/diet-heal tray-slot cap: the SAME cycle-scaled target as the pool
+ * (7-day → 5, 14-day → 10, 30-day → 15), defaulting to the 7-day target
+ * when no loop config is present. ONE source of truth for "how many dishes per
+ * slot may legitimately sit in the tray" so the reload sanitizer never trims a
+ * cycle-scaled rotation pool (the 14-day → 6 data-loss bug) and the diet healer
+ * never swaps against it.
+ */
+export const getTraySlotCap = (cycleLength?: number): number =>
+  poolTargetForCycleLength(cycleLength ?? 7);
 
 /** Health-match scorer from a user goal string ("High Protein" → lifts protein dishes). */
 export const healthMatchFor = (goal?: string) => {

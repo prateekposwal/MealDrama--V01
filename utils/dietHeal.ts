@@ -13,13 +13,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useStore } from '../app/store/useStore';
 import { useTrayStore } from '../plan/store/useTrayStore';
+import { useLoopStore } from '../plan/store/useLoopStore';
 import { getRegionKey } from './dishSearch';
 import { pickDietRepresentativesWithSlots, distinctiveTypeFor } from './dietQuota';
+import { getTraySlotCap } from './loopPool';
 import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
 import { getISODate } from './dateUTC';
 
 const SLOTS = ['breakfast', 'lunch', 'snacks', 'dinner'] as const;
-const TRAY_SLOT_CAP = 6;
 const PLAN_SLOT_CAP = 6;
 /** Distinctive diets worth healing. 'veg' is the universal default. */
 const HEALABLE = new Set(['eggitarian', 'vegan', 'non-veg']);
@@ -66,11 +67,14 @@ export function findVictim(
 async function ensureDietViaStore(repList: Array<{ dish: any; slot: string }>): Promise<boolean> {
   const todayStr = getISODate();
   const trayStore = useTrayStore.getState();
+  // Tray-slot cap derives from the loop config (7-day -> 5, 14-day -> 10,
+  // default 7-day) so a legit 10/slot 14-day tray is topped up, not swapped.
+  const traySlotCap = getTraySlotCap(useLoopStore.getState().mealLoop.config?.cycleLength);
   let added = 0;
   let replaced = 0;
   for (const { dish, slot } of repList) {
     let current = (useStore.getState().trayLibrary as any)[slot] || [];
-    if (current.length >= TRAY_SLOT_CAP) {
+    if (current.length >= traySlotCap) {
       const hit = findVictim(current, DISH_LIBRARY, superiorTypeOf(dish));
       if (!hit) continue;
       useStore.getState().removeFromTray(slot, hit.victim.id ?? hit.victim.dishId);
