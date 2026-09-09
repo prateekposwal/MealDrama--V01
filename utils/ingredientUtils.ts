@@ -1900,7 +1900,7 @@ function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingr
 
     const isSweet = /dessert|sweet|halwa|kheer|payasam|payesh|barfi|ladoo|burfi|shrikhand|basundi|jalebi|gulab|jamun|kaju|ras ma?lai|rasgulla|mysore|son papdi|pitha|mithai/.test(all)
         && !/stir-fry|curry|gravy|korma|bhindi|sabzi/.test(all);
-    const isBeverage = /beverage|chai|tea|coffee|juice|shake|smoothie|lassi|chaas|buttermilk|sharbat/.test(all);
+    const isBeverage = /beverage|chai|\btea\b|coffee|juice|shake|smoothie|lassi|chaas|buttermilk|sharbat/.test(all);
     const isRiceDish = /biryani|pulao|khichdi|paella|fried rice|jeera rice|sambar rice|curd rice|rice/.test(nameLower)
         && !isSweet;
     const isDal = /dal|daal|lentil|chana|rajma|chole|ghugni|dal-makhani/.test(all);
@@ -1915,7 +1915,7 @@ function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingr
         push({ name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry' });
         push({ name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry' });
         push({ name: 'Turmeric', quantity: 0.5, unit: 'tsp', category: 'spices' });
-        if (isNorth || isWest) push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        if ((isNorth || isWest) && dish.type !== 'vegan') push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
         if (isSouth) {
             push({ name: 'Coconut', quantity: 0.5, unit: 'cup', category: 'produce' });
             push({ name: 'Curry Leaves', quantity: 1, unit: 'sprig', category: 'produce' });
@@ -1962,7 +1962,7 @@ function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingr
         push({ name: 'Tea Leaves', quantity: 1, unit: 'tsp', category: 'pantry' });
     }
 
-    if (/pancake|oatmeal|oats|muffin|cookie|banana bread|bake|granola|waffle/.test(all)) {
+    if (/pancake|oatmeal|oats|muffin|cookie|banana bread|\bbake\b|granola|waffle/.test(all)) {
         push({ name: 'Flour', quantity: 1.5, unit: 'cups', category: 'grains' });
         push({ name: 'Sugar', quantity: 0.5, unit: 'cup', category: 'pantry' });
         push({ name: 'Baking Powder', quantity: 1, unit: 'tsp', category: 'pantry' });
