@@ -28,9 +28,10 @@ export function recipeIngredients(
 ): AggregatedIngredient[] {
   const variants = (dish.variants ?? []).filter(v => (v.ingredients ?? []).length > 0)
     ?? dish.variants ?? [];
-  const eggless = variants.find(v => /without egg|eggless|vegan|without butter|no brown sugar|no sugar/i.test(v.name));
-  const withEgg = variants.find(v => (v.ingredients ?? []).some(i => /^egg|egg\b|eggs\b/i.test(i.name)));
   const wantEggs = diet !== null && diet !== undefined && /eggitarian|non-veg/i.test(diet);
+  const eggless = variants.find(v => /without egg|eggless|vegan|without butter|no brown sugar|no sugar/i.test(v.name))
+    ?? (!wantEggs ? variants.find(v => ['veg', 'vegan'].includes(v.diet ?? dish.type)) : undefined);
+  const withEgg = variants.find(v => (v.ingredients ?? []).some(i => /^egg|egg\b|eggs\b/i.test(i.name)));
   const chosen = wantEggs ? (withEgg ?? eggless ?? variants[0]) : (eggless ?? variants[0]);
   const explicit = chosen?.ingredients ?? [];
   // A stub/wrong-recipe explicit list (placeholder gate) is NOT a recipe —

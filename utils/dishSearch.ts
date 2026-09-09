@@ -1,4 +1,4 @@
-import type { Dish } from '../meal/constants/dishLibrary';
+import type { Dish, DishVariant } from '../meal/constants/dishLibrary';
 import { isPureSweetDish } from '../meal/constants/pairingCatalog';
 import { scoreDish } from './nutritionScore';
 import { filterDishesByHealth, sortDishesByHealth, getFilterPreset } from './healthSortFilter';
@@ -497,13 +497,26 @@ export function dishSortComparator(params: {
   };
 }
 
-/** Get relevant variants for a dish filtered by meal slot */
+/** First variant eligible for a diet — resolved type (v.diet ?? dish.type)
+ *  must be in DIET_FILTER[diet]. No diet → first variant (unchanged behavior).
+ *  None eligible → undefined (caller keeps its own fallback). */
+export function firstValidVariant(dish: Dish, diet?: string | null): DishVariant | undefined {
+  if (!dish?.variants?.length) return undefined;
+  if (!diet) return dish.variants[0];
+  const allowed = DIET_FILTER[String(diet).toLowerCase()];
+  if (!allowed) return dish.variants[0];
+  return dish.variants.find(v => allowed.includes(v.diet ?? dish.type));
+}
+
+/** Get relevant variants for a dish filtered by meal slot + diet eligibility */
 export function getDishVariants(dish: Dish, slot: string, diet?: string) {
   const category = slot.toLowerCase();
   const isVegan = diet?.toLowerCase() === 'vegan';
+  const allowed = DIET_FILTER[String(diet ?? '').toLowerCase()] ?? null;
   return dish.variants.filter(v => {
     if (!v.mealContext) return true;
     if (isVegan) return false;
+    if (allowed && !allowed.includes(v.diet ?? dish.type)) return false;
     return v.mealContext.includes(category) || !v.mealContext;
   }).slice(0, 6);
 }

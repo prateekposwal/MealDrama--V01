@@ -11,6 +11,7 @@ import { createCustomDish, updateCustomDish as updateCustomDishApi, deleteCustom
 import type { Household } from '../../types/household';
 import { DISH_LIBRARY } from '../../meal/constants/dishLibrary';
 import type { Dish } from '../../meal/constants/dishLibrary';
+import { firstValidVariant, DIET_FILTER } from '../../utils/dishSearch';
 
 interface SwapNotification {
   id: string;
@@ -185,11 +186,12 @@ export function getMealResolution(
   slot: string,
   dishes: Dish[],
   userId?: string,
+  diet?: string | null,
 ): MealResolution {
   // M5: Cache key scoped to specific date/slot swaps, not global swap count
   const daySwaps = swaps[isoDate]?.[slot];
   const swapFingerprint = daySwaps ? `${(daySwaps as unknown as Record<string, unknown>).id ?? (daySwaps as unknown as Record<string, unknown>).meal_id ?? 'none'}` : 'none';
-  const cacheKey = `${userId ?? 'anon'}::${isoDate}::${slot}::${swapFingerprint}`;
+  const cacheKey = `${userId ?? 'anon'}::${diet ?? ''}::${isoDate}::${slot}::${swapFingerprint}`;
   if (_MEAL_RESOLUTION_CACHE.has(cacheKey)) {
     const val = _MEAL_RESOLUTION_CACHE.get(cacheKey)!;
     // LRU: re-insert to move to end
@@ -198,7 +200,7 @@ export function getMealResolution(
     return val;
   }
 
-  const result = _computeMealResolution(trayLibrary, swaps, isoDate, slot, dishes);
+  const result = _computeMealResolution(trayLibrary, swaps, isoDate, slot, dishes, diet);
   _MEAL_RESOLUTION_CACHE.set(cacheKey, result);
   if (_MEAL_RESOLUTION_CACHE.size > _MEAL_CACHE_MAX) {
     const firstKey = _MEAL_RESOLUTION_CACHE.keys().next().value;
@@ -214,13 +216,14 @@ function _computeMealResolution(
   isoDate: string,
   slot: string,
   dishes: Dish[],
+  diet?: string | null,
 ): MealResolution {
   const slotKey = isoDate;
   const daySwaps = swaps[slotKey] || {};
   const swappedMeal = daySwaps[slot];
 
   if (swappedMeal) {
-    const { name, addOn } = resolveSmartVariantName(swappedMeal, slot, dishes);
+    const { name, addOn } = resolveSmartVariantName(swappedMeal, slot, dishes, diet);
     return {
       meal: { ...swappedMeal, variant: name, addOn: addOn || swappedMeal.addOn },
       isSwapped: true,
@@ -239,7 +242,7 @@ function _computeMealResolution(
   const dishIndex = cycleDay % tray.length;
   const meal = tray[dishIndex];
   if (!meal) return {};
-  const { name, addOn } = resolveSmartVariantName(meal, slot, dishes);
+  const { name, addOn } = resolveSmartVariantName(meal, slot, dishes, diet);
 
   // Duplicate warning: check if same dishId appears in another slot today
   const allSlots = ['breakfast', 'lunch', 'snacks', 'dinner'] as const;
@@ -265,11 +268,11 @@ function _computeMealResolution(
 }
 
 
-const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[]) => {
+const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[], diet?: string | null) => {
   if (!meal?.dishId) return { name: meal?.variant || meal?.name || '', addOn: meal?.addOn };
   const dish = dishes.find(d => d.id === meal.dishId);
   const variants = dish?.variants || [];
-  if (!variants.length) return { name: meal.variant, addOn: meal.addOn };
+  if (!dish || !variants.length) return { name: meal.variant, addOn: meal.addOn };
 
   const slotContext = slot.toLowerCase();
   const preferredForJadoh = slot === 'Lunch'
@@ -277,12 +280,15 @@ const resolveSmartVariantName = (meal: MealOption, slot: string, dishes: Dish[])
     : slot === 'Dinner'
     ? ['Rice', 'Bowl']
     : [];
+  // Diet in play → candidates narrow to the resolved type (v.diet ?? dish.type)
+  const allowed = diet ? DIET_FILTER[String(diet).toLowerCase()] : null;
+  const eligible = allowed ? variants.filter(v => allowed.includes(v.diet ?? dish.type)) : variants;
 
   let match = preferredForJadoh.length
-    ? variants.find(v => preferredForJadoh.some(p => v.name.toLowerCase().includes(p.toLowerCase())))
+    ? eligible.find(v => preferredForJadoh.some(p => v.name.toLowerCase().includes(p.toLowerCase())))
     : null;
-  if (!match) match = variants.find(v => v.mealContext?.toLowerCase() === slotContext);
-  if (!match) match = variants[0];
+  if (!match) match = eligible.find(v => v.mealContext?.toLowerCase() === slotContext);
+  if (!match) match = firstValidVariant(dish, diet) ?? variants[0];
 
   return { name: match?.name || meal.variant, addOn: match?.addOn };
 };
