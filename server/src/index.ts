@@ -3,7 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import passport from 'passport';
 import dotenv from 'dotenv';
-import { prisma } from './lib/prisma';
+import { prisma, connectWithRetry } from './lib/prisma';
 import './lib/auth';
 
 // Load environment variables
@@ -206,8 +206,8 @@ app.use(errorHandler);
 
 const startServer = async () => {
   try {
-    // Connect to database
-    await prisma.$connect();
+    // Connect to database (retries through Neon free-tier cold-start)
+    await connectWithRetry();
     console.log('✓ Database connected');
 
     // Start Express server
