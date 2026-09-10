@@ -1,10 +1,12 @@
 // Offline-first analytics: buffer to localStorage, dispatch a CustomEvent,
 // fire-and-forget flush to the server when reachable. Never throws.
+// Telemetry targets the SAME base the app uses (getApiBase) so a stale
+// hardcoded default can never fight the API-base self-heal.
+
+import { getApiBase } from '../lib/api';
 
 const KEY = 'md-events';
 const CAP = 200;
-const API_BASE_KEY = 'md:api_base';
-const DEFAULT_API_BASE = 'http://10.243.22.253:3001/api/v1';
 
 export interface AnalyticsEvent {
   name: string;
@@ -47,14 +49,10 @@ function save() {
 
 function flushTarget(): string {
   try {
-    if (typeof window !== 'undefined') {
-      const stored = window.localStorage.getItem(API_BASE_KEY);
-      if (stored) return stored.endsWith('/api/v1') ? `${stored}/events` : `${stored}/events`;
-    }
+    return `${getApiBase().replace(/\/+$/, '')}/events`;
   } catch {
-    /* fallthrough to default */
+    return 'http://localhost:3001/api/v1/events';
   }
-  return `${DEFAULT_API_BASE}/events`;
 }
 
 /** Enable/disable network flush (local-only keeps buffer + CustomEvent). */

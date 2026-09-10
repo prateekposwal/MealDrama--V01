@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nativeStorage } from '../utils/nativeStorage';
 import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
-import api, { setAuthReady } from '../../lib/api';
+import api, { setAuthReady, runApiBaseMigration } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
 import { householdApi } from '../utils/householdApi';
@@ -1149,6 +1149,11 @@ export const useStore = create<StoreState>()(
           const trayTotal = Object.values(trayLib).reduce((sum: number, arr: unknown[]) => sum + (arr?.length || 0), 0);
           if (import.meta.env.DEV) console.log('[Store] Hydrated: isLoggedIn=', state.isLoggedIn, 'authReady=', state.authReady, 'user.id=', state.user?.id, 'trayLibrary=', trayTotal, 'dishes=', state.dishes?.length);
           setAuthReady(true);
+          // One-shot API-base migration: heal phones whose stored md:api_base
+          // is a stale dev/tunnel URL (probe baked default first, so working
+          // custom values are never clobbered). Fire-and-forget — the
+          // request-level unconditional heal remains the backstop.
+          void runApiBaseMigration();
         }
       },
     }

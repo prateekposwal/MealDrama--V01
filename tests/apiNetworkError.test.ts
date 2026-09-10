@@ -3,27 +3,27 @@ import { resolveFallbackBaseUrl, setLanIpResolver, getLanIpResolver } from '../l
 
 // ── resolveFallbackBaseUrl — pure function tests ───────────────────────────
 describe('resolveFallbackBaseUrl — stale-base detection', () => {
-  const OLD_DEFAULT = 'http://10.243.22.253:3001/api/v1';
+  const DEV_DEFAULT = 'http://localhost:3001/api/v1';
 
   afterEach(() => {
     setLanIpResolver(null);
   });
 
   it('returns null when the stored base IS the current default (not stale)', () => {
-    // No resolver set → defaultApiBase returns the hardcoded value
-    expect(resolveFallbackBaseUrl(OLD_DEFAULT)).toBeNull();
+    // No resolver set → defaultApiBase returns the dev fallback value
+    expect(resolveFallbackBaseUrl(DEV_DEFAULT)).toBeNull();
   });
 
   it('returns a fresh base when the stored base differs from the default', () => {
     const staleBase = 'http://192.168.1.100:3001/api/v1';
     const result = resolveFallbackBaseUrl(staleBase);
-    expect(result).toBe(OLD_DEFAULT);
+    expect(result).toBe(DEV_DEFAULT);
     expect(result).not.toBe(staleBase);
   });
 
   it('returns a resolver-provided default when the stored base is stale', () => {
     setLanIpResolver(() => '10.0.0.5');
-    const staleBase = 'http://10.243.22.253:3001/api/v1';
+    const staleBase = 'http://192.168.99.99:3001/api/v1';
     const result = resolveFallbackBaseUrl(staleBase);
     expect(result).toBe('http://10.0.0.5:3001/api/v1');
     expect(result).not.toBe(staleBase);
@@ -39,7 +39,7 @@ describe('resolveFallbackBaseUrl — stale-base detection', () => {
     setLanIpResolver(() => { throw new Error('no network'); });
     const staleBase = 'http://192.168.1.100:3001/api/v1';
     // Resolver throws → falls back to hardcoded default → stale base differs → returns it
-    expect(resolveFallbackBaseUrl(staleBase)).toBe(OLD_DEFAULT);
+    expect(resolveFallbackBaseUrl(staleBase)).toBe(DEV_DEFAULT);
   });
 
   it('getLanIpResolver / setLanIpResolver round-trip', () => {
@@ -142,9 +142,11 @@ describe('request() — network error wrapping and stale-base fallback', () => {
     expect(localStorage.getItem('md:api_base')).toBe('http://10.99.88.77:3001/api/v1');
   });
 
-  it('no fallback attempted when stored base already equals the default', async () => {
-    // Stored base == hardcoded default, no resolver → nothing fresher to try
-    localStorage.setItem('md:api_base', 'http://10.243.22.253:3001/api/v1');
+  it('stored base == default and default unreachable → health probe still attempted, actionable error, no clobber', async () => {
+    // Stored base == dev default; nothing different to heal to. The unconditional
+    // self-heal still probes the default once (it may have come back), then throws
+    // an actionable error. The stored value is never clobbered by a failed probe.
+    localStorage.setItem('md:api_base', 'http://localhost:3001/api/v1');
 
     let callCount = 0;
     globalThis.fetch = vi.fn().mockImplementation(() => {
@@ -160,9 +162,10 @@ describe('request() — network error wrapping and stale-base fallback', () => {
       expect.fail('Should have thrown');
     } catch (err: unknown) {
       expect((err as Error).message).toContain('Cannot reach');
-      // Only the original fetch call — no fallback, no retry (GET network errors retried,
-      // but with no fallback base the wrapped FetchError is thrown immediately)
-      expect(callCount).toBe(1);
+      expect((err as Error).message).toContain('http://localhost:3001/api/v1');
+      // original request + one /health probe — bounded, no infinite retry storm
+      expect(callCount).toBe(2);
+      expect(localStorage.getItem('md:api_base')).toBe('http://localhost:3001/api/v1');
     }
   });
 });
