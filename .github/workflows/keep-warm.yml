@@ -1,0 +1,26 @@
+name: Keep Render Warm
+
+# Pings the Render free-tier health endpoint every 4 minutes so the instance
+# never reaches the ~15-minute idle spin-down. GitHub Actions cron has 5-minute
+# granularity (honored by */4). Runs are FREE on public repos and, when
+# delayed under load, typically stay well inside the 15-minute idle window.
+#
+# NOTE: GitHub disables scheduled workflows after ~60 days of repo inactivity
+# (no push in that window) — re-enable or push to reactivate if that happens.
+# Render free instances may also be restarted by Render at any time; that is
+# acceptable for this app (cold start ~1 min).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '*/4 * * * *'
+
+jobs:
+  ping:
+    name: Ping Render health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Curl health endpoint
+        run: curl -fsS --max-time 20 https://mealdrama.onrender.com/health
