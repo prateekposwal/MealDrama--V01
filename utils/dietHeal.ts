@@ -14,7 +14,7 @@
 import { useStore } from '../app/store/useStore';
 import { useTrayStore } from '../plan/store/useTrayStore';
 import { useLoopStore } from '../plan/store/useLoopStore';
-import { getRegionKey } from './dishSearch';
+import { getRegionKey, variantType } from './dishSearch';
 import { pickDietRepresentativesWithSlots, distinctiveTypeFor, allowedTypesForDiet } from './dietQuota';
 import { getTraySlotCap } from './loopPool';
 import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
@@ -264,7 +264,13 @@ export async function healPLANDietGaps(force = false): Promise<void> {
         const kept = meals.filter((m: any) => {
           const d = resolveDish(DISH_LIBRARY, m);
           if (!d) return true; // custom/unresolvable — protect
-          return allowed.includes(superiorTypeOf(d));
+          // Variant-aware keep: the card's stored variant refines the dish type
+          // (appam::appam-egg is eggitarian even though appam is veg), so a veg
+          // user's plan drops it. No variantId on the card -> variantType falls
+          // back to the dish-level check (d.diet ?? d.type) — identical to the
+          // pre-variant rule.
+          const v = (d.variants || []).find((vv: any) => vv.id === m.variantId) ?? null;
+          return allowed.includes(variantType(d, v));
         });
         if (kept.length !== meals.length) { changed = true; nextDay[slot] = kept; }
       }

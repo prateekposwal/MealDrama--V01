@@ -508,6 +508,14 @@ export function firstValidVariant(dish: Dish, diet?: string | null): DishVariant
   return dish.variants.find(v => allowed.includes(v.diet ?? dish.type));
 }
 
+/** Effective variant diet type — single source of truth for the plan-heal keep-rule
+ * and the ingredient gate: variant-level diet wins, then dish-level diet, then dish type.
+ * Degrades exactly to the legacy dish-level check (d.diet || d.type) with no variant diet.
+ */
+export function variantType(dish: Dish, variant?: DishVariant | null): string {
+  return variant?.diet ?? dish?.diet ?? dish?.type ?? 'veg';
+}
+
 /** Get relevant variants for a dish filtered by meal slot + diet eligibility */
 export function getDishVariants(dish: Dish, slot: string, diet?: string) {
   const category = slot.toLowerCase();

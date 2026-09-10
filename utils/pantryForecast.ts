@@ -239,12 +239,17 @@ const CATEGORY_KEYWORDS: Record<IngredientCategory, string[]> = {
   pantry: ['oil', 'honey', 'jam', 'sauce', 'ketchup', 'mayo', 'pickle', 'chutney', 'vinegar', 'coconut', 'cashew', 'almond', 'raisin', 'vanilla', 'baking', 'soda', 'stock', 'syrup', 'peanut', 'chocolate', 'dry fruit', 'kaju', 'badam'],
 };
 
+/** Plant milks are shelf-stable pantry goods — must beat the 'milk' dairy keyword. */
+const PLANT_MILK_NAMES = ['coconut milk', 'almond milk', 'oat milk'];
+
 /**
  * Best-effort category for an ingredient name (case-insensitive substring
  * match over the small table above). Defaults to 'pantry'. Deterministic.
  */
 export function categoryForName(name: string): IngredientCategory {
   const lower = (name || '').toLowerCase().trim();
+  // Plant milks first: 'milk' is a dairy keyword, but coconut/almond/oat milk are pantry.
+  if (PLANT_MILK_NAMES.some(n => lower.includes(n))) return 'pantry';
   for (const category of Object.keys(CATEGORY_KEYWORDS) as IngredientCategory[]) {
     if (CATEGORY_KEYWORDS[category].some(k => lower.includes(k))) return category;
   }

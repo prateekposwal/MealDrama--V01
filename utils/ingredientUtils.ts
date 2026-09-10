@@ -1,6 +1,7 @@
 import type { Dish, Ingredient, IngredientCategory, DishVariant } from '../meal/constants/dishLibrary';
 import { api } from '../lib/api';
 import { getMealResolution, type MealResolution, type CategorySelection } from '../app/store/useStore';
+import { firstValidVariant, DIET_FILTER, variantType } from './dishSearch';
 import { cachedIngredients } from './cache';
 import { resolveDisplayName } from './resolveDisplayName';
 import { getISODate, addDaysISO } from './dateUTC';
@@ -44,7 +45,7 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'coconut-gravy': [ing('Coconut', 50, 'g', 'produce'), ing('Onions', 1, 'pc', 'produce'), ing('Green Chilli', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'chettinad-masala': [ing('Coconut', 30, 'g', 'produce'), ing('Onions', 2, 'pc', 'produce'), ing('Tomatoes', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'rasam': [ing('Tomatoes', 3, 'pc', 'produce'), ing('Rasam Powder', 1, 'tbsp', 'spices'), ing('Tamarind', 10, 'g', 'pantry'), ing('Spices', 1, 'packet', 'spices')],
-  'kerala-stew': [ing('Coconut Milk', 200, 'ml', 'dairy'), ing('Onions', 1, 'pc', 'produce'), ing('Ginger', 1, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
+  'kerala-stew': [ing('Coconut Milk', 200, 'ml', 'pantry'), ing('Onions', 1, 'pc', 'produce'), ing('Ginger', 1, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'andhra-curry': [ing('Red Chilli', 4, 'pc', 'produce'), ing('Onions', 2, 'pc', 'produce'), ing('Tomatoes', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'mustard-gravy-shorshe': [ing('Mustard Seeds', 2, 'tbsp', 'spices'), ing('Green Chilli', 2, 'pc', 'produce'), ing('Mustard Oil', 1, 'tbsp', 'pantry'), ing('Spices', 1, 'packet', 'spices')],
   'poppy-seed-gravy-posto': [ing('Poppy Seeds', 30, 'g', 'spices'), ing('Green Chilli', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
@@ -54,7 +55,7 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'goan-vindaloo': [ing('Vinegar', 2, 'tbsp', 'pantry'), ing('Red Chilli', 4, 'pc', 'produce'), ing('Garlic', 6, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'gujarati-kadhi': [ing('Yogurt', 200, 'g', 'dairy'), ing('Gram Flour', 30, 'g', 'grains'), ing('Green Chilli', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'xacuti-masala': [ing('Coconut', 50, 'g', 'produce'), ing('Poppy Seeds', 10, 'g', 'spices'), ing('Onions', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
-  'kokum-curry': [ing('Kokum', 5, 'pc', 'pantry'), ing('Coconut Milk', 100, 'ml', 'dairy'), ing('Green Chilli', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
+  'kokum-curry': [ing('Kokum', 5, 'pc', 'pantry'), ing('Coconut Milk', 100, 'ml', 'pantry'), ing('Green Chilli', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'brown-gravy-onion-tomato-1': [ing('Onions', 2, 'pc', 'produce'), ing('Tomatoes', 3, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
   'kadhi': [ing('Yogurt', 200, 'g', 'dairy'), ing('Gram Flour', 30, 'g', 'grains'), ing('Spices', 1, 'packet', 'spices')],
   'malwa-curry': [ing('Onions', 2, 'pc', 'produce'), ing('Tomatoes', 2, 'pc', 'produce'), ing('Spices', 1, 'packet', 'spices')],
@@ -74,7 +75,7 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'chochwor': [ing('Maida', 200, 'g', 'grains'), ing('Poppy Seeds', 10, 'g', 'spices')],
   'sheermal': [ing('Maida', 200, 'g', 'grains'), ing('Saffron', 1, 'pinch', 'spices'), ing('Milk', 50, 'ml', 'dairy')],
   'dosa': [ing('Rice', 100, 'g', 'grains'), ing('Urad Dal', 50, 'g', 'proteins')],
-  'appam': [ing('Rice', 100, 'g', 'grains'), ing('Coconut Milk', 50, 'ml', 'dairy')],
+  'appam': [ing('Rice', 100, 'g', 'grains'), ing('Coconut Milk', 50, 'ml', 'pantry')],
   'idiyappam': [ing('Rice Flour', 150, 'g', 'grains'), ing('Coconut', 20, 'g', 'produce')],
   'pathiri': [ing('Rice Flour', 150, 'g', 'grains')],
   'porotta': [ing('Maida', 200, 'g', 'grains'), ing('Oil', 30, 'ml', 'pantry')],
@@ -89,7 +90,7 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'thepla': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Fenugreek Leaves', 30, 'g', 'produce')],
   'rotla': [ing('Bajra Flour', 200, 'g', 'grains')],
   'puran-poli': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Chana Dal', 100, 'g', 'proteins'), ing('Jaggery', 50, 'g', 'pantry')],
-  'poee': [ing('Maida', 200, 'g', 'grains'), ing('Coconut Milk', 50, 'ml', 'dairy')],
+  'poee': [ing('Maida', 200, 'g', 'grains'), ing('Coconut Milk', 50, 'ml', 'pantry')],
   'phulka': [ing('Wheat Flour (Atta)', 150, 'g', 'grains')],
   // ─── Bread display-name aliases (from indian_meal_categories) ─
   'missi-roti': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Gram Flour', 50, 'g', 'grains')],
@@ -208,7 +209,7 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'filter-coffee': [ing('Coffee Powder', 2, 'tbsp', 'pantry'), ing('Milk', 100, 'ml', 'dairy')],
   'sambaram-spiced-buttermilk': [ing('Yogurt', 100, 'g', 'dairy'), ing('Green Chilli', 1, 'pc', 'produce'), ing('Ginger', 1, 'pc', 'produce')],
   'kokum-sharbat': [ing('Kokum', 5, 'pc', 'pantry'), ing('Sugar', 20, 'g', 'pantry')],
-  'sol-kadhi': [ing('Kokum', 5, 'pc', 'pantry'), ing('Coconut Milk', 100, 'ml', 'dairy')],
+  'sol-kadhi': [ing('Kokum', 5, 'pc', 'pantry'), ing('Coconut Milk', 100, 'ml', 'pantry')],
   // ─── Beverage display-name aliases (from indian_meal_categories) ─
   'coconut-water': [ing('Coconut Water', 200, 'ml', 'pantry')],
   'sattu-sharbat': [ing('Sattu', 50, 'g', 'grains'), ing('Lemon', 1, 'pc', 'produce'), ing('Sugar', 20, 'g', 'pantry')],
@@ -298,7 +299,7 @@ const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   'malabar-parota': [ing('Wheat Flour (Atta)', 200, 'g', 'grains'), ing('Oil', 30, 'ml', 'pantry'), ing('Egg', 1, 'pc', 'proteins')],
   'pazham-pori': [ing('Banana', 4, 'pc', 'produce'), ing('Maida', 100, 'g', 'grains'), ing('Sugar', 30, 'g', 'pantry'), ing('Oil', 30, 'ml', 'pantry')],
   'sadhya': [ing('Rice', 100, 'g', 'grains'), ing('Banana', 1, 'pc', 'produce'), ing('Coconut', 30, 'g', 'produce'), ing('Papad', 2, 'pc', 'pantry'), ing('Curry Leaves', 1, 'sprig', 'produce')],
-  'ada-pradhaman': [ing('Rice', 50, 'g', 'grains'), ing('Coconut Milk', 200, 'ml', 'dairy'), ing('Jaggery', 50, 'g', 'pantry'), ing('Cardamom', 1, 'pinch', 'spices')],
+  'ada-pradhaman': [ing('Rice', 50, 'g', 'grains'), ing('Coconut Milk', 200, 'ml', 'pantry'), ing('Jaggery', 50, 'g', 'pantry'), ing('Cardamom', 1, 'pinch', 'spices')],
   'haalbai': [ing('Rice', 100, 'g', 'grains'), ing('Milk', 500, 'ml', 'dairy'), ing('Sugar', 30, 'g', 'pantry'), ing('Cardamom', 1, 'pinch', 'spices')],
   'pori-urundai': [ing('Puffed Rice (Pori)', 100, 'g', 'grains'), ing('Jaggery', 50, 'g', 'pantry'), ing('Coconut', 30, 'g', 'produce')],
   'shankhali': [ing('Maida', 100, 'g', 'grains'), ing('Buttermilk', 50, 'ml', 'dairy'), ing('Oil', 30, 'ml', 'pantry')],
@@ -662,8 +663,8 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
         || (nonVegDish && (idTokens.has('erachi') || idTokens.has('botti') || idTokens.has('nalli')))) {
         result.push({ name: 'Mutton', quantity: 200, unit: 'g', category: 'proteins', inStock: false });
     }
-    if (idLower.includes('fish') || idLower.includes('meen') || idLower.includes('machher') || idLower.includes('kadal')
-        || (nonVegDish && (idTokens.has('maach') || idTokens.has('nga') || idTokens.has('macchi') || idTokens.has('nakham')))) {
+    if (idLower.includes('fish') || idLower.includes('meen') || idLower.includes('machher')
+        || (nonVegDish && (idTokens.has('kadal') || idTokens.has('maach') || idTokens.has('nga') || idTokens.has('macchi') || idTokens.has('nakham')))) {
         result.push({ name: 'Fish', quantity: 150, unit: 'g', category: 'proteins', inStock: false });
     }
     // Regional pork inference (vawksa/doh) — token-gated so jadoh/pudoh never fire
@@ -810,7 +811,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
     if (idLower.includes('chaat') || idLower.includes('pani-puri') || idLower.includes('bhel') || idLower.includes('sev') || idLower.includes('papdi')) {
         result.push({ name: 'Potatoes', quantity: 2, unit: 'pc', category: 'produce', inStock: false });
-        result.push({ name: 'Yogurt', quantity: 100, unit: 'g', category: 'dairy', inStock: false });
+        if (dishType !== 'vegan') result.push({ name: 'Yogurt', quantity: 100, unit: 'g', category: 'dairy', inStock: false });
         result.push({ name: 'Tamarind Chutney', quantity: 30, unit: 'g', category: 'pantry', inStock: false });
         result.push({ name: 'Mint Chutney', quantity: 30, unit: 'g', category: 'pantry', inStock: false });
     }
@@ -918,7 +919,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
     if (idLower.includes('olan')) {
         result.push({ name: 'Pumpkin', quantity: 200, unit: 'g', category: 'produce', inStock: false });
-        result.push({ name: 'Coconut Milk', quantity: 100, unit: 'ml', category: 'dairy', inStock: false });
+        result.push({ name: 'Coconut Milk', quantity: 100, unit: 'ml', category: 'pantry', inStock: false });
     }
     if (idLower.includes('appe') || idLower.includes('appam')) {
         result.push({ name: 'Rice', quantity: 100, unit: 'g', category: 'grains', inStock: false });
@@ -1062,7 +1063,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
     // INF-41: Smoothie inference
     if (idLower.includes('smoothie')) {
-        result.push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false });
+        if (dishType !== 'vegan') result.push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false });
         result.push({ name: 'Banana', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
         result.push({ name: 'Ice', quantity: 1, unit: 'cup', category: 'pantry', inStock: false });
         // Detect specific fruits from dish ID
@@ -1088,7 +1089,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
     if (idLower.includes('suji') || idLower.includes('semolina')) {
         result.push({ name: 'Semolina (Rava)', quantity: 100, unit: 'g', category: 'grains', inStock: false });
-        result.push({ name: 'Yogurt', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
+        if (dishType !== 'vegan') result.push({ name: 'Yogurt', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
     }
     if (idLower.includes('oats')) {
         result.push({ name: 'Oats', quantity: 100, unit: 'g', category: 'grains', inStock: false });
@@ -1181,7 +1182,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     if ((idLower.includes('mysore') || idLower.includes('mysore-pak')) && !idLower.includes('bonda')) {
         result.push({ name: 'Gram Flour', quantity: 100, unit: 'g', category: 'grains', inStock: false });
         result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
-        result.push({ name: 'Ghee', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
+        if (dishType !== 'vegan') result.push({ name: 'Ghee', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
     }
     // INF-59: Bharli Vangi / Ennegai (stuffed eggplant)
     if (idLower.includes('bharli') || idLower.includes('ennegai')) {
@@ -1208,7 +1209,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     }
     if (idLower.includes('vegan-strawberry-milk')) {
         result.push({ name: 'Strawberry', quantity: 1, unit: 'cup', category: 'produce', inStock: false });
-        result.push({ name: 'Almond Milk', quantity: 200, unit: 'ml', category: 'dairy', inStock: false });
+        result.push({ name: 'Almond Milk', quantity: 200, unit: 'ml', category: 'pantry', inStock: false });
         result.push({ name: 'Sugar', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
     }
     // INF-63: Shake beverages
@@ -1226,7 +1227,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
         result.push({ name: 'Cocoa Powder', quantity: 4, unit: 'tbsp', category: 'pantry', inStock: false });
         result.push({ name: 'Maida', quantity: 100, unit: 'g', category: 'grains', inStock: false });
         result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
-        result.push({ name: 'Butter', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
+        if (dishType !== 'vegan') result.push({ name: 'Butter', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
     }
     // INF-65: Strawberry juice
     if (idLower.includes('strawberry-juice')) {
@@ -1337,7 +1338,7 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
     const _isSalad = /salad/.test(_idClassify);
     const _isSoup = /soup|shorba|rasam|saar|charu|stew|broth/.test(_idClassify);
     if (!_isDrink && !_isSweet && !_isSalad && !_isSoup) {
-        result.push({ name: 'Ghee', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
+        if (dishType !== 'vegan') result.push({ name: 'Ghee', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
         result.push({ name: 'Oil', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
         result.push({ name: 'Spices', quantity: 1, unit: 'packet', category: 'spices', inStock: false });
     }
@@ -1468,7 +1469,7 @@ const MAIN_ALIASES: Record<string, string[]> = {
   'moong dal': ['moong'],
   'mushrooms': ['mushroom'],
   'chicken': ['koli', 'kozhi'],
-  'fish': ['machher', 'meen', 'ilish', 'rohu', 'bangda', 'kadal', 'maach', 'macchi', 'nakham'],
+  'fish': ['machher', 'meen', 'ilish', 'rohu', 'bangda', 'maach', 'macchi', 'nakham'],
   'mutton': ['gosht', 'erachi', 'botti', 'nalli'],
   'carrot': ['gajar'],
   'eggs': ['anda', 'dim'],
@@ -1604,7 +1605,7 @@ function soupPantryFill(name: string, existing: Ingredient[] = []): Ingredient[]
 
 /** Light dish with nothing after filtering → a minimal role-based fill is
  *  better than empty (charg/lassi/soup are never groceries-empty). */
-function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }, variantName?: string): Ingredient[] {
+function lightFilterWithFallback(items: Ingredient[], dish: { name?: string; type?: Dish['type'] }, variantName?: string): Ingredient[] {
     const filtered = lightFilter(items);
     // Only generic-ish tokens (water/sugar/lemon) don't make a pantry fill —
     // fall through to the role-based list so chang/lassi/soup are never hollow.
@@ -1659,7 +1660,11 @@ function lightFilterWithFallback(items: Ingredient[], dish: { name?: string }, v
                                 : [];
         return [
             ...fruit,
-            { name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false },
+            // Vegan smoothies get the canonical plant base (Almond Milk); dairy
+            // dishes keep dairy Milk.
+            ...(dish.type !== 'vegan'
+                ? [{ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false }]
+                : [{ name: 'Almond Milk', quantity: 1, unit: 'cup', category: 'pantry', inStock: false }]),
             { name: 'Ice', quantity: 1, unit: 'cup', category: 'pantry', inStock: false },
             { name: 'Honey', quantity: 1, unit: 'tsp', category: 'pantry', inStock: false },
         ] as Ingredient[];
@@ -1708,9 +1713,11 @@ export function getIngredientsForMealOption(
     dishId: string,
     variantId: string,
     dishes: Dish[],
-    categorySelections?: CategorySelection
+    categorySelections?: CategorySelection,
+    diet?: string | null
 ): Ingredient[] {
-    const cacheKey = `${dishId}::${variantId}`;
+    // Diet-aware cache key: the same card resolves different ingredients per diet.
+    const cacheKey = `${dishId}::${variantId}::${diet ?? ''}`;
     if (INGREDIENT_CACHE.has(cacheKey)) return INGREDIENT_CACHE.get(cacheKey)!;
 
     const dish = dishes.find(d => d.id === dishId);
@@ -1721,6 +1728,21 @@ export function getIngredientsForMealOption(
             variant = dish.variants.find(v => variantId.includes(v.id) || v.id.includes(variantId));
         }
         if (!variant) variant = dish.variants[0];
+        // Diet gate: the requested variant must be eligible for the caller's
+        // diet — a stored card keeps its ORIGINAL variantId (appam::appam-egg
+        // must not leak Egg into a veg shopping list). Swap to the first
+        // diet-eligible variant; no diet -> untouched. If NO variant is eligible
+        // for a diet caller, drop the dish entirely (return no ingredients) —
+        // e.g. a vegan user resolving parotta-kurma (dish veg, only egg variant
+        // requested) must not silently receive Egg.
+        if (diet && variant) {
+            const allowed = DIET_FILTER[String(diet).toLowerCase()];
+            if (allowed && !allowed.includes(variantType(dish, variant))) {
+                const eligible = firstValidVariant(dish, diet);
+                if (!eligible) return [];
+                variant = eligible;
+            }
+        }
         if (variant) {
             let r: Ingredient[] = [...(variant.ingredients || [])];
 
@@ -1737,13 +1759,13 @@ export function getIngredientsForMealOption(
                 return r;
             }
 
-            const variantInclusiveName = variant && variantId
+            const variantInclusiveName = variant && (variantId || diet)
                 ? resolveDisplayName(dish.name, variant)
                 : dish.name;
             if (r.length === 0) {
                 const fromInference = [
                     ...inferIngredientsFromDishId(dishId, variantInclusiveName, dish.type),
-                    ...inferIngredientsFromDishId(variantInclusiveName),
+                    ...inferIngredientsFromDishId(variantInclusiveName, undefined, dish.type),
                 ];
                 const seen = new Set<string>();
                 for (const ing of fromInference) {
@@ -1755,7 +1777,7 @@ export function getIngredientsForMealOption(
             for (const ing of inferIngredientsFromDishId(dishId, variantInclusiveName, dish.type)) {
                 if (!existingNames.has(ing.name.toLowerCase())) r.push(ing);
             }
-            for (const ing of inferIngredientsFromDishId(variantInclusiveName)) {
+            for (const ing of inferIngredientsFromDishId(variantInclusiveName, undefined, dish.type)) {
                 if (!existingNames.has(ing.name.toLowerCase())) r.push(ing);
             }
             r.push(..._resolveAccompaniments(variant), ..._inferFromDishName(dish, new Set(r.map(i => i.name.toLowerCase()))));
@@ -1930,7 +1952,7 @@ function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingr
     }
 
     if (isRiceDish && savory) {
-        push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        if (dish.type !== 'vegan') push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
         push({ name: 'Whole Spices', quantity: 1, unit: 'tsp', category: 'spices' });
         if (/biryani/.test(all)) {
             push({ name: 'Saffron', quantity: 0.25, unit: 'tsp', category: 'spices' });
@@ -1939,7 +1961,7 @@ function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingr
     }
 
     if (isDal) {
-        push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
+        if (dish.type !== 'vegan') push({ name: 'Ghee', quantity: 1, unit: 'tbsp', category: 'pantry' });
         push({ name: 'Cumin Seeds', quantity: 1, unit: 'tsp', category: 'spices' });
         if (isEast) push({ name: 'Panch Phoron', quantity: 0.5, unit: 'tsp', category: 'spices' });
     }
@@ -1952,12 +1974,12 @@ function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingr
         push({ name: 'Raisins', quantity: 2, unit: 'tbsp', category: 'pantry' });
         push({ name: 'Almonds', quantity: 2, unit: 'tbsp', category: 'pantry' });
         push({ name: 'Pistachios', quantity: 1, unit: 'tbsp', category: 'pantry' });
-        if (/kheer|payasam|payesh|ras/.test(all)) push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
-        if (/gajar|halwa|rabri|phirni/.test(all)) push({ name: 'Milk', quantity: 1.5, unit: 'cup', category: 'dairy' });
+        if (dish.type !== 'vegan' && /kheer|payasam|payesh|ras/.test(all)) push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
+        if (dish.type !== 'vegan' && /gajar|halwa|rabri|phirni/.test(all)) push({ name: 'Milk', quantity: 1.5, unit: 'cup', category: 'dairy' });
     }
 
     if (isBeverage && /chai|tea/.test(all)) {
-        push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
+        if (dish.type !== 'vegan') push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
         push({ name: 'Sugar', quantity: 1, unit: 'tsp', category: 'pantry' });
         push({ name: 'Tea Leaves', quantity: 1, unit: 'tsp', category: 'pantry' });
     }
@@ -1966,7 +1988,7 @@ function inferRegionalCompleteness(dish: Dish, existingNames: Set<string>): Ingr
         push({ name: 'Flour', quantity: 1.5, unit: 'cups', category: 'grains' });
         push({ name: 'Sugar', quantity: 0.5, unit: 'cup', category: 'pantry' });
         push({ name: 'Baking Powder', quantity: 1, unit: 'tsp', category: 'pantry' });
-        push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
+        if (dish.type !== 'vegan') push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy' });
     }
 
     return out;
@@ -2128,7 +2150,7 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
     if (nameLower.includes('peanut') && !existingNames.has('peanut butter'))
         result.push({ name: 'Peanut Butter', quantity: 2, unit: 'tbsp', category: 'pantry', inStock: false });
 
-    if (nameLower.includes('smoothie') && !existingNames.has('milk'))
+    if (dish.type !== 'vegan' && nameLower.includes('smoothie') && !existingNames.has('milk'))
         result.push({ name: 'Milk', quantity: 1, unit: 'cup', category: 'dairy', inStock: false });
     if (nameLower.includes('smoothie') && !existingNames.has('banana'))
         result.push({ name: 'Banana', quantity: 1, unit: 'pc', category: 'produce', inStock: false });
@@ -2185,7 +2207,7 @@ function _inferFromDishName(dish: Dish, existingNames: Set<string>): Ingredient[
         result.push({ name: 'Gram Flour', quantity: 100, unit: 'g', category: 'grains', inStock: false });
     if ((nameLower.includes('mysore') || nameLower.includes('mysore pak')) && !existingNames.has('sugar'))
         result.push({ name: 'Sugar', quantity: 100, unit: 'g', category: 'pantry', inStock: false });
-    if ((nameLower.includes('mysore') || nameLower.includes('mysore pak')) && !existingNames.has('ghee'))
+    if (dish.type !== 'vegan' && (nameLower.includes('mysore') || nameLower.includes('mysore pak')) && !existingNames.has('ghee'))
         result.push({ name: 'Ghee', quantity: 50, unit: 'g', category: 'dairy', inStock: false });
 
     if (nameLower.includes('kheema') && !existingNames.has('minced meat'))
@@ -2230,11 +2252,12 @@ export function deriveIngredientsForDay(
     slot: 'Breakfast' | 'Lunch' | 'Dinner' | 'Snacks',
     trayLibrary: any,
     swaps: any,
-    dishes: Dish[]
+    dishes: Dish[],
+    diet?: string | null
 ): { ing: Ingredient; source: string }[] {
     const result: { ing: Ingredient; source: string }[] = [];
 
-    const resolution: MealResolution = getMealResolution(trayLibrary, swaps, date, slot, dishes);
+    const resolution: MealResolution = getMealResolution(trayLibrary, swaps, date, slot, dishes, undefined, diet);
     const meal = resolution.meal;
 
     // TC-07: Skip empty or zero quantity meals
@@ -2256,7 +2279,7 @@ export function deriveIngredientsForDay(
     if (date < today) return result; // Past day - skip
     if (date === today && now >= slotDate) return result; // Slot time passed today
 
-    const ingredients = getIngredientsForMealOption(meal.dishId, meal.variantId || '', dishes, meal.categorySelections);
+    const ingredients = getIngredientsForMealOption(meal.dishId, meal.variantId || '', dishes, meal.categorySelections, diet);
     const source = meal.name;
     const qty = meal.quantity || 1;
 

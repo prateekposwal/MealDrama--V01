@@ -11,12 +11,13 @@ describe('placeholder templates — the "Salt/Pepper/Coriander" repeating gap', 
     expect(isPlaceholderIngredients([{ name: 'Bajra Flour' }, { name: 'Ghee' }, { name: 'Jaggery' }, { name: 'Ajwain' }])).toBe(false); // real recipe
   });
 
-  it('Dal Panchmel Shorba now resolves all five dals + aromatics + ghee + finish', () => {
+  it('Dal Panchmel Shorba resolves all five dals + aromatics + oil tadka (vegan, no ghee — F3)', () => {
     const ings = getIngredientsForMealOption('dal-panchmel-shorba', 'dpss-classic', DISH_LIBRARY);
     const names = new Set(ings.map(i => i.name.toLowerCase()));
-    for (const want of ['yellow moong dal', 'urad dal', 'chana dal', 'green moong dal', 'toor dal', 'cumin seeds', 'asafoetida', 'ghee', 'tomato', 'lemon']) {
+    for (const want of ['yellow moong dal', 'urad dal', 'chana dal', 'green moong dal', 'toor dal', 'cumin seeds', 'asafoetida', 'oil', 'tomato', 'lemon']) {
       expect(names.has(want), want).toBe(true);
     }
+    expect(names.has('ghee'), 'ghee').toBe(false); // F3: oil tadka is the canonical vegan shorba
   });
 
   it('library scan: no dish’s variant is the bare placeholder template anymore', () => {
