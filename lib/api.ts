@@ -12,12 +12,29 @@ function _useStore() {
   return _useStoreMod.useStore;
 }
 
-// The MealDrama backend. Default points at the dev machine's CURRENT LAN IP
-// (auto-written on first launch below) so an installed APK on a phone can
-// reach the server on the same WiFi. Override via localStorage 'md:api_base'
+// ─── Pluggable LAN-IP resolver ────────────────────────────────────────────
+// Override at runtime (e.g. app startup) to auto-detect the current LAN IP so
+// the default base URL stays fresh.  In tests, inject a mock to control the
+// output of `defaultApiBase()` without touching localStorage.
+let _lanIpResolver: (() => string) | null = null;
+
+export function setLanIpResolver(resolver: (() => string) | null): void {
+  _lanIpResolver = resolver;
+}
+
+export function getLanIpResolver(): (() => string) | null {
+  return _lanIpResolver;
+}
+
+// The MealDrama backend.  Hardcoded fallback points at the dev machine's LAN
+// IP at time of build.  If a pluggable resolver is set, it is used instead
+// (supports runtime IP auto-detection).  Override via localStorage 'md:api_base'
 // (e.g. in devtools) when the machine's IP changes.
 const API_BASE_KEY = 'md:api_base';
 function defaultApiBase(): string {
+  if (_lanIpResolver) {
+    try { return `http://${_lanIpResolver()}:3001/api/v1`; } catch { /* fall through */ }
+  }
   return 'http://10.243.22.253:3001/api/v1';
 }
 export function getApiBase(): string {
@@ -33,7 +50,19 @@ export function getApiBase(): string {
   return defaultApiBase();
 }
 
-const BASE_URL = getApiBase();
+// Mutable — updated by the fallback path so subsequent requests use the new base.
+let _currentBaseUrl = getApiBase();
+
+// ─── Stale-base fallback (pure function — testable without localStorage/network mocks) ──
+// Returns a fresh base URL to try when a network error hits and the stored base
+// may be stale.  Returns null when no fallback is warranted (e.g. user set a
+// custom base, or the fresh default equals the current base).
+export function resolveFallbackBaseUrl(currentBase: string): string | null {
+  const freshDefault = defaultApiBase();
+  if (currentBase === freshDefault) return null; // same as the current default — nothing to try
+  return freshDefault;
+}
+// ───────────────────────────────────────────────────────────────────────────
 
 // ─── Auth readiness guard ─────────────────────────────────────────────────
 let _authReady = false;
@@ -156,8 +185,8 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
 
   let retryCount = 0;
 
-  const doFetch = async (): Promise<T> => {
-    const res = await fetch(`${BASE_URL}${endpoint}`, {
+  const doFetch = async (baseUrl: string): Promise<T> => {
+    const res = await fetch(`${baseUrl}${endpoint}`, {
       ...fetchOptions,
       headers: {
         'Content-Type': 'application/json',
@@ -192,7 +221,7 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
   };
 
   try {
-    return await doFetch();
+    return await doFetch(_currentBaseUrl);
   } catch (err) {
     if (tokenCleared) {
       throw err;
@@ -200,7 +229,42 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     if (!(err instanceof Error) || isAuthFailure(err)) {
       throw err;
     }
-    // Retry on 5xx (all methods) or network errors (idempotent methods only)
+
+    // ── Wrap raw network errors into FetchError with actionable message ──
+    if (isNetworkError(err)) {
+      const fetchErr = new FetchError(
+        `Cannot reach the MealDrama server (${err.message}). Check that the server is running and that this device can reach: ${_currentBaseUrl}`,
+        0,
+      );
+
+      // ── Attempt ONE stale-base fallback before throwing ──
+      const fallback = resolveFallbackBaseUrl(_currentBaseUrl);
+      if (fallback) {
+        try {
+          const testRes = await fetch(`${fallback}/health`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(5000),
+          });
+          if (testRes.ok) {
+            // Fallback succeeded — update the live base and persist
+            _currentBaseUrl = fallback;
+            try {
+              if (typeof window !== 'undefined') {
+                window.localStorage.setItem(API_BASE_KEY, fallback);
+              }
+            } catch { /* storage unavailable */ }
+            // Retry the original request against the new base
+            return doFetch(_currentBaseUrl);
+          }
+        } catch {
+          // Fallback also unreachable — fall through to throw the original actionable error
+        }
+      }
+
+      throw fetchErr;
+    }
+
+    // Retry on 5xx (all methods) or network errors (non-idempotent methods only)
     const shouldRetry = isServerError(err) || (isNetworkError(err) && !IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase()));
     if (!shouldRetry || retryCount >= MAX_RETRIES) {
       throw err;
@@ -208,7 +272,7 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     retryCount++;
     const delay = exponentialBackoff(retryCount);
     await new Promise(r => setTimeout(r, delay));
-    return doFetch();
+    return doFetch(_currentBaseUrl);
   } finally {
     clearTimeout(timeoutId);
     if (externalSignal) {
