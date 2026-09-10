@@ -32,6 +32,10 @@ export function getLanIpResolver(): (() => string) | null {
 // (e.g. in devtools) when the machine's IP changes.
 const API_BASE_KEY = 'md:api_base';
 function defaultApiBase(): string {
+  // Build-time override — `VITE_API_URL=https://x.trycloudflare.com/api/v1 npm run build`
+  // bakes a public URL into the bundle (used for APK builds; empty/absent in dev).
+  const envBase = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL;
+  if (envBase && /^https?:\/\//.test(envBase)) return envBase.replace(/\/+$/, '');
   if (_lanIpResolver) {
     try { return `http://${_lanIpResolver()}:3001/api/v1`; } catch { /* fall through */ }
   }
