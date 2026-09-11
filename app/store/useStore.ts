@@ -415,6 +415,7 @@ interface StoreState {
   // Household sharing
   householdId: string | null;
   household: Household | null;
+  ensureToken: () => Promise<boolean>;
   createHousehold: (name: string) => Promise<void>;
   joinHousehold: (code: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
@@ -467,10 +468,16 @@ export const useStore = create<StoreState>()(
         }));
         if (import.meta.env.DEV) console.log('[Store] login complete, userId:', userId);
 
-        // Fire-and-forget backend registration — never block UX
-        const result = await registerUser(userId, username);
-        if (result?.token) {
-          get().setToken(result.token);
+        // Register on the server and persist the JWT token.
+        // registerUser() retries internally (3 attempts with backoff).
+        // If it still fails, ensureToken() will retry before household ops.
+        try {
+          const result = await registerUser(userId, username);
+          if (result?.token) {
+            get().setToken(result.token);
+          }
+        } catch (err) {
+          console.warn('[Store] login register failed (will retry on next household op):', err);
         }
       },
 
@@ -919,8 +926,34 @@ export const useStore = create<StoreState>()(
         });
       },
 
+      // ─── Ensure JWT token exists (retry registration if needed) ────
+      // Called before household ops to guarantee a valid token.
+      // Returns true if a token is available, false if registration failed.
+      ensureToken: async () => {
+        if (get().token) return true;
+        // No token yet — retry registration using stored user info
+        const user = get().user;
+        if (!user?.id) return false;
+        try {
+          const result = await registerUser(user.id, user.username || user.name || 'user');
+          if (result?.token) {
+            get().setToken(result.token);
+            return true;
+          }
+        } catch (err) {
+          console.warn('[Store] ensureToken register retry failed:', err);
+        }
+        return false;
+      },
+
       // ─── Household ─────────────────────────────────────────────────
       createHousehold: async (name) => {
+        // Guarantee a JWT token exists before hitting the server
+        const hasToken = await get().ensureToken();
+        if (!hasToken) {
+          get().setToast({ message: 'Authentication pending — please try again.', type: 'error' });
+          return;
+        }
         try {
           const hh = await householdApi.create({ name });
           set({ householdId: hh.id, household: hh });
@@ -933,6 +966,12 @@ export const useStore = create<StoreState>()(
       },
 
       joinHousehold: async (code) => {
+        // Guarantee a JWT token exists before hitting the server
+        const hasToken = await get().ensureToken();
+        if (!hasToken) {
+          get().setToast({ message: 'Authentication pending — please try again.', type: 'error' });
+          return;
+        }
         try {
           const hh = await householdApi.join({ code });
           set({ householdId: hh.id, household: hh });

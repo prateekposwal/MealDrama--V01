@@ -13,6 +13,7 @@ import { useBackendDishes } from './hooks/useBackendDishes';
 import { spiceLevelFromNumber } from './utils/formatSpice';
 import { SwapCustomizeProvider } from './components/meal/SwapCustomizeModalContext';
 import { ErrorBoundary } from './components/new/ErrorBoundary';
+import { App as CapacitorApp } from '@capacitor/app';
 import { OfflineBanner } from './components/new/OfflineBanner';
 import { enqueue } from './app/utils/offlineQueue';
 import { DashboardSkeleton, PlanScreenSkeleton, PantryPulseSkeleton, ProfileSkeleton } from './components/new/ScreenSkeletons';
@@ -359,21 +360,20 @@ const App: React.FC = () => {
     }
   }, [isHydrated, isLoggedIn]);
 
-  // OAuth callback: handle Google Sign-In token from URL
+  // OAuth callback: handle Google Sign-In token from URL (web redirect)
+  // AND deep links from APK OAuth flow (mealdrama://auth/callback?token=...)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token) {
-      // Store the token and fetch user data
+    // Helper: process an OAuth token (works for both URL param and deep link)
+    const processOAuthToken = (token: string) => {
       useStore.setState({ token });
-      // Clean the URL
-      window.history.replaceState({}, '', '/');
+      // Clean the URL (web only — on deep link there's nothing to clean)
+      try { window.history.replaceState({}, '', '/'); } catch { /* Capacitor */ }
       // Fetch user from token
       import('./app/utils/authApi').then(({ getMe }) => {
-        getMe().then((res: any) => {
-          if (res?.data?.user) {
+        getMe().then((serverUser: any) => {
+          if (serverUser) {
             useStore.setState({
-              user: res.data.user,
+              user: serverUser,
               isLoggedIn: true,
             });
           }
@@ -381,7 +381,34 @@ const App: React.FC = () => {
           console.warn('[App] getMe after OAuth failed:', err);
         });
       });
+    };
+
+    // 1. Check URL params (web OAuth redirect: /auth/callback?token=...)
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('token');
+    if (urlToken) {
+      processOAuthToken(urlToken);
     }
+
+    // 2. Listen for Capacitor deep links (APK OAuth: mealdrama://auth/callback?token=...)
+    let deepLinkSub: any = null;
+    if (typeof CapacitorApp !== 'undefined') {
+      CapacitorApp.addListener('appUrlOpen', ({ url }: { url: string }) => {
+        try {
+          const parsed = new URL(url);
+          const deepToken = parsed.searchParams.get('token');
+          if (deepToken) {
+            processOAuthToken(deepToken);
+          }
+        } catch {
+          // Not a valid URL or no token — ignore
+        }
+      }).then((sub: any) => { deepLinkSub = sub; }).catch(() => {});
+    }
+
+    return () => {
+      if (deepLinkSub?.remove) deepLinkSub.remove();
+    };
   }, []);
 
   // TITLE MIGRATION: Strip ` + ` from all persisted meal titles (one-time)

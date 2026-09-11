@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Loader2 } from 'lucide-react';
+import { getApiBase } from '../../lib/api';
 
 interface LoginScreenProps {
     onLogin: (username: string) => void;
@@ -25,7 +26,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     };
 
     const handleGoogleLogin = () => {
-        window.location.href = '/api/v1/auth/google';
+        // Build absolute URL — relative '/api/v1/auth/google' resolves to
+        // file:// on installed APKs, which goes nowhere.
+        const base = getApiBase();                        // https://mealdrama.onrender.com/api/v1
+        const origin = base.replace(/\/api\/v1$/, '');    // https://mealdrama.onrender.com
+        // Open in system browser (_system) so the OAuth flow happens outside
+        // the WebView.  After Google auth, the server redirects to
+        // mealdrama://auth/callback?token=... (APK) or FRONTEND_URL (web).
+        const authUrl = `${origin}/auth/google?app=1`;
+        try {
+            // _system target opens the default browser on Android/iOS
+            (window as any).open(authUrl, '_system');
+        } catch {
+            // Fallback: navigate the WebView (works but takes user away from app)
+            window.location.href = authUrl;
+        }
     };
 
     return (
