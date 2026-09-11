@@ -22,5 +22,22 @@ jobs:
     name: Ping Render health
     runs-on: ubuntu-latest
     steps:
-      - name: Curl health endpoint
-        run: curl -fsS --max-time 20 https://mealdrama.onrender.com/health
+      # Render free-tier instances cold-boot in ~30-60s after idle. A single
+      # curl with --max-time 20 fails against a cold instance, and because the
+      # cron fires every ~5 min the instance then NEVER warms: every ping fails
+      # and the service stays asleep (we saw 3+ consecutive workflow failures).
+      # Loop instead: try every 10s for up to ~2.5 min so a cold boot completes;
+      # a warm instance answers on attempt 1 (<2s). Failing the job (exit 1)
+      # still shows in the Actions UI, but a sleeping Render now gets woken.
+      - name: Ping Render health (retry across cold-boot window)
+        run: |
+          for i in $(seq 1 15); do
+            if curl -fsS -o /dev/null --max-time 10 https://mealdrama.onrender.com/health; then
+              echo "health ok (attempt $i)"
+              exit 0
+            fi
+            echo "health not ready (attempt $i of 15) — retrying"
+            sleep 10
+          done
+          echo "health check failed after 15 attempts" >&2
+          exit 1
