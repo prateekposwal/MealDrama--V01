@@ -2,6 +2,7 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import passport from 'passport';
+import path from 'path';
 import dotenv from 'dotenv';
 import { prisma, connectWithRetry } from './lib/prisma';
 import './lib/auth';
@@ -13,6 +14,10 @@ dotenv.config();
 const app: Express = express();
 const PORT: number = Number(process.env.PORT) || 3001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Trust proxy — required behind Render/nginx so Express sees the real protocol
+// (X-Forwarded-Proto: https) and builds correct OAuth callbackURLs.
+app.set('trust proxy', 1);
 
 // Prisma singleton initialized in lib/prisma.ts
 
@@ -121,6 +126,13 @@ const errorHandler = (err: any, req: Request, res: Response, next: NextFunction)
 };
 
 // ============================================================================
+// STATIC FILE SERVING — serves the built SPA for OAuth callback landing
+// ============================================================================
+
+const distPath = path.join(__dirname, '../../dist');
+app.use(express.static(distPath));
+
+// ============================================================================
 // ROUTES
 // ============================================================================
 
@@ -136,17 +148,9 @@ app.get('/health', (req: Request, res: Response) => {
 
 // Root endpoint
 app.get('/', (req: Request, res: Response) => {
-  res.json({
-    name: 'MealDrama API',
-    version: '1.0.0',
-    environment: NODE_ENV,
-    endpoints: {
-      health: '/health',
-      auth: '/api/v1/auth',
-      households: '/api/v1/households',
-      events: '/api/v1/events',
-    },
-  });
+  // If the SPA is built, serve index.html for the root
+  // (SPA handles its own routing client-side)
+  return res.sendFile(path.join(distPath, 'index.html'));
 });
 
 // ============================================================================
@@ -185,7 +189,30 @@ app.use('/api/v1/households', require('./routes/householdFeed').default);
 app.use('/api/v1/households', require('./routes/sharedPlan').default);
 app.use('/api/v1/households', require('./routes/householdKitchen').default);
 
-// 404 handler
+// SPA catch-all: serve index.html ONLY for navigation-like (extensionless) GET
+// requests. Any request whose path carries a file extension that express.static
+// already missed is a MISSING ASSET — answering it with index.html (200 +
+// text/html) breaks module loading and stylesheets in the browser
+// ('text/html' is not a valid JavaScript MIME type). Those fall through to the
+// 404 handler below and get a real application/json 404.
+app.get('/{*splat}', (req: Request, res: Response, next: NextFunction) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: 'NOT_FOUND',
+        message: `Route ${req.method} ${req.path} not found`,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+  if (/\.[a-zA-Z0-9]+$/.test(req.path)) {
+    return next();
+  }
+  return res.sendFile(path.join(distPath, 'index.html'));
+});
+
+// 404 handler for non-GET requests
 app.use((req: Request, res: Response) => {
   res.status(404).json({
     success: false,
@@ -216,6 +243,7 @@ const startServer = async () => {
       console.log(`✓ Environment: ${NODE_ENV}`);
       console.log(`✓ API Base: http://localhost:${PORT}/api/v1`);
       console.log(`✓ Health Check: http://localhost:${PORT}/health`);
+      console.log(`✓ Trust proxy: ${app.get('trust proxy')}`);
     });
 
     // Graceful shutdown
@@ -248,4 +276,3 @@ if (require.main === module) {
 }
 
 export default app;
-
