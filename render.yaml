@@ -1,0 +1,33 @@
+# Render Blueprint — MealDrama push-to-deploy (one-time import: Dashboard → New+ → Blueprint → pick repo)
+#
+# Grounded in the real repo (verified 2026-09-12):
+#   - repo-root package.json "build": "vite build"            → emits repo-root dist/ (vite default outDir)
+#   - server/package.json  "build": "tsc", "start": "node dist/index.js"
+#     (tsconfig outDir "./dist", rootDir "./src")             → emits server/dist/index.js
+#   - server/src/index.ts:132  distPath = path.join(__dirname, '../../dist')
+#     → the compiled server resolves the SPA from repo-root dist/ at RUNTIME,
+#       so the Blueprint MUST build root dist/ BEFORE starting the server.
+#   - server/src/index.ts:140 /health returns {"status":"ok",...} → healthCheckPath
+#   - server/src/index.ts:15  PORT read from env (Render injects PORT itself — no override here)
+#   - NODE_ENV=production is set by Render automatically (live /health confirms)
+#
+# Secrets (DATABASE_URL, JWT_SECRET, GOOGLE_CLIENT_ID/SECRET) deliberately NOT here:
+# boot-critical values stay in the Render dashboard env; never commit secrets.
+version: "1"
+
+services:
+  - type: web
+    name: mealdrama            # matches the existing service → Blueprint links/updates, does not duplicate
+    env: node
+    plan: free
+    autoDeploy: true           # push to main → deploy (the point of this blueprint)
+    buildCommand: npm ci && npm run build && cd server && npm ci && npm run build
+    startCommand: node server/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      # REQUIRED for the web SPA: lib/api.ts defaultApiBase() only accepts an
+      # absolute https:// VITE_API_URL; without it the client bakes
+      # http://localhost:3001/api/v1 and the self-heal (api.ts) can only converge
+      # TO this baked default — so the browser app would never reach the API.
+      - key: VITE_API_URL
+        value: https://mealdrama.onrender.com/api/v1
