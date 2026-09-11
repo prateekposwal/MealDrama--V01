@@ -3,6 +3,13 @@
 // Consolidates duplicate listeners from useStore, useTrayStore, App.tsx
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Probe the SAME origin the app's API layer actually talks to (lib/api.ts).
+// The API base is the resolved truth: stored 'md:api_base' after the self-heal
+// migration, else the baked VITE_API_URL (release APK) / host override (dev).
+// Importing from lib/api is import-safe: lib/api has no top-level imports and
+// only lazily requires useStore inside getToken() — no cycle.
+import { getApiBase, defaultApiBase, originOf } from '../../lib/api';
+
 type ConnectivityState = 'online' | 'offline';
 
 let _state: ConnectivityState = typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline';
@@ -12,13 +19,27 @@ const _listeners = new Set<(state: ConnectivityState) => void>();
  * Check actual connectivity by fetching a lightweight endpoint.
  * navigator.onLine can give false positives (captive portals, DNS failures).
  * M5: All endpoints fetched in parallel with Promise.any() — max timeoutMs total.
+ *
+ * Probe targets mirror lib/api.ts's self-heal: the currently-effective API base
+ * (getApiBase()) AND the baked default (defaultApiBase()), both at their ORIGIN
+ * — the server only mounts /health at the root (/api/v1/health is 404). On an
+ * installed Capacitor APK (window.location.protocol === 'file:') this resolves
+ * to the REAL server, never a hardcoded LAN IP. If the stored base is still a
+ * stale dev/tunnel URL (migration hasn't run yet), the baked default probe
+ * still answers — Promise.any() resolves with the first reachable endpoint.
  */
 export async function checkConnectivity(timeoutMs = 3000): Promise<boolean> {
   // M13: If navigator says offline, trust it — no need to fetch
   if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
 
-  const API_BASE = typeof window !== 'undefined' && window.location.protocol === 'file:' ? 'http://192.168.29.211:3001' : '';
-  const endpoints = [`${API_BASE}/health`, `${API_BASE}/`];
+  const endpoints = [
+    ...new Set(
+      [getApiBase(), defaultApiBase()]
+        .map((base) => (base ? `${originOf(base)}/health` : ''))
+        .filter(Boolean),
+    ),
+  ];
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
