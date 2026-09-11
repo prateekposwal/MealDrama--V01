@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mealdrama.tunnel</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>/Users/prateekposwal/MD-App/telos/scripts/watchtunnel.sh</string>
+    </array>
+
+    <!-- Auto-start at login / reboot -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- launchd IS the supervisor: restart the process once it exits.
+         The script execs cloudflared in the foreground, so launchd tracks the
+         real cloudflared pid; no background child teardown, no StartInterval races. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/mealdrama_tunnel.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/mealdrama_tunnel.err.log</string>
+</dict>
+</plist>
