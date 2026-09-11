@@ -91,26 +91,60 @@ router.post('/:householdId/expenses', async (req: Request, res: Response) => {
 
 // ─── Mark split as paid ──
 router.patch('/:householdId/expenses/:expenseId/splits/:splitId/pay', async (req: Request, res: Response) => {
-  const splitId = strParam(req.params.splitId);
-  const split = await prisma.expenseSplit.update({
-    where: { id: splitId },
-    data: { paid: true },
-  });
-  res.json(split);
+  try {
+    const householdId = strParam(req.params.householdId);
+    const splitId = strParam(req.params.splitId);
+    const userId = (req as any).user?.userId ?? (req as any).user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const member = await getMember(userId, householdId);
+    if (!member) return res.status(403).json({ error: 'Not a member' });
+
+    // Verify the split belongs to an expense in THIS household
+    const expenseId = strParam(req.params.expenseId);
+    const expense = await prisma.expense.findUnique({ where: { id: expenseId } });
+    if (!expense || expense.householdId !== householdId) {
+      return res.status(404).json({ error: 'Expense not found in this household' });
+    }
+
+    const split = await prisma.expenseSplit.findUnique({ where: { id: splitId } });
+    if (!split || split.expenseId !== expenseId) {
+      return res.status(404).json({ error: 'Split not found' });
+    }
+
+    const updated = await prisma.expenseSplit.update({
+      where: { id: splitId },
+      data: { paid: true },
+    });
+    res.json(updated);
+  } catch (error) {
+    console.error('[API] Mark split paid error:', error);
+    res.status(500).json({ error: 'Failed to mark split as paid' });
+  }
 });
 
 // ─── Delete expense (admin only) ──
 router.delete('/:householdId/expenses/:expenseId', async (req: Request, res: Response) => {
-  const householdId = strParam(req.params.householdId);
-  const expenseId = strParam(req.params.expenseId);
-  const userId = (req as any).user?.userId ?? (req as any).user?.id;
-  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-  const member = await getMember(userId, householdId);
-  if (!member || member.role !== 'admin') {
-    return res.status(403).json({ error: 'Only admin can delete expenses' });
+  try {
+    const householdId = strParam(req.params.householdId);
+    const expenseId = strParam(req.params.expenseId);
+    const userId = (req as any).user?.userId ?? (req as any).user?.id;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const member = await getMember(userId, householdId);
+    if (!member || member.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can delete expenses' });
+    }
+    // Verify the expense belongs to THIS household (prevent cross-household deletion)
+    const expense = await prisma.expense.findUnique({ where: { id: expenseId } });
+    if (!expense || expense.householdId !== householdId) {
+      return res.status(404).json({ error: 'Expense not found in this household' });
+    }
+    await prisma.expense.delete({ where: { id: expenseId } });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[API] Delete expense error:', error);
+    res.status(500).json({ error: 'Failed to delete expense' });
   }
-  await prisma.expense.delete({ where: { id: expenseId } });
-  res.json({ success: true });
 });
 
 // ─── Get balance summary ──

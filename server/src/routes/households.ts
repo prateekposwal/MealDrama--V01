@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authMiddleware } from '../lib/auth';
 import { APIError } from '../index';
+import { memberToJson } from '../lib/householdMemberJson';
 import { z } from 'zod';
 
 const router = Router();
@@ -25,7 +26,7 @@ router.get('/:householdId', async (req: Request, res: Response) => {
       where: { id: householdId },
       include: {
         members: {
-          include: { user: true },
+          include: { user: { include: { profile: true } } },
         },
       },
     });
@@ -40,21 +41,7 @@ router.get('/:householdId', async (req: Request, res: Response) => {
       name: household.name,
       adminId: household.members.find(m => m.role === 'admin')?.userId ?? userId,
       code: household.code,
-      members: household.members.map(m => ({
-        id: m.id,
-        userId: m.userId ?? null,
-        name: m.name,
-        role: m.role,
-        canEditPlan: (m as any).canEditPlan ?? true,
-        autoPlanEnabled: (m as any).autoPlanEnabled ?? true,
-        profile: {
-          dietType: (m as any).user?.profile?.dietType ?? 'veg',
-          region: (m as any).user?.profile?.region ?? 'north',
-          plannedSlots: (m as any).user?.profile?.plannedSlots ?? [],
-          healthGoal: (m as any).user?.profile?.healthGoal ?? '',
-        },
-        joinedAt: (m as any).createdAt ? new Date((m as any).createdAt).toISOString() : new Date().toISOString(),
-      })),
+      members: household.members.map(memberToJson),
       createdAt: household.createdAt.toISOString(),
     });
   } catch (error) {
@@ -128,7 +115,7 @@ router.post('/', async (req: Request, res: Response) => {
           create: { name: req.user?.name || 'Owner', role: 'admin', userId },
         },
       },
-      include: { members: true },
+      include: { members: { include: { user: { include: { profile: true } } } } },
     });
 
     res.status(201).json({
@@ -136,14 +123,7 @@ router.post('/', async (req: Request, res: Response) => {
       name: household.name,
       adminId: userId,
       code: household.code,
-      members: household.members.map(m => ({
-        id: m.id,
-        name: m.name,
-        role: m.role,
-        canEditPlan: (m as any).canEditPlan ?? true,
-        autoPlanEnabled: (m as any).autoPlanEnabled ?? true,
-        joinedAt: (m as any).createdAt ? new Date((m as any).createdAt).toISOString() : new Date().toISOString(),
-      })),
+      members: household.members.map(memberToJson),
       createdAt: household.createdAt.toISOString(),
     });
   } catch (error: any) {
@@ -186,7 +166,7 @@ router.post('/join', async (req: Request, res: Response) => {
 
     const updated = await prisma.household.findUnique({
       where: { id: household.id },
-      include: { members: { include: { user: true } } },
+      include: { members: { include: { user: { include: { profile: true } } } } },
     });
 
     res.json({
@@ -194,14 +174,7 @@ router.post('/join', async (req: Request, res: Response) => {
       name: updated!.name,
       adminId: household.members.find(m => m.role === 'admin')?.userId || userId,
       code: updated!.code,
-      members: updated!.members.map(m => ({
-        id: m.id,
-        name: m.name,
-        role: m.role,
-        canEditPlan: (m as any).canEditPlan ?? true,
-        autoPlanEnabled: (m as any).autoPlanEnabled ?? true,
-        joinedAt: (m as any).createdAt ? new Date((m as any).createdAt).toISOString() : new Date().toISOString(),
-      })),
+      members: updated!.members.map(memberToJson),
       createdAt: updated!.createdAt.toISOString(),
     });
   } catch (error: any) {
@@ -253,6 +226,15 @@ router.post('/:householdId/regenerate-code', async (req: Request, res: Response)
     if (!userId) throw new APIError('UNAUTHORIZED', 'Unauthorized', 401);
 
     const householdId = req.params.householdId as string;
+
+    const household = await prisma.household.findUnique({
+      where: { id: householdId },
+      include: { members: true },
+    });
+    if (!household) throw new APIError('NOT_FOUND', 'Household not found', 404);
+    const me = household.members.find(m => m.userId === userId);
+    if (me?.role !== 'admin') throw new APIError('FORBIDDEN', 'Only an admin can regenerate the invite code', 403);
+
     const newCode = generateInviteCode();
 
     await prisma.household.update({

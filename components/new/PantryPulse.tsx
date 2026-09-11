@@ -44,6 +44,7 @@ import {
     type ForecastResult,
 } from '../../utils/pantryForecast';
 import { expenseApi } from '../../app/utils/expenseApi';
+import { householdApi } from '../../app/utils/householdApi';
 
 interface PantryItem {
     id: string;
@@ -206,9 +207,11 @@ const PantryPulse: React.FC = () => {
             setHouseholdMeals(data.meals || []);
             setHouseholdMembers(data.members || []);
         }).catch(() => setHouseholdMeals([]));
-        // Fetch household name for header
-        fetch(`/api/v1/households/${householdId}`).then(r => r.json()).then(data => {
-            if (data?.name) setHouseholdName(data.name);
+        // Fetch household name for header — via householdApi so the request
+        // carries the Bearer token and resolves against the REAL api base
+        // (raw relative fetch 401'd on web and 404'd on the APK).
+        householdApi.get(householdId).then(h => {
+            if (h?.name) setHouseholdName(h.name);
         }).catch(() => {});
     }, [viewMode, householdId, refreshKey]);
     

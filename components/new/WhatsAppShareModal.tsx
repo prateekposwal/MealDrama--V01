@@ -4,6 +4,7 @@ import type { ShareLanguage as _Lang6 } from '../../utils/shareMessages';
 import { ALL_LANGUAGES, LANG_TTS_MAP, renderSharePreview, messageCharCount, WHATSAPP_LIMIT, SHARE_STRINGS } from '../../utils/shareMessages';
 import type { ShareLanguage } from '../../utils/shareMessages';
 import { useStore } from '../../app/store/useStore';
+import { getApiBase } from '../../lib/api';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 
 interface Props {
@@ -91,7 +92,7 @@ export default function WhatsAppShareModal({
   // Download voice via TTS endpoint (macOS `say` command)
   const downloadVoice = useCallback(async () => {
     try {
-      const resp = await fetch('/api/v1/tts', {
+      const resp = await fetch(`${getApiBase()}/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: speakText, language }),
