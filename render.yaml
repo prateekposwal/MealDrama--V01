@@ -24,7 +24,7 @@ services:
     # --legacy-peer-deps: committed package-lock.json pins React 19 + @testing-library/react 14
     # (peer react ^18) — a dev-only conflict; strict npm (7+) ERESOLVEs plain `npm ci` (verified locally).
     # Versions stay lock-pinned; runtime peers (zustand/lucide/react-virtual) all accept React 19.
-    buildCommand: npm ci --legacy-peer-deps && npm run build && cd server && npm ci && npm run build
+    buildCommand: npm ci --legacy-peer-deps --include=dev && npm run build && cd server && npm ci --include=dev && npm run build
     startCommand: node server/dist/index.js
     healthCheckPath: /health
     envVars:
