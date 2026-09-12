@@ -2,15 +2,14 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useStore } from '../../app/store/useStore';
 import { useTrayStore } from '../../plan/store/useTrayStore';
 import { useLoopStore } from '../../plan/store/useLoopStore';
-import type { MealType, MealLoopConfig } from '../../types/tray';
+import type { MealType } from '../../types/tray';
 import type { SourcePool } from '../../plan/utils/mealLoopEngine';
 import type { Dish, DishVariant, Weight } from '../../meal/constants/dishLibrary';
 import type { Category, Region } from '../../meal/constants/dishLibrary';
 import { compactPrimaryId } from '../../types/identity';
-import { getRegionKey } from '../../utils/dishSearch';
-import { pickDietRepresentatives, distinctiveTypeFor, enrichSourcePool, allowedTypesForDiet } from '../../utils/dietQuota';
-import { buildEnrichedLoopPool, poolTargetForCycleLength } from '../../utils/loopPool';
-import { isPureSweetDish } from '../../meal/constants/pairingCatalog';
+import { allowedTypesForDiet } from '../../utils/dietQuota';
+import { dietChipFor, DIET_CHIP_UNSET_COPY } from '../../utils/dietChange';
+import { buildEnrichedLoopPool } from '../../utils/loopPool';
 import { daysUntil } from '../../utils/dateUTC';
 import MealLoopConfigModal from '../meal/MealLoopConfigModal';
 import SwapCustomizeModal from '../meal/SwapCustomizeModal';
@@ -93,7 +92,7 @@ const ALLERGIES_LIST = ['Dairy', 'Nuts', 'Gluten', 'Soy', 'Seafood', 'Eggs'];
 const SPICE_LABELS: Record<string, string> = { 'mild': 'Mild 🌿', 'medium': 'Medium 🌶️', 'hot': 'Hot 🔥' };
 
 const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType) => void }> = ({ onLogout, onManageTray }) => {
-    const { user, updateProfile, openQuickSetup, household, householdId, dietSyncState } = useStore();
+    const { user, updateProfile, openQuickSetup, household, householdId, dietSyncState, retryDietSync } = useStore();
     const defaultName = user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : '');
     const [nameDraft, setNameDraft] = useState<string>(defaultName);
     const [showSaved, setShowSaved] = useState(false);
@@ -482,6 +481,28 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
         setEditingSpice(false);
     };
 
+    // ONE prefill builder for every edit-mode entry (Preferences card AND the
+    // diet chip) — opens the SAME FlashOnboarding picker pre-filled.
+    const buildPrefill = (): any => {
+        const spiceValue = ((): number => {
+            switch (user?.spiceLevel) {
+                case 'mild': return 1;
+                case 'hot': return 3;
+                default: return 2;
+            }
+        })();
+        return {
+            region: user?.region,
+            diet: user?.diet,
+            spiceLevel: spiceValue,
+            plannedSlots: user?.plannedSlots ?? [],
+            cookContact: user?.cookContact ?? '',
+            // TC-UX: skip to Diet step (step 1) — the user's goal is
+            // a quick diet change, not a full Region→Diet→Health→Plan wizard.
+            initialStep: 1,
+        };
+    };
+
     const toggleAllergy = (allergy: string) => {
         const next = user.allergies?.includes(allergy)
             ? user.allergies.filter((item: string) => item !== allergy)
@@ -541,23 +562,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
             <div className="px-4 pb-6">
                 <div
                     className="p-5 rounded-[22px] bg-white border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => {
-                        const spiceValue = ((): number => {
-                            switch (user?.spiceLevel) {
-                                case 'mild': return 1;
-                                case 'hot': return 3;
-                                default: return 2;
-                            }
-                        })();
-                        const prefill: any = {
-                            region: user?.region,
-                            diet: user?.diet,
-                            spiceLevel: spiceValue,
-                            plannedSlots: user?.plannedSlots ?? [],
-                            cookContact: user?.cookContact ?? '',
-                        };
-                        openQuickSetup?.(prefill);
-                    }}
+                    onClick={() => openQuickSetup?.(buildPrefill())}
                 >
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-[#FF385C]/10 rounded-2xl flex items-center justify-center">
@@ -572,7 +577,13 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                 </div>
             </div>
 
-            {/* ─── Inline Diet Picker ─── */}
+            {/* ─── Diet Preference — ONE canonical chip ─── */}
+            {/* The 4-button grid is GONE: this chip is the ONLY diet affordance on
+                Profile. Values/emoji/labels come from utils/dietChange (the ONE
+                canonical map); an unset/legacy user.diet renders the honest
+                "Not set" copy (E15 — never a fabricated 'veg' highlight).
+                Read-only display — diet changes are set during onboarding
+                (FlashOnboarding) only. */}
             <div className="px-4 pb-4">
                 <div className="p-4 rounded-[22px] bg-white border border-gray-100 shadow-sm">
                     <div className="flex items-center justify-between mb-3">
@@ -584,8 +595,21 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                         )}
                         {dietSyncState === 'failed' && (
                             <span className="flex items-center gap-1 text-[10px] font-bold text-amber-500">
-                                <ShieldAlert size={11} /> not synced — will retry
+                                <ShieldAlert size={11} /> not synced
                             </span>
+                        )}
+                        {dietSyncState === 'failed' && (
+                            <button
+                                onClick={() => retryDietSync()}
+                                disabled={dietSyncState === 'saving'}
+                                className="flex items-center gap-0.5 text-[10px] font-bold text-[#FF385C] hover:text-[#E31C5F] disabled:opacity-40 disabled:cursor-not-allowed"
+                                aria-label="Retry diet sync"
+                            >
+                                {dietSyncState === 'saving'
+                                    ? <><RefreshCw size={11} className="animate-spin" /> retrying…</>
+                                    : <><RefreshCw size={11} /> retry</>
+                                }
+                            </button>
                         )}
                         {dietSyncState === 'saving' && (
                             <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400">
@@ -593,107 +617,18 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                             </span>
                         )}
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                        {(['veg', 'eggitarian', 'non-veg', 'vegan'] as const).map(d => {
-                            const isActive = (user?.diet || 'veg').toLowerCase() === d;
-                            return (
-                                <button key={d} onClick={() => {
-                                    if (isActive) return;
-                                    updateProfile({ diet: d as any });
-                                    // Persist the diet to the server (offline-safe; indicator shows saved/failed)
-                                    void useStore.getState().syncDietToServer();
-                                    // Rebuild pool for new diet
-                                    import('../../plan/store/useLoopStore').then(m => {
-                                        const store = m.useLoopStore.getState();
-                                        const current = store.mealLoop;
-                                        if (current.config && current.sourceDishIds) {
-                                            import('../../plan/utils/mealLoopEngine').then(eng => {
-                                                import('../../meal/constants/dishLibrary').then(lib => {
-                                                    const library = lib.DISH_LIBRARY;
-                                                    const allowed: Record<string,string[]> = {
-                                                        veg: ['veg','vegan'],
-                                                        eggitarian: ['veg','vegan','eggitarian'],
-                                                        'non-veg': ['veg','non-veg','vegan','eggitarian'],
-                                                        vegan: ['vegan'],
-                                                    };
-                                                    const types = allowed[d] || ['veg'];
-                                                    const filtered = library.filter((x:any) => types.includes(x.type));
-                                                    const regionKey = getRegionKey(user?.region) || 'north';
-                                                    // Region-aware + cross-slot diverse: lunch must not
-                                                    // mirror dinner, and other-region dishes stay out.
-                                                    const usedNames = new Set<string>();
-                                                    const norm = (s: string) => (s || '').trim().toLowerCase();
-                                                    const pool: any = {breakfast:[],lunch:[],snacks:[],dinner:[]};
-                                                    for (const slot of ['breakfast','lunch','dinner','snacks'] as const) {
-const eligible = filtered.filter((x:any) =>
-                                                            x.category?.includes(slot) &&
-                                                            (x.region === regionKey || x.region === 'all') &&
-                                                            !isPureSweetDish(x)
-                                                        );
-                                                        const fresh = eligible.filter((x:any) => !usedNames.has(norm(x.name)));
-                                                        const ranked = [...(fresh.length >= 5 ? fresh : [...fresh, ...eligible.filter((x:any) => !fresh.includes(x))])].slice(0,5);
-                                                        for (const x of ranked) usedNames.add(norm(x.name));
-                                                        pool[slot] = ranked;
-                                                    }
-                                                    // Diet representation quota (ALL diets): regional pools
-                                                    // may hold zero distinctive-diet dishes — fill the
-                                                    // deficit so rotation pools reflect the diet.
-                                                    const distType = distinctiveTypeFor(d);
-                                                    // Rotation VARIETY: a pool capped at 5 repeats the same
-                                                    // dishes daily. Enrich each slot to the pool target with
-                                                    // diet-allowed regional candidates (the tray-lead pool
-                                                    // keeps priority via enrichSourcePool).
-                                                    const enriched = enrichSourcePool(pool, library, {
-                                                        allowedTypes: types,
-                                                        regionKey,
-                                                        target: poolTargetForCycleLength((current.config?.cycleLength) || 7),
-                                                        priority: (x:any) => ((x.diet||x.type||'')+'').toLowerCase() === distType ? 0 : 1,
-                                                    });
-                                                    for (const s of ['breakfast','lunch','dinner','snacks'] as const) pool[s] = enriched[s];
-                                                    const have = (['breakfast','lunch','dinner','snacks'] as const)
-                                                        .reduce((n, s) => n + pool[s].filter((x:any) => ((x.diet||x.type||'')+'').toLowerCase() === distType).length, 0);
-                                                    const reps = pickDietRepresentatives(library, {
-                                                        distType,
-                                                        regionKey,
-                                                        minCount: Math.max(0, 3 - have),
-                                                        excludeNames: usedNames,
-                                                    });
-                                                    const takenBuckets = new Set<string>();
-                                                    for (const rep of reps) {
-                                                        // Spread across DISTINCT buckets — lunch-first
-                                                        // dumped every egg into one slot's rotation.
-                                                        const cats = ((rep.category || []) as any).map((c:any) => c.toLowerCase());
-                                                        const bucket = (['breakfast', 'lunch', 'dinner', 'snacks'] as const)
-                                                            .find(s => !takenBuckets.has(s) && cats.some((c:string) => c.includes(s)) )
-                                                            ?? (['lunch','dinner','breakfast','snacks'] as const)
-                                                                .find(s => cats.some((c:string) => c.includes(s)))
-                                                            ?? 'lunch';
-                                                        takenBuckets.add(bucket);
-                                                        if (!pool[bucket].some((x:any) => x.id === rep.id)) pool[bucket].push(rep);
-                                                    }
-                                                    store.applyLoopConfig({...(current.config as MealLoopConfig), startDate: new Date().toISOString().split('T')[0] ?? ''}, pool, library);
-                                                    window.dispatchEvent(new CustomEvent('loop_updated', {detail:{config:current.config}}));
-                                                    // Tray must reflect the new diet too — the loop
-                                                    // rebuild alone leaves egg-free slots in place.
-                                                    import('../../utils/dietHeal').then(m => {
-                                                        m.healTrayDietGaps(true);
-                                                        m.healPLANDietGaps(true);
-                                                    });
-                                                });
-                                            });
-                                        }
-                                    });
-                                    setToast({message:`Diet changed to ${d} — meal plan rebuilt`, type:'success'});
-                                }}
-                                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold tracking-wider transition-all active:scale-95 ${
-                                        isActive ? 'bg-[#FF385C] text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                    }`}
-                                >
-                                    {d === 'veg' ? '🥬 Veg' : d === 'eggitarian' ? '🥚 Egg' : d === 'non-veg' ? '🍗 Non-Veg' : '🌱 Vegan'}
-                                </button>
-                            );
-                        })}
-                    </div>
+                    {(() => {
+                        const chip = dietChipFor(user?.diet);
+                        return (
+                            <div className="w-full flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 text-left">
+                                {chip ? (
+                                    <span className="text-sm font-bold text-gray-800">{chip.emoji} {chip.label}</span>
+                                ) : (
+                                    <span className="text-sm font-semibold text-gray-400">{DIET_CHIP_UNSET_COPY}</span>
+                                )}
+                            </div>
+                        );
+                    })()}
                 </div>
             </div>
 
