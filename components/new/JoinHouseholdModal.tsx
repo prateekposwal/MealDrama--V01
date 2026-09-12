@@ -24,8 +24,13 @@ const JoinHouseholdModal: React.FC<Props> = ({ isOpen, onClose }) => {
     try {
       await joinHousehold(code.trim().toUpperCase());
       onClose();
-    } catch {
-      setError('Invalid code or household not found.');
+    } catch (err: any) {
+      const msg: string = err?.message ?? '';
+      setError(
+        msg.includes('aborted')
+          ? 'Could not sign you in. Check the server, then try again.'
+          : 'Invalid code or household not found.',
+      );
     }
     setLoading(false);
   };

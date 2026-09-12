@@ -44,6 +44,7 @@ interface FlashOnboardingProps {
     onboardingComplete?: boolean;
   }) => void;
   isEditMode?: boolean;
+  initialStep?: number;
   prefill?: {
     region?: string;
     diet?: string;
@@ -54,8 +55,8 @@ interface FlashOnboardingProps {
   };
 }
 
-const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMode, prefill }) => {
-  const [step, setStep] = useState(0);
+const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMode, initialStep, prefill }) => {
+  const [step, setStep] = useState(initialStep ?? 0);
   const [region, setRegion] = useState(prefill?.region ?? '');
   const [diet, setDiet] = useState(prefill?.diet ?? '');
   const [spiceLevel] = useState(prefill?.spiceLevel ?? 2);

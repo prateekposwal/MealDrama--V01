@@ -12,6 +12,7 @@ export interface HouseholdKitchenState {
   addPurchase: (householdId: string, name: string, quantity: number, unit: string) => Promise<void>;
   setAssumption: (householdId: string, name: string, flag: 'have' | 'notHave' | null, memberId?: string) => Promise<void>;
   saveLane: (householdId: string, memberId: string, snapshot: unknown) => Promise<void>;
+  regenLane: (householdId: string, memberId: string) => Promise<void>;
 }
 
 export function linesToMap(lines: HouseholdStockLine[]): Record<string, HouseholdStockLine> {
@@ -77,6 +78,18 @@ export const useHouseholdKitchenStore = create<HouseholdKitchenState>((set, get)
       await householdKitchenApi.putLane(householdId, memberId, snapshot);
     } catch {
       // best-effort — regeneration still works client-side
+    }
+  },
+
+  /** Clear ONE member's persisted lane (diet-change): next Family Plans build
+   * regenerates from the CURRENT profile. Member may clear own; admin any. */
+  regenLane: async (householdId, memberId) => {
+    if (!householdId || !memberId) return;
+    try {
+      await householdKitchenApi.regenerateMemberLane(householdId, memberId);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('family:refresh'));
+    } catch (e: any) {
+      set({ lastError: e?.message ?? 'lane regen failed' });
     }
   },
 }));

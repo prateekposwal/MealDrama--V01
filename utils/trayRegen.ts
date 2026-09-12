@@ -46,20 +46,33 @@ import { regenerateMealPlanPipeline } from './mealPlanRegen';
 import { getISODate } from './dateUTC';
 import { useTrayStore } from '../plan/store/useTrayStore';
 import { useHouseholdFeedStore } from '../plan/store/householdFeedStore';
+import {
+  getCachedMealHistory,
+  hasPersistedMealHistory,
+  refreshMealHistory,
+} from '../app/lib/mealHistory';
+import {
+  getCachedHouseholdPlans,
+  refreshHouseholdPlans,
+  pushCurrentTrayAsHouseholdPlan,
+} from '../app/lib/householdPlans';
 import type { PersonalizationContext, HistoryItem, HouseholdDish } from './mealPersonalization';
 
 /** Build the per-user PersonalizationContext for THIS rebuild from the live
  *  store — the ONE surface that feeds region+diet+focus+preferences+history+
  *  household into the pipeline's fill/dedupe ranking.
  *
- *  Meal-history proxy (honest — no fabricated store): the user's swap log
- *  (every dish they actively swapped to/replaced) plus the materialized plan
- *  days (meal_ids the user has actually been served).
+ *  Meal history (Gap 2 — persisted first): the server-side MealLog (the REAL
+ *  "consumed" rows written by the complete-slot flow) REPLACES the old
+ *  proxies once it has rows. The swap log + materialized plan days are used
+ *  ONLY while the persisted history is empty or still loading — an honest
+ *  empty, never invented rows.
  *
- *  Household surface (honest limit): the shared-plan table (SharedPlanItem[])
- *  is the ONLY dish-level cross-member surface reachable client-side; rows
- *  authored by ME are excluded. Members whose plans were never shared cannot
- *  be seen — their dishes simply carry no penalty (recorded, not guessed).
+ *  Household surface (Gap 3 — ALL members): the persisted HouseholdPlanItem
+ *  table (upserted on EVERY member's tray/plan generation) is merged with the
+ *  shared-plan table (the explicit-share surface). Rows authored by ME are
+ *  excluded (own dishes never penalized). Members with nothing persisted are
+ *  simply absent (recorded, not guessed).
  *
  *  Rotation: intentionally OFF by default — same user + same inputs → SAME
  *  plan (refresh-stable). `isoWeekKey`/`rotation` are exported for callers
@@ -69,38 +82,64 @@ export function buildPersonalizationContext(): PersonalizationContext | null {
   const store = useStore.getState();
   const user = store.user;
   if (!user?.id && !store.deviceId) return null;
+  const myUserId = user?.id ?? '';
 
-  // 1) Meal history: swap log (dates → slots → MealOption).
+  // 1) Meal history — PERSISTED MealLog first (Gap 2). Fire-and-forget
+  //    refresh never blocks regeneration; the proxies below remain in effect
+  //    while the log is empty or still loading (Λ-honest empty).
+  if (myUserId) void refreshMealHistory(myUserId);
+  const persisted = getCachedMealHistory(myUserId);
   const recently: HistoryItem[] = [];
-  for (const day of Object.values(store.swaps ?? {})) {
-    for (const m of Object.values(day ?? {})) {
-      if (m && (m.dishId || m.name)) recently.push({ id: m.dishId, name: m.name });
-    }
-  }
-  // 2) Meal history: materialized plan days (served meals).
-  try {
-    const planDays = useTrayStore.getState().plan.days ?? {};
-    for (const day of Object.values(planDays)) {
-      for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
-        for (const item of (day as unknown as Record<string, Array<{ meal_id?: string; name?: string }>>)?.[slot] ?? []) {
-          if (item.meal_id || item.name) recently.push({ id: item.meal_id, name: item.name });
-        }
+  if (hasPersistedMealHistory(myUserId) && persisted) {
+    recently.push(...persisted); // REAL consumed rows — no proxies
+  } else {
+    // Fallback proxies — ONLY while the persisted history is empty/unloaded.
+    // 1a) Swap log (dates → slots → MealOption).
+    for (const day of Object.values(store.swaps ?? {})) {
+      for (const m of Object.values(day ?? {})) {
+        if (m && (m.dishId || m.name)) recently.push({ id: m.dishId, name: m.name });
       }
     }
-  } catch {
-    // plan store not materialized yet — the swap log alone is the proxy
+    // 1b) Materialized plan days (served meals).
+    try {
+      const planDays = useTrayStore.getState().plan.days ?? {};
+      for (const day of Object.values(planDays)) {
+        for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
+          for (const item of (day as unknown as Record<string, Array<{ meal_id?: string; name?: string }>>)?.[slot] ?? []) {
+            if (item.meal_id || item.name) recently.push({ id: item.meal_id, name: item.name });
+          }
+        }
+      }
+    } catch {
+      // plan store not materialized yet — the swap log alone is the proxy
+    }
   }
 
-  // 3) Household: other members' shared-plan dishes (exclude MY rows).
-  const myUserId = user?.id ?? '';
+  // 2) Household — ALL members' persisted current plans (Gap 3) merged with
+  //    the explicit shared-plan surface; MY rows excluded from both.
+  const hhId = store.householdId ?? '';
+  if (hhId) void refreshHouseholdPlans(hhId);
   const household: HouseholdDish[] = [];
+  const seen = new Set<string>();
+  const pushDish = (id?: string, name?: string) => {
+    if (!id && !name) return;
+    const key = id ? `id:${id}` : `name:${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    household.push({ id: id ?? undefined, name });
+  };
   for (const sp of useHouseholdFeedStore.getState().sharedPlan ?? []) {
     if (sp.authorUserId && sp.authorUserId === myUserId) continue;
-    if (sp.dishId || sp.dishName) household.push({ id: sp.dishId ?? undefined, name: sp.dishName });
+    pushDish(sp.dishId ?? undefined, sp.dishName);
+  }
+  const planRows = hhId ? getCachedHouseholdPlans(hhId) : null;
+  for (const row of planRows ?? []) {
+    if (row.authorUserId === myUserId) continue; // own dishes never penalized
+    pushDish(row.dishId);
   }
 
   return {
-    userId: user?.id || store.deviceId,
+    userId: myUserId || store.deviceId,
     deviceId: store.deviceId,
     healthFocus: user?.healthGoals?.[0],
     preferences: {
@@ -280,12 +319,19 @@ export function rebuildTrayForDiet(): Promise<TrayRegenResult> {
       console.warn('[trayRegen] diet heals skipped:', e);
     }
 
-    // 6) Targeted household lane clear: only MY lane, so Family Plans rebuilds
+    // 6) Persist MY current tray as the household-visible plan (Gap 3) +
+    //    targeted household lane clear: only MY lane, so Family Plans rebuilds
     //    for the changed member (never the whole household).
     let laneCleared = false;
     const hhId = useStore.getState().householdId;
     const userId = useStore.getState().user?.id;
     if (hhId && userId) {
+      try {
+        // The server table holds EXACTLY what was last generated — replace-all.
+        void pushCurrentTrayAsHouseholdPlan(hhId, userId, merged);
+      } catch {
+        // best-effort — the next generation re-persists
+      }
       try {
         await useHouseholdKitchenStore.getState().regenLane(hhId, userId);
         laneCleared = true;

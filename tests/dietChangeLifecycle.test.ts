@@ -602,3 +602,104 @@ describe('TC-UX: Diet Preference chip is READ-ONLY (no onClick, no picker)', () 
      expect(cardMatches?.length).toBeGreaterThanOrEqual(1);
    });
  });
+
+
+// ─── D1 — stale-JWT 401 recovery in syncDietToServer (Fix 1) ───────────────
+
+describe('stale-token 401 recovery in syncDietToServer (D1 fix)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    apiMocks.registerUser.mockReset();
+    apiMocks.upsertMine.mockReset();
+    // Default: a fresh registration succeeds with a NEW JWT (the recovery path).
+    apiMocks.registerUser.mockResolvedValue({ ok: true, user: { id: 'u-diet' }, token: 'jwt-fresh' });
+    apiMocks.upsertMine.mockResolvedValue({
+      diet: { dietType: 'veg', region: 'north', allergies: [], dislikedItems: [], spiceLevel: 'medium', healthGoal: '' },
+      dietChanged: false, wasUnset: true, changed: { dietType: false, region: false, allergies: false },
+    });
+  });
+
+  afterEach(() => { vi.resetModules(); });
+
+  it('TC-UX: a 401 from upsertMine → token cleared, ensureToken re-registers a FRESH JWT, PUT retried ONCE, saved, ok:true, prompt armed', async () => {
+    const { useStore } = await import('../app/store/useStore');
+    const store = await seedUser('non-veg');
+    store.setState({ token: 'jwt-stale' } as any);
+    apiMocks.upsertMine
+      .mockRejectedValueOnce(Object.assign(new Error('Unauthorized'), { status: 401 }))
+      .mockResolvedValueOnce({
+        diet: { dietType: 'non-veg', region: 'north', allergies: [], dislikedItems: [], spiceLevel: 'medium', healthGoal: '' },
+        dietChanged: true, wasUnset: false, changed: { dietType: true, region: false, allergies: false },
+      });
+
+    const res = await store.getState().syncDietToServer('veg');
+
+    expect(res.ok).toBe(true);
+    expect(apiMocks.upsertMine).toHaveBeenCalledTimes(2);      // 401 + ONE retry — bounded
+    expect(apiMocks.registerUser).toHaveBeenCalledTimes(1);     // re-registered a fresh JWT
+    expect(store.getState().token).toBe('jwt-fresh');           // the NEW Bearer is stored
+    expect(store.getState().dietSyncState).toBe('saved');
+    // Prompt armed exactly like the primary success branch (server-confirmed
+    // real dietType change against a previous row).
+    const p = store.getState().pendingDietChange;
+    expect(p).not.toBeNull();
+    expect(p!.from).toBe('veg');
+    expect(p!.to).toBe('non-veg');
+  });
+
+  it('TC-UX: 401 recovery fails on the re-register → dietSyncState=failed + toast (no infinite loop)', async () => {
+    const { useStore } = await import('../app/store/useStore');
+    const store = await seedUser('veg');
+    store.setState({ token: 'jwt-stale' } as any);
+    apiMocks.registerUser.mockResolvedValue({ ok: false, error: 'network down (fetch failed)' });
+    apiMocks.upsertMine.mockRejectedValue(Object.assign(new Error('Unauthorized'), { status: 401 }));
+
+    const res = await store.getState().syncDietToServer('veg');
+
+    expect(res.ok).toBe(false);
+    expect(store.getState().dietSyncState).toBe('failed');
+    expect(store.getState().toast).not.toBeNull();              // honest surface
+    expect(apiMocks.upsertMine).toHaveBeenCalledTimes(1);       // 401 PUT only — no retry without a fresh token
+    expect(apiMocks.registerUser).toHaveBeenCalledTimes(1);     // ONE recovery attempt
+  });
+
+  it('TC-UX: a non-401 network error → NO token-clear, single failed state (no recovery loop)', async () => {
+    const { useStore } = await import('../app/store/useStore');
+    const store = await seedUser('veg');
+    store.setState({ token: 'jwt-ok' } as any);
+    apiMocks.upsertMine.mockRejectedValue(new Error('fetch failed'));
+
+    const res = await store.getState().syncDietToServer('veg');
+
+    expect(res.ok).toBe(false);
+    expect(store.getState().dietSyncState).toBe('failed');
+    expect(store.getState().token).toBe('jwt-ok');               // token untouched
+    expect(apiMocks.registerUser).not.toHaveBeenCalled();        // no re-register on a non-401
+    expect(apiMocks.upsertMine).toHaveBeenCalledTimes(1);        // no retry loop
+    expect(store.getState().pendingDietChange).toBeNull();       // no guess-prompt
+  });
+
+  it('TC-UX: 401 recovery succeeds on the retry but is still bounded to ONE attempt (second 401 stays failed)', async () => {
+    const { useStore } = await import('../app/store/useStore');
+    const store = await seedUser('veg');
+    store.setState({ token: 'jwt-stale' } as any);
+    apiMocks.upsertMine.mockRejectedValue(Object.assign(new Error('Unauthorized'), { status: 401 }));
+
+    const res = await store.getState().syncDietToServer('veg');
+
+    expect(res.ok).toBe(false);
+    expect(store.getState().dietSyncState).toBe('failed');
+    expect(apiMocks.registerUser).toHaveBeenCalledTimes(1);     // one recovery, no loop
+    expect(apiMocks.upsertMine).toHaveBeenCalledTimes(2);       // original + ONE retry
+  });
+
+  it('TC-UX: clearToken sets the token to null (log-out semantics kept separate from the diet recovery)', async () => {
+    const { useStore } = await import('../app/store/useStore');
+    const store = await seedUser('veg');
+    store.setState({ token: 'jwt-ok', isLoggedIn: true } as any);
+    store.getState().clearToken();
+    expect(store.getState().token).toBeNull();
+    expect(store.getState().isLoggedIn).toBe(false);
+  });
+});
+

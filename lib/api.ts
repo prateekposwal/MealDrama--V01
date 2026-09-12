@@ -166,6 +166,15 @@ export function resetSessionExpirySignal(): void {
   _sessionExpiredFired = false;
 }
 
+/** Reset BOTH session-expiry flags after a successful token refresh — the
+ *  recovered JWT must carry the NEW Bearer (getToken() reads the live
+ *  getter) and a LATER genuine 401 must be able to re-signal App
+ *  revalidation (the old _sessionExpiredFired latch would swallow it). */
+export function resetApiAuthFlags(): void {
+  tokenCleared = false;
+  _sessionExpiredFired = false;
+}
+
 function signalSessionExpired(): void {
   if (_sessionExpiredFired) return;
   _sessionExpiredFired = true;

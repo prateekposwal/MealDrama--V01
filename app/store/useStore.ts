@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nativeStorage } from '../utils/nativeStorage';
 import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
-import api, { setAuthReady, runApiBaseMigration, setTokenGetter } from '../../lib/api';
+import api, { setAuthReady, runApiBaseMigration, setTokenGetter, resetApiAuthFlags } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
 import { householdApi } from '../utils/householdApi';
@@ -13,6 +13,8 @@ import type { Household } from '../../types/household';
 import { DISH_LIBRARY } from '../../meal/constants/dishLibrary';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import { firstValidVariant, DIET_FILTER } from '../../utils/dishSearch';
+import { upsertMealToSlot } from '../../utils/trayUpsert';
+import { isCanonicalDiet } from '../../utils/dietQuota';
 
 interface SwapNotification {
   id: string;
@@ -416,11 +418,23 @@ interface StoreState {
   // Diet sync (first-class DietPreference on the server; local store stays offline-first)
   dietSyncState: 'idle' | 'saving' | 'saved' | 'failed';
   setDietSyncState: (st: 'idle' | 'saving' | 'saved' | 'failed') => void;
-  syncDietToServer: () => Promise<boolean>;
+  syncDietToServer: (prevDietType?: string) => Promise<{ ok: boolean; dietChanged: boolean; wasUnset: boolean; changed: { dietType: boolean; region: boolean; allergies: boolean } }>;
+  pendingSyncPrevDiet: string | undefined;
+  retryDietSync: () => Promise<{ ok: boolean; dietChanged: boolean; wasUnset: boolean; changed: { dietType: boolean; region: boolean; allergies: boolean } }>;
+  // Diet-change → tray-regeneration lifecycle (PART B). The prompt modal reads
+  // pendingDietChange (transient, NOT persisted); the deferred/dismissed state
+  // is persisted so "after this cycle" survives restarts and the same change
+  // never re-nags.
+  pendingDietChange: { from: string; to: string; at: string } | null;
+  dietRegen: { state: 'deferred' | 'dismissed'; at: string; from: string; to: string } | null;
+  setPendingDietChange: (p: { from: string; to: string; at: string } | null) => void;
+  deferDietRegen: () => void;
+  dismissDietRegen: () => void;
+  consumeDeferredDietRegen: () => Promise<void>;
   // Household sharing
   householdId: string | null;
   household: Household | null;
-  ensureToken: () => Promise<boolean>;
+  ensureToken: () => Promise<{ ok: true } | { ok: false; reason: string }>;
   createHousehold: (name: string) => Promise<void>;
   joinHousehold: (code: string) => Promise<void>;
   leaveHousehold: () => Promise<void>;
@@ -451,7 +465,43 @@ export const useStore = create<StoreState>()(
       householdId: null,
       household: null,
       dietSyncState: 'idle',
+      pendingSyncPrevDiet: undefined,
       setDietSyncState: (st) => set({ dietSyncState: st }),
+      pendingDietChange: null,
+      dietRegen: null,
+      setPendingDietChange: (p) => set({ pendingDietChange: p }),
+      deferDietRegen: () => {
+        const p = get().pendingDietChange;
+        if (!p) return;
+        set({ dietRegen: { state: 'deferred', at: p.at, from: p.from, to: p.to }, pendingDietChange: null });
+      },
+      dismissDietRegen: () => {
+        const p = get().pendingDietChange;
+        if (!p) return;
+        set({ dietRegen: { state: 'dismissed', at: p.at, from: p.from, to: p.to }, pendingDietChange: null });
+      },
+      consumeDeferredDietRegen: async () => {
+        const r = get().dietRegen;
+        if (!r || r.state !== 'deferred') return;
+        // The deferred flag survives until the next "cycle end" surface:
+        //   1. App-start hydration (App.tsx checkBoth) — the next materialized
+        //      tray touchpoint (honest minimal hook, documented in trayRegen.ts).
+        //   2. Plan-end boundary — the per-minute check in App.tsx recomputes
+        //      endDate = startDate + cycleLength*7 (the SAME formula as
+        //      checkPlanEnding in notificationTriggers.ts:169) and consumes
+        //      the flag when the cycle has completed.
+        // Whichever fires first consumes; the flag clears after ONE successful
+        // rebuild. On failure it is KEPT (surfaced via toast) so the next
+        // surface retries — the roll-in is never silently lost.
+        try {
+          const { rebuildTrayForDiet } = await import('../../utils/trayRegen');
+          await rebuildTrayForDiet();
+          set({ dietRegen: null });
+        } catch (err: any) {
+          console.warn('[Store] consumeDeferredDietRegen failed (flag kept for retry):', err);
+          get().setToast({ message: `Couldn't roll in your new dishes: ${err?.message ?? 'unknown error'}`, type: 'error' });
+        }
+      },
       setToast: (toast) => set({ toast }),
 
       // FIX: Atomic login function that sets both isLoggedIn and user in one operation
@@ -480,8 +530,10 @@ export const useStore = create<StoreState>()(
         // If it still fails, ensureToken() will retry before household ops.
         try {
           const result = await registerUser(userId, username);
-          if (result?.token) {
+          if (result.ok && result.token) {
             get().setToken(result.token);
+          } else if (!result.ok) {
+            console.warn(`[Store] login register failed (will retry on next household op): ${result.error}`);
           }
         } catch (err) {
           console.warn('[Store] login register failed (will retry on next household op):', err);
@@ -492,9 +544,19 @@ export const useStore = create<StoreState>()(
         if (import.meta.env.DEV) console.log('[Store] updateProfile called, updates:', Object.keys(updates));
         set((state) => {
           // Normalize diet to the lowercase canonical form at the ONE write path
-          // (onboarding/Profile pass 'Veg'; the predicates expect 'veg').
+          // (onboarding/Profile pass 'Veg'; the predicates expect 'veg'). An
+          // UNKNOWN diet is never written and never silently defaults: we keep
+          // the previous value and warn (Λ6.5 — no guesses).
           const next = { ...updates };
-          if (next.diet !== undefined) next.diet = String(next.diet).toLowerCase() as User['diet'];
+          if (next.diet !== undefined) {
+            const candidate = String(next.diet).toLowerCase().trim();
+            if (isCanonicalDiet(candidate)) {
+              next.diet = candidate as User['diet'];
+            } else {
+              console.warn(`[Store] updateProfile rejected unknown diet "${next.diet}" — keeping previous "${state.user?.diet ?? 'veg'}"`);
+              delete next.diet;
+            }
+          }
           const newUser = {
             ...(state.user ?? {}),
             ...next,
@@ -513,11 +575,15 @@ export const useStore = create<StoreState>()(
       getDiet: () => get().diet,
 
       // ALWAYS attempts the PUT (offline-first: local state already updated by
-      // updateProfile; the server upsert is fire-and-forget with a visible
-      // saved/failed indicator — the picker never blocks on network failure).
-      syncDietToServer: async () => {
+      // updateProfile; the server upsert reports saved/failed AND the
+      // dietChanged/wasUnset signal the Profile prompt needs (PART B). The
+      // picker never blocks on network failure; when the server is down the
+      // change stays local and the "not synced — will retry" indicator shows
+      // (no prompt — we cannot truthfully claim a change vs the last synced
+      // row, so we don't guess).
+      syncDietToServer: async (prevDietType?: string) => {
         const u = get().user;
-        if (!u) return false;
+        if (!u) return { ok: false, dietChanged: false, wasUnset: false, changed: { dietType: false, region: false, allergies: false } };
         const payload = {
           dietType: (u.diet ?? 'veg') as string,
           region: (u.region ?? 'north') as string,
@@ -526,21 +592,94 @@ export const useStore = create<StoreState>()(
           spiceLevel: (u.spiceLevel ?? 'medium') as string,
           healthGoal: u.healthGoals?.[0] ?? '',
         };
-        set({ dietSyncState: 'saving' });
+        set({ pendingSyncPrevDiet: prevDietType, dietSyncState: 'saving' });
+        // R1 — guarantee a JWT FIRST. Without a token the PUT arrives without an
+        // Authorization header and the server 401s. The old path skipped the
+        // guard entirely (only household ops called ensureToken), so a pending
+        // registration silently lost the diet save AND the change prompt.
+        const auth = await get().ensureToken();
+        if (!auth.ok) {
+          console.warn(`[Store] Diet sync skipped — ${auth.reason}`);
+          set({ dietSyncState: 'failed' });
+          get().setToast({ message: auth.reason, type: 'error' });
+          return { ok: false, dietChanged: false, wasUnset: false, changed: { dietType: false, region: false, allergies: false } };
+        }
         try {
-          const { diet } = await dietApi.upsertMine(payload);
-          if (!diet) {
+          const res = await dietApi.upsertMine(payload);
+          if (!res?.diet) {
             set({ dietSyncState: 'failed' });
-            return false;
+            return { ok: false, dietChanged: false, wasUnset: false, changed: { dietType: false, region: false, allergies: false } };
           }
           set({ dietSyncState: 'saved' });
           if (typeof window !== 'undefined') window.dispatchEvent(new Event('diet_updated'));
-          return true;
+          // Arm the tray-regeneration prompt ONLY for a REAL dish-axis change
+          // (dietType) against a PREVIOUS row. First-ever set (wasUnset) must
+          // NOT prompt — onboarding seeds the tray with that diet in the same
+          // flow. Region-only changes are already handled by the App.tsx
+          // REGION-CHANGE RESEED (immediate, no prompt needed).
+          if (res.dietChanged && !res.wasUnset && res.changed.dietType) {
+            const from = prevDietType ?? res.diet.dietType;
+            const to = u.diet ?? from;
+            get().setPendingDietChange({ from, to, at: new Date().toISOString() });
+          }
+          return { ok: true, dietChanged: res.dietChanged, wasUnset: res.wasUnset, changed: res.changed };
         } catch (err) {
+          // D1 — stale/expired JWT recovery: the stored token passes
+          // ensureToken (truthy) but the server rejects it with 401, so retry
+          // reuses the SAME dead token forever. Clear ONLY the token (NOT
+          // clearToken() — that also flips isLoggedIn and would log the user
+          // out mid-edit), register a FRESH JWT, and retry the PUT ONCE
+          // (bounded — one recovery attempt, never an infinite loop).
+          const status401 =
+            (err as { status?: number })?.status === 401
+            || ((err as Error)?.message ?? '').toLowerCase().includes('401')
+            || ((err as Error)?.message ?? '').toLowerCase().includes('unauthorized');
+          if (status401) {
+            try {
+              set({ token: null });
+              // Re-registers a fresh JWT (ensureToken sees token === null).
+              const auth = await get().ensureToken();
+              if (auth.ok) {
+                // The fresh token clears api.ts's session-expiry latch so the
+                // retried PUT carries the NEW Bearer and any GENUINE later
+                // 401 can re-signal App revalidation.
+                resetApiAuthFlags();
+                const res2 = await dietApi.upsertMine(payload);
+                if (res2?.diet) {
+                  set({ dietSyncState: 'saved' });
+                  if (typeof window !== 'undefined') window.dispatchEvent(new Event('diet_updated'));
+                  // Arm the tray-regeneration prompt only for a REAL dish-axis
+                  // change against a PREVIOUS row — identical to the primary
+                  // success branch above.
+                  if (res2.dietChanged && !res2.wasUnset && res2.changed.dietType) {
+                    const from = prevDietType ?? res2.diet.dietType;
+                    const to = get().user?.diet ?? from;
+                    get().setPendingDietChange({ from, to, at: new Date().toISOString() });
+                  }
+                  return { ok: true, dietChanged: res2.dietChanged, wasUnset: res2.wasUnset, changed: res2.changed };
+                }
+                console.warn('[Store] Diet sync 401 recovery: retried PUT returned no diet row');
+              } else {
+                console.warn(`[Store] Diet sync 401 recovery could not re-register: ${auth.reason}`);
+              }
+            } catch (recoveryErr) {
+              console.warn('[Store] Diet sync 401 recovery failed (bounded — no further retry):', recoveryErr);
+            }
+          }
           console.warn('[Store] Diet sync failed (local state kept, will retry next edit):', err);
           set({ dietSyncState: 'failed' });
-          return false;
+          get().setToast({ message: 'Diet sync failed — check your connection', type: 'error' });
+          return { ok: false, dietChanged: false, wasUnset: false, changed: { dietType: false, region: false, allergies: false } };
         }
+      },
+
+      retryDietSync: async () => {
+        const prevDiet = get().pendingSyncPrevDiet;
+        if (!prevDiet) {
+          console.warn('[Store] retryDietSync: no pendingSyncPrevDiet to retry with');
+          return { ok: false, dietChanged: false, wasUnset: false, changed: { dietType: false, region: false, allergies: false } };
+        }
+        return get().syncDietToServer(prevDiet);
       },
 
       setToken: (token: string) => set({ token }),
@@ -606,25 +745,13 @@ export const useStore = create<StoreState>()(
         set((state) => {
           const key = slot.toLowerCase() as keyof TrayLibrary;
           const tray = state.trayLibrary[key] || [];
-          const normName = (s: string) => (s || '').trim().toLowerCase();
-          // Dedupe by id AND normalized name — expanded variants share a base
-          // name under different ids and must never appear twice in a tray.
-          const existing = tray.find(m => m.id === meal.id || normName(m.name) === normName(meal.name));
-          if (existing) {
-            if (existing.name === meal.name && existing.icon === meal.icon) return state;
-            const updated = tray.map(m => m.id === meal.id ? { ...m, name: meal.name, icon: meal.icon, sourceRegion: meal.sourceRegion ?? m.sourceRegion } : m);
-            _MEAL_RESOLUTION_CACHE.clear();
-            if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
-            return { trayLibrary: { ...state.trayLibrary, [key]: updated } };
-          }
+          // ONE canonical dedupe rule (utils/trayUpsert): match by id OR
+          // normalized name, REPLACE the match, never append a duplicate name.
+          const out = upsertMealToSlot(tray, meal);
+          if (!out.added && !out.replaced) return state; // identical — no-op
           _MEAL_RESOLUTION_CACHE.clear();
           if (typeof window !== 'undefined') window.dispatchEvent(new Event('pantry:invalidate'));
-          return {
-            trayLibrary: {
-              ...state.trayLibrary,
-              [key]: [...tray, meal],
-            },
-          };
+          return { trayLibrary: { ...state.trayLibrary, [key]: out.tray } };
         }),
 
       removeFromTray: (slot: string, mealId: string) =>
@@ -923,11 +1050,14 @@ export const useStore = create<StoreState>()(
         set((state) => {
           const slotKey = (meal.mealContext || 'lunch').toLowerCase() as keyof TrayLibrary;
           const tray = state.trayLibrary[slotKey] || [];
-          if (tray.find(m => m.id === meal.id)) return state;
+          // Canonical id-or-name upsert (was id-ONLY — a queue dish whose id
+          // changed but whose name matched a tray entry added a second card).
+          const out = upsertMealToSlot(tray, meal);
+          if (!out.added && !out.replaced) return state; // identical entry already in tray — no-op
           return {
             trayLibrary: {
               ...state.trayLibrary,
-              [slotKey]: [...tray, meal],
+              [slotKey]: out.tray,
             },
             smartQueue: {
               week2: state.smartQueue.week2.filter(m => m.id !== meal.id),
@@ -969,29 +1099,40 @@ export const useStore = create<StoreState>()(
       // Called before household ops to guarantee a valid token.
       // Returns true if a token is available, false if registration failed.
       ensureToken: async () => {
-        if (get().token) return true;
+        if (get().token) return { ok: true };
         // No token yet — retry registration using stored user info
         const user = get().user;
-        if (!user?.id) return false;
-        try {
-          const result = await registerUser(user.id, user.username || user.name || 'user');
-          if (result?.token) {
-            get().setToken(result.token);
-            return true;
-          }
-        } catch (err) {
-          console.warn('[Store] ensureToken register retry failed:', err);
+        if (!user?.id) {
+          return { ok: false, reason: 'No account is signed in on this device. Sign in again, then create the household.' };
         }
-        return false;
+        const result = await registerUser(user.id, user.username || user.name || 'user');
+        if (result?.ok && result?.token) {
+          get().setToken(result.token);
+          return { ok: true };
+        }
+        // NEVER mask the real failure as "pending": the register retry loop
+        // timed out (its own 3× backoff is the bounded "latch timeout") and
+        // the user deserves the ACTUAL server/network error. A 401/403/500 or
+        // network drop is surfaced verbatim — "Authentication pending" was a
+        // lie that hid DB outages and dead servers behind a fake status.
+        const reason = result && result.ok ? 'sign-in service returned no token' : (result?.error ?? 'registration returned an empty result');
+        console.warn('[Store] ensureToken register retry failed:', reason);
+        return { ok: false, reason };
       },
 
       // ─── Household ─────────────────────────────────────────────────
       createHousehold: async (name) => {
         // Guarantee a JWT token exists before hitting the server
-        const hasToken = await get().ensureToken();
-        if (!hasToken) {
-          get().setToast({ message: 'Authentication pending — please try again.', type: 'error' });
-          return;
+        const auth = await get().ensureToken();
+        if (!auth.ok) {
+          get().setToast({
+            message: `Couldn't sign in to create the household: ${auth.reason}`,
+            type: 'error',
+          });
+          // Throw so the modal stays OPEN (creation did NOT happen) — the old
+          // path returned undefined, so the modal's await resolved and closed
+          // while the household never existed.
+          throw new Error(`createHousehold aborted: ${auth.reason}`);
         }
         try {
           const hh = await householdApi.create({ name });
@@ -1006,10 +1147,13 @@ export const useStore = create<StoreState>()(
 
       joinHousehold: async (code) => {
         // Guarantee a JWT token exists before hitting the server
-        const hasToken = await get().ensureToken();
-        if (!hasToken) {
-          get().setToast({ message: 'Authentication pending — please try again.', type: 'error' });
-          return;
+        const auth = await get().ensureToken();
+        if (!auth.ok) {
+          get().setToast({
+            message: `Couldn't sign in to join the household: ${auth.reason}`,
+            type: 'error',
+          });
+          throw new Error(`joinHousehold aborted: ${auth.reason}`);
         }
         try {
           const hh = await householdApi.join({ code });
@@ -1085,6 +1229,11 @@ export const useStore = create<StoreState>()(
         smartQueue: state.smartQueue,
         customDishes: state.customDishes,
         householdId: state.householdId,
+        // dietRegen: the deferred/dismissed "after this cycle" flag — persisted
+        // so a deferred regen survives restarts and a dismissed prompt never
+        // re-nags. Absent from older stores (no version bump: missing key
+        // rehydrates to the initial null — no migration needed).
+        dietRegen: state.dietRegen,
         // Don't persist: toast, notifications, pendingMutations, deadLetterMutations, trayEditSession, household (fetched on demand)
       }),
       migrate: (persistedState: unknown, fromVersion: number) => {

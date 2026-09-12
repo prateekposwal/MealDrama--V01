@@ -31,6 +31,7 @@ import { useBackNavigation } from './hooks/useBackNavigation';
 import { getRegionKey } from './utils/dishSearch';
 import { isPureSweetDish } from './meal/constants/pairingCatalog';
 import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, allowedTypesForDiet, keepRegionTrayItems } from './utils/dietQuota';
+import { changeDiet } from './utils/dietChange';
 import { buildEnrichedLoopPool, poolTargetForCycleLength, healthMatchFor, getTraySlotCap } from './utils/loopPool';
 
 const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
@@ -223,6 +224,7 @@ const LoginScreen = React.lazy(() => import('./components/new/LoginScreen'));
 const FlashOnboarding = React.lazy(() => import('./components/new/FlashOnboarding'));
 const MealTrayBuilder = React.lazy(() => import('./screens/MealTrayBuilder'));
 const MealLoopConfigModal = React.lazy(() => import('./components/meal/MealLoopConfigModal'));
+const DietChangePromptModal = React.lazy(() => import('./components/new/DietChangePromptModal'));
 
 const App: React.FC = () => {
   const {
@@ -231,6 +233,8 @@ const App: React.FC = () => {
     trayBuilt, setTrayBuilt,
   } = useStore();
   const { quickSetupOpen, quickSetupPrefill, openQuickSetup, closeQuickSetup } = useStore();
+  const initialStep = (quickSetupPrefill as any)?.initialStep ?? 0;
+  const pendingDietChange = useStore(s => s.pendingDietChange);
   const { dishes: fetchedDishes } = useBackendDishes();
 
   // ─── ALL hooks must be before any conditional return (Rules of Hooks) ──
@@ -308,6 +312,9 @@ const App: React.FC = () => {
         // hydrated BEFORE those fixes (trays with zero egg dishes persist).
         void healTrayDietGaps();
         void healPLANDietGaps();
+        // App-start surface for an "after this cycle" diet change: whichever of
+        // (app-start, plan-end boundary) fires first consumes the flag once.
+        void useStore.getState().consumeDeferredDietRegen();
         const hhId = useStore.getState().householdId;
         if (hhId) useStore.getState().refreshHousehold();
         setIsHydrated(true);
@@ -565,6 +572,10 @@ const App: React.FC = () => {
       const today = getISODate();
       const trayStore = useTrayStore.getState();
       checkMealReminder(today, trayStore.getMeals);
+      // Plan-end boundary surface for an "after this cycle" diet change — the
+      // per-minute check recomputes endDate from the SAME formula the loop uses
+      // and consumes the deferred regenerations the moment the cycle completes.
+      void useStore.getState().consumeDeferredDietRegen();
       // Pantry grocery check after dinner time
       try {
         const pantryState = usePantryStore.getState();
@@ -629,24 +640,37 @@ const App: React.FC = () => {
       }>
         <FlashOnboarding
           isEditMode={true}
+          initialStep={initialStep}
           prefill={quickSetupPrefill as unknown as { region?: string; diet?: string; spiceLevel?: number; plannedSlots?: ("Breakfast" | "Lunch" | "Snacks" | "Dinner")[]; cookContact?: string; } | undefined}
           onComplete={async (payload) => {
-            try {
-              updateProfile({
-                region: payload.region,
-                diet: payload.diet ? payload.diet.toLowerCase() as "veg" | "non-veg" | "vegan" | "eggitarian" : undefined,
-                spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
-                cookContact: payload.cookContact,
-                plannedSlots: payload.plannedSlots,
-                healthGoals: [payload.healthGoal],
-                onboardingComplete: true,
-              });
-              void useStore.getState().syncDietToServer();
-            } catch (e) {
-              console.error('[App] Edit mode onboarding error:', e);
-            }
+            // D2 — LOCAL-FIRST completion: close the wizard IMMEDIATELY — the
+            // "Start Planning" button never blocks on the network (a null/stale
+            // token used to run registerUser's 3× backoff ≈ 10s BEFORE the
+            // wizard closed). The ONE shared lifecycle (changeDiet) then runs
+            // in the background: updateProfile is synchronous inside it, so the
+            // profile UI reflects the new diet instantly; the server sync +
+            // prompt/rebuild land when the network responds (the Profile chip
+            // "not synced — retry" + pendingDietChange prompt update from the
+            // store in the meantime). prevDiet is captured BEFORE the write so
+            // the prompt says "changed from A to B", never "is now X"
+            // (pendingDietChange.from honesty, TC-24).
+            const prevDiet = (user?.diet ?? '').toLowerCase();
             setAuthReady(true);
             closeQuickSetup();
+            void changeDiet({
+              diet: payload.diet ? (payload.diet.toLowerCase() as 'veg' | 'non-veg' | 'vegan' | 'eggitarian') : (prevDiet || 'veg'),
+              prevDiet,
+              region: payload.region,
+              spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
+              cookContact: payload.cookContact,
+              plannedSlots: payload.plannedSlots,
+              healthGoals: [payload.healthGoal],
+              onboardingComplete: true,
+            }).then(r => {
+              if (!r.ok) console.warn('[App] background diet change incomplete:', r.reason);
+            }).catch(e => {
+              console.error('[App] background diet change failed:', e);
+            });
           }}
         />
       </Suspense>
@@ -702,20 +726,26 @@ const App: React.FC = () => {
         </div>
       }>
         <FlashOnboarding
-          onComplete={async (preferences) => {
-            try {
-              console.log('[App] Onboarding complete, calling updateProfile');
-              updateProfile({
+onComplete={async (preferences) => {
+              try {
+                // Optimistic: mark tray as built BEFORE changeDiet so the
+                // MealTrayBuilder never flashes (changeDiet does not set
+                // trayBuilt; the auto-seed below populates the tray).
+                setTrayBuilt(true);
+                console.log('[App] Onboarding complete, calling changeDiet');
+                // ONE shared lifecycle (changeDiet): updateProfile + sync +
+                // prompt/rebuild. prevDiet is empty on first-ever setup
+                // (no previous row — wasUnset arms, prompt does NOT fire).
+                await changeDiet({
+                diet: preferences.diet ? (preferences.diet.toLowerCase() as 'veg' | 'non-veg' | 'vegan' | 'eggitarian') : 'veg',
+                prevDiet: '',
                 region: preferences.region,
-                 diet: preferences.diet ? preferences.diet.toLowerCase() as "veg" | "non-veg" | "vegan" | "eggitarian" : undefined,
                 spiceLevel: spiceLevelFromNumber(preferences.spiceLevel),
                 cookContact: preferences.cookContact,
                 plannedSlots: preferences.plannedSlots,
-                onboardingComplete: true,
-                goal: user?.goal || 'Weekly',
                 healthGoals: [preferences.healthGoal],
+                onboardingComplete: true,
               });
-              void useStore.getState().syncDietToServer();
               console.log('[App] Onboarding data persisted');
 
               // Phase 3: Auto-seed tray with 1 dish per slot + default loop
@@ -1003,6 +1033,14 @@ const App: React.FC = () => {
     <HintProvider>
     <div className="min-h-screen bg-white font-sans text-gray-900 max-w-lg mx-auto">
       {toast && <Toast message={toast.message} type={toast.type} action={toast.action} onClose={() => setToast(null)} />}
+      <Suspense fallback={null}>
+        {/* On the Plan tab the SAME choice is the inline contextual banner —
+            never two prompts for one preference change. */}
+        <DietChangePromptModal
+          isOpen={!!pendingDietChange && activeTab !== 'plan'}
+          onClose={() => useStore.getState().setPendingDietChange(null)}
+        />
+      </Suspense>
       {cycleEndNudge && (
         <div className="fixed top-20 left-4 right-4 max-w-lg mx-auto z-[100] animate-in slide-in-from-top-2 fade-in duration-200">
           <div className="bg-white border border-orange-200 text-gray-900 px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-2">

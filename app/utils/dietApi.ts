@@ -16,12 +16,22 @@ export interface DietUpsertPayload {
   healthGoal: string;
 }
 
+/** PUT /api/v1/diet response — the server's diet-changed signal (see the
+ *  route: dietChanged is true ONLY when a previous row existed AND a
+ *  dish-affecting input differs; wasUnset marks the first-ever set). */
+export interface DietUpsertResponse {
+  diet: DietPreference;
+  dietChanged: boolean;
+  wasUnset: boolean;
+  changed: { dietType: boolean; region: boolean; allergies: boolean };
+}
+
 export const dietApi = {
   getMine: () =>
     api.get<{ diet: DietPreference | null }>('/diet'),
 
   upsertMine: (payload: DietUpsertPayload) =>
-    api.put<{ diet: DietPreference }>('/diet', payload),
+    api.put<DietUpsertResponse>('/diet', payload),
 
   listHouseholdDiets: (householdId: string) =>
     api.get<HouseholdDietsView>(`/households/${householdId}/diets`),

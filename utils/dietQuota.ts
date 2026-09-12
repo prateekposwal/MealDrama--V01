@@ -192,14 +192,27 @@ export function enrichSourcePool<P extends DietSourcePool>(
   return out as P;
 }
 
-/** Diet → allowed dish types (canonical; used by plan purge + share guards). */
+/** The ONLY diet values the picker offers — the ONE canonical set. updateProfile
+ *  (the single write path) validates against this; the server zod enum mirrors it. */
+export const CANONICAL_DIETS = ['veg', 'eggitarian', 'non-veg', 'vegan'] as const;
+export type CanonicalDiet = (typeof CANONICAL_DIETS)[number];
+
+export function isCanonicalDiet(diet?: string | null): diet is CanonicalDiet {
+  return CANONICAL_DIETS.includes((diet ?? '').toLowerCase().trim() as CanonicalDiet);
+}
+
+/** Diet → allowed dish types (canonical; used by plan purge + share guards).
+ *  An UNKNOWN diet must NEVER be silently mapped to ['veg','vegan'] — that guess
+ *  stripped non-veg dishes from profiles that merely stored a legacy alias.
+ *  Unknown values return the unconstrained set (nothing stripped) and log a warn. */
 export function allowedTypesForDiet(diet?: string | null): string[] {
-  const d = (diet || '').toLowerCase();
+  const d = (diet || '').toLowerCase().trim();
   if (d === 'veg') return ['veg', 'vegan'];
   if (d === 'eggitarian') return ['veg', 'vegan', 'eggitarian'];
   if (d === 'non-veg') return ['veg', 'non-veg', 'vegan', 'eggitarian'];
   if (d === 'vegan') return ['vegan'];
-  return ['veg', 'vegan'];
+  console.warn(`[dietQuota] allowedTypesForDiet: unknown diet "${diet}" — no constraint applied (updateProfile now rejects unknown diets)`);
+  return ['veg', 'vegan', 'eggitarian', 'non-veg'];
 }
 
 /** Keep only tray items local to (or shared across) the NEW region — drops

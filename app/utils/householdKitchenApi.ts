@@ -31,6 +31,15 @@ export const householdKitchenApi = {
   regenerateLanes: (householdId: string) =>
     api.post<{ ok: boolean; cleared: number }>(`/households/${householdId}/lanes/regenerate`),
 
+  /** Targeted lane regen (diet-change flow): clear ONE member's lane so their
+   * Family Plans lane rebuilds from the CURRENT profile. Member clearing own
+   * lane; admin may clear any member's (see server householdKitchen.ts). */
+  regenerateMemberLane: (householdId: string, memberId: string) =>
+    api.post<{ ok: boolean; cleared: number; memberId: string; targeted: boolean }>(
+      `/households/${householdId}/lanes/regenerate`,
+      { memberId },
+    ),
+
   putLane: (householdId: string, memberId: string, snapshot: unknown) =>
     api.put<{ memberId: string }>(`/households/${householdId}/lanes/${encodeURIComponent(memberId)}`, { snapshot }),
 };

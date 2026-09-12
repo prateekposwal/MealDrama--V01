@@ -22,6 +22,11 @@ const CreateHouseholdModal: React.FC<Props> = ({ isOpen, onClose }) => {
     try {
       await createHousehold(name.trim());
       onClose();
+    } catch (err) {
+      // The store already surfaced a REAL toast (sign-in failure, server
+      // error, network). Keep the modal OPEN so the user can retry — the old
+      // pending-path resolved silently and closed the modal with NO household.
+      console.error('[CreateHouseholdModal] create failed:', err);
     } finally {
       setLoading(false);
     }

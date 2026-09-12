@@ -26,6 +26,18 @@ dietRouter.use(authMiddleware);
  * PUT /api/v1/diet — upsert MY diet preference. Create-on-first-set, then
  * update in place (unique userId — never duplicates). Values are bounded by
  * dietPreferenceSchema to the real picker options.
+ *
+ * Response gains the DIET-CHANGED signal the client needs to decide whether
+ * the tray/plan must regenerate:
+ *   { diet, dietChanged, wasUnset, changed: { dietType, region, allergies } }
+ * - wasUnset:   true when this is the FIRST-ever set (no previous row).
+ * - dietChanged: true ONLY when a previous row existed AND at least one
+ *   dish-affecting input (dietType / region / allergies) differs. First-ever
+ *   set reports dietChanged=false — nothing to compare against, and the SPA
+ *   must NOT show a disruptive "regenerate?" prompt for it (onboarding seeds
+ *   the tray with the chosen diet in the same flow).
+ * - changed:    per-field booleans so the client can scope the prompt to the
+ *   dish axis (dietType/region) vs the allergy axis.
  */
 dietRouter.put('/', async (req: Request, res: Response) => {
   try {
@@ -33,12 +45,25 @@ dietRouter.put('/', async (req: Request, res: Response) => {
     if (!userId) throw new APIError('UNAUTHORIZED', 'Unauthorized', 401);
 
     const data = dietPreferenceSchema.parse(req.body);
+    const previous = await prisma.dietPreference.findUnique({ where: { userId } });
+
+    const arrDiff = (a: string[] | undefined, b: string[] | undefined): boolean =>
+      JSON.stringify(a ?? []) !== JSON.stringify(b ?? []);
+
+    const changed = {
+      dietType: previous ? previous.dietType !== data.dietType : false,
+      region: previous ? previous.region !== data.region : false,
+      allergies: previous ? arrDiff(previous.allergies, data.allergies) : false,
+    };
+    const dietChanged = previous !== null && (changed.dietType || changed.region || changed.allergies);
+    const wasUnset = previous === null;
+
     const row = await prisma.dietPreference.upsert({
       where: { userId },
       create: { userId, ...data },
       update: data,
     });
-    res.json({ diet: serializeDietPreference(row) });
+    res.json({ diet: serializeDietPreference(row), dietChanged, wasUnset, changed });
   } catch (error: any) {
     if (error instanceof APIError) throw error;
     if (error instanceof z.ZodError) {

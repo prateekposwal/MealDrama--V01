@@ -37,6 +37,7 @@ import { suggestionToMeal } from '../utils/suggestionUtils';
 import { SLOTS } from '../plan/utils/continuity';
 import { slotKey } from '../plan/utils/planIndex';
 import { getRegionKey } from '../utils/dishSearch';
+import { DIET_EMOJI } from '../utils/dietChange';
 import { buildEnrichedLoopPool } from '../utils/loopPool';
 import { allowedTypesForDiet } from '../utils/dietQuota';
 import { getSkipUndoWindowExpiry, isAfterEnd, getSlotDefaultTimes } from '../types/tray';
@@ -289,6 +290,39 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
     const applyLoopConfig = useLoopStore(s => s.applyLoopConfig);
     const planPeriod = useTrayStore(s => s.plan.period);
     const planDays = useTrayStore(s => s.plan.days);
+    // Diet-change suggestion: the SAME armed state the prompt modal reads. The
+    // banner is the Plan-screen surface for the popover's two choices (the
+    // global modal is suppressed on this tab — one prompt at a time).
+    const pendingDietChange = useStore(s => s.pendingDietChange);
+    const deferDietRegen = useStore(s => s.deferDietRegen);
+    const setPendingDietChange = useStore(s => s.setPendingDietChange);
+    const [dietBannerBusy, setDietBannerBusy] = useState(false);
+
+    const handleDietBannerNow = async () => {
+      setDietBannerBusy(true);
+      try {
+        const { rebuildTrayForDiet } = await import('../utils/trayRegen');
+        const result = await rebuildTrayForDiet();
+        setPendingDietChange(null);
+        const total = result.target * 4;
+        const msg = result.complete
+          ? `Meal plan updated — ${total}/${total} dishes match your new diet.`
+          : result.shortSlots.length > 0
+            ? `Meal plan updated — ${result.shortSlots.length} slot${result.shortSlots.length === 1 ? '' : 's'} couldn't be filled for this diet+region${result.reasons[0] ? ` (${result.reasons[0]})` : ''}.`
+            : 'Meal plan updated for your new diet.';
+        setToast({ message: msg, type: result.complete ? 'success' : 'info' });
+      } catch (err: any) {
+        console.error('[PlanScreen] diet banner rebuild failed:', err);
+        setToast({ message: `Couldn't refresh dishes: ${err?.message ?? 'unknown error'}`, type: 'error' });
+      } finally {
+        setDietBannerBusy(false);
+      }
+    };
+
+    const handleDietBannerNext = () => {
+      deferDietRegen();
+      setToast({ message: 'Preference saved — your new diet will apply from your next meal plan. Current plan unchanged.', type: 'info' });
+    };
 
     const plannedSlots = user?.plannedSlots ?? ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
     const ACTIVE_SLOTS = useMemo(() => SLOTS.filter(s => plannedSlots.includes(s.key)), [plannedSlots]);
@@ -857,6 +891,35 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                     )}
                 </div>
             </header>
+
+            {/* Diet-change contextual suggestion — disappears after the user
+                makes a choice (pendingDietChange clears via the actions). */}
+            {pendingDietChange && (
+              <div className="mx-4 mb-4 rounded-2xl border border-[#FF385C]/20 bg-rose-50/90 p-4 animate-in slide-in-from-top-2 fade-in duration-200" role="status">
+                <p className="text-sm font-bold text-gray-900">
+                  Diet preference changed to {pendingDietChange.to} {DIET_EMOJI[pendingDietChange.to as keyof typeof DIET_EMOJI] ?? '🌱'}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  Would you like us to update your current meal plan or apply this from your next meal plan?
+                </p>
+                <div className="flex flex-col gap-2 mt-3">
+                  <button
+                    onClick={handleDietBannerNow}
+                    disabled={dietBannerBusy}
+                    className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#FF385C] text-white font-bold text-xs active:scale-[0.98] transition-all disabled:opacity-60"
+                  >
+                    {dietBannerBusy ? 'Updating…' : 'Update my current meal plan'}
+                  </button>
+                  <button
+                    onClick={handleDietBannerNext}
+                    disabled={dietBannerBusy}
+                    className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 font-bold text-xs active:scale-[0.98] transition-all disabled:opacity-60"
+                  >
+                    Apply from my next meal plan
+                  </button>
+                </div>
+              </div>
+            )}
 
             <Hint id="plan-autofill" trigger="first-visit" anchorRef={planHeaderRef} placement="bottom" text="Empty slots fill automatically from your tray loop — that's why dishes appear." />
 

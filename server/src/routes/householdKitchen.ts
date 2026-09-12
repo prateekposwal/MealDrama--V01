@@ -160,18 +160,35 @@ router.put('/:householdId/lanes/:memberId', async (req: Request, res: Response) 
 });
 
 /**
- * POST /api/v1/households/:id/lanes/regenerate (ADMIN) — clears every member's
- * persisted lane so all devices rebuild Family Plans from the CURRENT
- * profiles (a member who edits diet/region gets a fresh week next refresh).
+ * POST /api/v1/households/:id/lanes/regenerate — clears persisted lanes so
+ * devices rebuild Family Plans from CURRENT profiles.
+ *
+ * TARGETED (diet-change flow): body { memberId } clears ONLY that member's
+ * lane — the member may clear their own lane; an admin may clear any member's.
+ * UNTARGETED (legacy, backward compatible): no memberId clears every member's
+ * lane and remains ADMIN-only.
  */
 router.post('/:householdId/lanes/regenerate', async (req: Request, res: Response) => {
   try {
     const householdId = String(req.params.householdId || '');
     const { members, userId } = await requireMembership(req, householdId);
+    const body = (req.body ?? {}) as { memberId?: string };
     const me = members.find((m: any) => m.userId === userId);
+
+    if (body.memberId) {
+      // Targeted: self clears own lane; admin may clear any member.
+      const isSelf = body.memberId === userId;
+      const isAdmin = me?.role === 'admin';
+      if (!isSelf && !isAdmin) throw new APIError('FORBIDDEN', 'Members may only clear their own lane', 403);
+      await prisma.memberLane.deleteMany({
+        where: { householdId, memberId: body.memberId },
+      });
+      return res.json({ ok: true, cleared: 1, memberId: body.memberId, targeted: true });
+    }
+
     if (me?.role !== 'admin') throw new APIError('FORBIDDEN', 'Admins only', 403);
     const deleted = await prisma.memberLane.deleteMany({ where: { householdId } });
-    res.json({ ok: true, cleared: deleted.count });
+    res.json({ ok: true, cleared: deleted.count, targeted: false });
   } catch (error) {
     if (error instanceof APIError) throw error;
     res.status(500).json({ error: 'Failed to regenerate lanes' });
