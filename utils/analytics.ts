@@ -3,7 +3,7 @@
 // Telemetry targets the SAME base the app uses (getApiBase) so a stale
 // hardcoded default can never fight the API-base self-heal.
 
-import { getApiBase } from '../lib/api';
+import { getApiBase, defaultApiBase } from '../lib/api';
 
 const KEY = 'md-events';
 const CAP = 200;
@@ -51,7 +51,14 @@ function flushTarget(): string {
   try {
     return `${getApiBase().replace(/\/+$/, '')}/events`;
   } catch {
-    return 'http://localhost:3001/api/v1/events';
+    // ONE source of truth: defaultApiBase() is the SAME resolver the client
+    // API uses (getApiBase = stored/self-healed override, else defaultApiBase).
+    // The old hardcoded absolute-URL fallback addressed the same server as
+    // this same-origin default (sameApiTarget() treats the dev-machine URL and
+    // '/api/v1' as one target), so failover semantics are preserved — and an
+    // absolute host can NEVER be baked into the bundle from here. getApiBase
+    // never throws in practice; this catch is pure defense-in-depth.
+    return `${defaultApiBase().replace(/\/+$/, '')}/events`;
   }
 }
 

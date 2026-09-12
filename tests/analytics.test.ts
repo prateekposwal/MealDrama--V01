@@ -113,6 +113,64 @@ describe('analytics', () => {
     expect(buf.some(e => e.name === 'hint_open')).toBe(true);
   });
 
+  it('flush target = {getApiBase}/events — the SAME resolver the client API uses (default)', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    localStorage.clear();
+
+    const { getApiBase } = await import('../lib/api');
+    const mod = await import('../utils/analytics');
+    mod.setFlushEnabled(true);
+
+    expect(getApiBase()).toBe('/api/v1'); // same-origin default
+    mod.track('flush_url_default', {});
+    await tick();
+    await tick();
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(`${getApiBase()}/events`);
+  });
+
+  it('flush target follows a STORED override (md:api_base self-heal path) exactly like the API', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    localStorage.clear();
+
+    const { getApiBase } = await import('../lib/api');
+    const mod = await import('../utils/analytics');
+    mod.setFlushEnabled(true);
+
+    localStorage.setItem('md:api_base', 'https://staging.example.com/api/v1');
+    expect(getApiBase()).toBe('https://staging.example.com/api/v1');
+    mod.track('flush_url_override', {});
+    await tick();
+    await tick();
+    expect(String(fetchMock.mock.calls[0]![0])).toBe('https://staging.example.com/api/v1/events');
+  });
+
+  it("default-resolver override (the repo's VITE_API_URL stand-in: setLanIpResolver) flows through the SAME resolver into the flush URL", async () => {
+    // The repo's canonical injection point for the baked-default override path —
+    // lib/api.setLanIpResolver (see tests/connectivity.test.ts:107 "Stand-in for
+    // the baked VITE_API_URL default resolution path"). The VITE_API_URL env
+    // bake itself is build-time (import.meta.env), pinned at source level in
+    // api503 tests; this exercises the same defaultApiBase() producer live.
+    const { getApiBase, setLanIpResolver } = await import('../lib/api');
+    setLanIpResolver(() => '10.99.88.77');
+    try {
+      const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+      vi.stubGlobal('fetch', fetchMock);
+      localStorage.clear();
+
+      const mod = await import('../utils/analytics');
+      mod.setFlushEnabled(true);
+      expect(getApiBase()).toBe('http://10.99.88.77:3001/api/v1');
+      mod.track('flush_url_resolver', {});
+      await tick();
+      await tick();
+      expect(String(fetchMock.mock.calls[0]![0])).toBe('http://10.99.88.77:3001/api/v1/events');
+    } finally {
+      setLanIpResolver(null);
+    }
+  });
+
   it('clears the buffer after a successful flush', async () => {
     const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);

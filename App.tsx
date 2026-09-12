@@ -661,7 +661,7 @@ const App: React.FC = () => {
 
   // ═══ All hooks above — early returns below ═══
 
-  console.log('[App] Rendering, isLoggedIn:', isLoggedIn, 'user:', !!user, 'user.region:', user?.region);
+  if (import.meta.env.DEV) console.log('[App] Rendering, isLoggedIn:', isLoggedIn, 'user:', !!user, 'user.region:', user?.region);
 
   if (!isHydrated) {
     return (
