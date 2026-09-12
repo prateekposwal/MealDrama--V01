@@ -638,8 +638,10 @@ const App: React.FC = () => {
                 spiceLevel: spiceLevelFromNumber(payload.spiceLevel),
                 cookContact: payload.cookContact,
                 plannedSlots: payload.plannedSlots,
+                healthGoals: [payload.healthGoal],
                 onboardingComplete: true,
               });
+              void useStore.getState().syncDietToServer();
             } catch (e) {
               console.error('[App] Edit mode onboarding error:', e);
             }
@@ -713,6 +715,7 @@ const App: React.FC = () => {
                 goal: user?.goal || 'Weekly',
                 healthGoals: [preferences.healthGoal],
               });
+              void useStore.getState().syncDietToServer();
               console.log('[App] Onboarding data persisted');
 
               // Phase 3: Auto-seed tray with 1 dish per slot + default loop

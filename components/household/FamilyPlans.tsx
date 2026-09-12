@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect } from 'react';
 import type { Household, HouseholdMember } from '../../types/household';
-import { buildMemberWeek, MemberPlanPrefs } from '../../utils/memberPlan';
+import { buildMemberWeek, memberPrefsFor } from '../../utils/memberPlan';
 import { useStore } from '../../app/store/useStore';
 import { useHouseholdKitchenStore } from '../../plan/store/householdKitchenStore';
 
@@ -11,15 +11,6 @@ const SLOT_META: Array<{ key: 'breakfast' | 'lunch' | 'snacks' | 'dinner'; label
   { key: 'dinner', label: 'Dinner', icon: '🌙' },
 ];
 
-function prefsFor(member: HouseholdMember): MemberPlanPrefs {
-  return {
-    dietType: member.profile?.dietType ?? 'veg',
-    region: member.profile?.region ?? 'north',
-    plannedSlots: member.profile?.plannedSlots ?? [],
-    healthGoal: member.profile?.healthGoal ?? '',
-  };
-}
-
 export const FamilyPlans: React.FC<{ household: Household }> = ({ household }) => {
   const selfId = useStore(s => s.user?.id);
   const updateHouseholdMember = useStore(s => s.updateHouseholdMember);
@@ -29,7 +20,7 @@ export const FamilyPlans: React.FC<{ household: Household }> = ({ household }) =
   const lanes = useMemo(
     () => household.members.map(member => ({
       member,
-      plan: buildMemberWeek(prefsFor(member), member.autoPlanEnabled, 2),
+      plan: buildMemberWeek(memberPrefsFor(member), member.autoPlanEnabled, 2),
     })),
     [household],
   );
@@ -70,7 +61,7 @@ export const FamilyPlans: React.FC<{ household: Household }> = ({ household }) =
                 {member.role === 'admin' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600">admin</span>}
               </p>
               <p className="text-[11px] text-gray-400 truncate">
-                {member.profile?.dietType ?? 'veg'} · {member.profile?.region ?? 'north'}
+                {(member.profile?.dietType ?? 'not set')} · {(member.profile?.region ?? 'not set')}
                 {!member.autoPlanEnabled && ' · paused'}
               </p>
             </div>

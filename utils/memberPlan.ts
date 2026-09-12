@@ -19,6 +19,24 @@ export interface MemberPlanPrefs {
   healthGoal?: string;
 }
 
+/**
+ * Member → lane-generation prefs. Since the Diet feature, the REAL diet values
+ * (from the server's memberToJson, which reads DietPreference) flow straight
+ * in; a member who never set a diet keeps the legacy generation fallbacks
+ * ('veg'/'north') so the lane still builds — the DISPLAY side shows "not set".
+ */
+export function memberPrefsFor(member: {
+  profile?: { dietType?: string | null; region?: string | null; plannedSlots?: string[]; healthGoal?: string | null };
+  autoPlanEnabled?: boolean;
+}): MemberPlanPrefs {
+  return {
+    dietType: member.profile?.dietType ?? 'veg',
+    region: member.profile?.region ?? 'north',
+    plannedSlots: member.profile?.plannedSlots ?? [],
+    healthGoal: member.profile?.healthGoal ?? '',
+  };
+}
+
 export type MemberDay = Record<'breakfast' | 'lunch' | 'snacks' | 'dinner', Dish | null>;
 
 const SLOT_KEYS = ['breakfast', 'lunch', 'snacks', 'dinner'] as const;

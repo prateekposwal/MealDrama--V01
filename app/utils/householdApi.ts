@@ -13,10 +13,15 @@ export function normalizeHousehold(raw: any): Household {
     canEditPlan: m.canEditPlan ?? true,
     autoPlanEnabled: m.autoPlanEnabled ?? true,
     profile: {
-      dietType: m.profile?.dietType ?? 'veg',
-      region: m.profile?.region ?? 'north',
+      // Diet-preference fields pass through as NULL when unset ("not set") —
+      // never fabricated defaults. Server memberToJson is the source of truth.
+      dietType: m.profile?.dietType ?? null,
+      region: m.profile?.region ?? null,
       plannedSlots: m.profile?.plannedSlots ?? [],
-      healthGoal: m.profile?.healthGoal ?? '',
+      healthGoal: m.profile?.healthGoal ?? null,
+      allergies: m.profile?.allergies ?? null,
+      dislikedItems: m.profile?.dislikedItems ?? null,
+      spiceLevel: m.profile?.spiceLevel ?? null,
     },
     joinedAt: m.joinedAt ?? '',
   }));

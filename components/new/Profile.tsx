@@ -29,6 +29,7 @@ import { diffProfileFields } from '../../utils/profileDiff';
 import ExpenseList from '../household/ExpenseList';
 import ActivityFeed from '../household/ActivityFeed';
 import { FamilyPlans } from '../household/FamilyPlans';
+import { FamilyDiets } from '../household/FamilyDiets';
 import ProfileAIInsights from './ProfileAIInsights';
 import { Hint } from './Hint';
 import { notifyLoopUndo } from '../../utils/undoToasts';
@@ -92,7 +93,7 @@ const ALLERGIES_LIST = ['Dairy', 'Nuts', 'Gluten', 'Soy', 'Seafood', 'Eggs'];
 const SPICE_LABELS: Record<string, string> = { 'mild': 'Mild 🌿', 'medium': 'Medium 🌶️', 'hot': 'Hot 🔥' };
 
 const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType) => void }> = ({ onLogout, onManageTray }) => {
-    const { user, updateProfile, openQuickSetup, household, householdId } = useStore();
+    const { user, updateProfile, openQuickSetup, household, householdId, dietSyncState } = useStore();
     const defaultName = user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : '');
     const [nameDraft, setNameDraft] = useState<string>(defaultName);
     const [showSaved, setShowSaved] = useState(false);
@@ -486,6 +487,7 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
             ? user.allergies.filter((item: string) => item !== allergy)
             : [...(user.allergies || []), allergy];
         updateProfile({ allergies: next });
+        void useStore.getState().syncDietToServer();
     };
 
     return (
@@ -573,7 +575,24 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
             {/* ─── Inline Diet Picker ─── */}
             <div className="px-4 pb-4">
                 <div className="p-4 rounded-[22px] bg-white border border-gray-100 shadow-sm">
-                    <p className="text-xs font-black uppercase tracking-widest text-gray-500 mb-3">Diet Preference</p>
+                    <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-black uppercase tracking-widest text-gray-500">Diet Preference</p>
+                        {dietSyncState === 'saved' && (
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-500">
+                                <Check size={11} /> synced
+                            </span>
+                        )}
+                        {dietSyncState === 'failed' && (
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-amber-500">
+                                <ShieldAlert size={11} /> not synced — will retry
+                            </span>
+                        )}
+                        {dietSyncState === 'saving' && (
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-gray-400">
+                                <RefreshCw size={11} className="animate-spin" /> syncing…
+                            </span>
+                        )}
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                         {(['veg', 'eggitarian', 'non-veg', 'vegan'] as const).map(d => {
                             const isActive = (user?.diet || 'veg').toLowerCase() === d;
@@ -581,6 +600,8 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                                 <button key={d} onClick={() => {
                                     if (isActive) return;
                                     updateProfile({ diet: d as any });
+                                    // Persist the diet to the server (offline-safe; indicator shows saved/failed)
+                                    void useStore.getState().syncDietToServer();
                                     // Rebuild pool for new diet
                                     import('../../plan/store/useLoopStore').then(m => {
                                         const store = m.useLoopStore.getState();
@@ -974,6 +995,7 @@ const eligible = filtered.filter((x:any) =>
                                 const idx = levels.indexOf(current);
                                 const next = levels[(idx + 1) % levels.length];
                                 updateProfile({ spiceLevel: next });
+                                void useStore.getState().syncDietToServer();
                             }}
                             className="text-xs font-bold border px-3 py-2 rounded-full flex items-center gap-1 bg-orange-50 text-orange-500 border-orange-100 active:scale-95 transition-all shrink-0"
                         >
@@ -1033,6 +1055,7 @@ const eligible = filtered.filter((x:any) =>
                                         currentMemberRole={household.members.find(m => m.id === user?.id)?.role || 'member'}
                                     />
                                     <ActivityFeed householdId={household.id} />
+                                    <FamilyDiets householdId={household.id} />
                                     <FamilyPlans household={household} />
                                     <div className="flex gap-3 pt-2">
                                     <button onClick={() => setShowInviteMember(true)} className="flex-1 py-3 rounded-xl bg-orange-500 text-white text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">

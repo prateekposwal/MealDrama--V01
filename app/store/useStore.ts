@@ -6,6 +6,7 @@ import api, { setAuthReady, runApiBaseMigration } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
 import { householdApi } from '../utils/householdApi';
+import { dietApi } from '../utils/dietApi';
 import { registerUser, logoutUser } from '../utils/authApi';
 import { createCustomDish, updateCustomDish as updateCustomDishApi, deleteCustomDish as deleteCustomDishApi } from '../utils/customDishApi';
 import type { Household } from '../../types/household';
@@ -412,6 +413,10 @@ interface StoreState {
   addCustomDish: (dish: Dish) => void;
   updateCustomDish: (id: string, updates: Partial<Dish>) => void;
   removeCustomDish: (id: string) => void;
+  // Diet sync (first-class DietPreference on the server; local store stays offline-first)
+  dietSyncState: 'idle' | 'saving' | 'saved' | 'failed';
+  setDietSyncState: (st: 'idle' | 'saving' | 'saved' | 'failed') => void;
+  syncDietToServer: () => Promise<boolean>;
   // Household sharing
   householdId: string | null;
   household: Household | null;
@@ -445,6 +450,8 @@ export const useStore = create<StoreState>()(
       customDishes: [],
       householdId: null,
       household: null,
+      dietSyncState: 'idle',
+      setDietSyncState: (st) => set({ dietSyncState: st }),
       setToast: (toast) => set({ toast }),
 
       // FIX: Atomic login function that sets both isLoggedIn and user in one operation
@@ -505,6 +512,37 @@ export const useStore = create<StoreState>()(
 
       getDiet: () => get().diet,
 
+      // ALWAYS attempts the PUT (offline-first: local state already updated by
+      // updateProfile; the server upsert is fire-and-forget with a visible
+      // saved/failed indicator — the picker never blocks on network failure).
+      syncDietToServer: async () => {
+        const u = get().user;
+        if (!u) return false;
+        const payload = {
+          dietType: (u.diet ?? 'veg') as string,
+          region: (u.region ?? 'north') as string,
+          allergies: u.allergies ?? [],
+          dislikedItems: u.dislikedItems ?? [],
+          spiceLevel: (u.spiceLevel ?? 'medium') as string,
+          healthGoal: u.healthGoals?.[0] ?? '',
+        };
+        set({ dietSyncState: 'saving' });
+        try {
+          const { diet } = await dietApi.upsertMine(payload);
+          if (!diet) {
+            set({ dietSyncState: 'failed' });
+            return false;
+          }
+          set({ dietSyncState: 'saved' });
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('diet_updated'));
+          return true;
+        } catch (err) {
+          console.warn('[Store] Diet sync failed (local state kept, will retry next edit):', err);
+          set({ dietSyncState: 'failed' });
+          return false;
+        }
+      },
+
       setToken: (token: string) => set({ token }),
 
       clearToken: () => set({ token: null, isLoggedIn: false }),
@@ -554,6 +592,7 @@ export const useStore = create<StoreState>()(
           swaps: {},
           notifications: [],
           trayEditSession: null,
+          dietSyncState: 'idle',
           pendingMutations: [],
           deadLetterMutations: [],
           smartQueue: { week2: [], favorites: [] },
