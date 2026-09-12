@@ -6,6 +6,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { prisma, connectWithRetry } from './lib/prisma';
 import { APIError } from './lib/apiError';
+import { mountSpaFallback } from './lib/spaFallback';
 import './lib/auth';
 
 // Load environment variables
@@ -184,28 +185,13 @@ app.use('/api/v1/households', require('./routes/householdKitchen').default);
 app.use('/api/v1/diet', require('./routes/diet').default);
 app.use('/api/v1/households', require('./routes/diet').householdDietsRouter);
 
-// SPA catch-all: serve index.html ONLY for navigation-like (extensionless) GET
-// requests. Any request whose path carries a file extension that express.static
-// already missed is a MISSING ASSET — answering it with index.html (200 +
-// text/html) breaks module loading and stylesheets in the browser
-// ('text/html' is not a valid JavaScript MIME type). Those fall through to the
-// 404 handler below and get a real application/json 404.
-app.get('/{*splat}', (req: Request, res: Response, next: NextFunction) => {
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({
-      success: false,
-      error: {
-        code: 'NOT_FOUND',
-        message: `Route ${req.method} ${req.path} not found`,
-        timestamp: new Date().toISOString(),
-      },
-    });
-  }
-  if (/\.[a-zA-Z0-9]+$/.test(req.path)) {
-    return next();
-  }
-  return res.sendFile(path.join(distPath, 'index.html'));
-});
+// SPA fallback (shared with the asset-MIME regression suite — see
+// server/src/lib/spaFallback.ts for the contract). Serves index.html ONLY for
+// navigation-like (extensionless, non-/assets/) GETs. Any file-like URL is a
+// MISSING ASSET: it falls through to the JSON 404 handler below — answering it
+// with index.html (200 + text/html) breaks module loading in the browser
+// ('text/html' is not a valid JavaScript MIME type).
+mountSpaFallback(app, distPath);
 
 // 404 handler for non-GET requests
 app.use((req: Request, res: Response) => {
