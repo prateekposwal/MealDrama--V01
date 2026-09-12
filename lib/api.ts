@@ -35,7 +35,7 @@ export const API_BASE_KEY = 'md:api_base';
 // One-shot migration stamp. Bump API_BASE_VERSION when the baked default changes
 // so already-installed apps re-run the stale-base migration on their next launch.
 export const API_BASE_VER_KEY = 'md:api_base_ver';
-export const API_BASE_VERSION = 1;
+export const API_BASE_VERSION = 2; // v2: also migrate a stored *.onrender.com base when the app is served from a NON-Render origin
 
 export function defaultApiBase(): string {
   // Build-time override — `VITE_API_URL=https://x.trycloudflare.com/api/v1 npm run build`
@@ -45,10 +45,14 @@ export function defaultApiBase(): string {
   if (_lanIpResolver) {
     try { return `http://${_lanIpResolver()}:3001/api/v1`; } catch { /* fall through */ }
   }
-  // Dev-machine fallback — a release APK always has VITE_API_URL baked, so this
-  // literal never ships to phones. (Deliberately NOT a LAN IP: a baked private
-  // IP is the exact poison that seeded stale md:api_base values on devices.)
-  return 'http://localhost:3001/api/v1';
+  // SAME-ORIGIN default — the Express server mounts /api/v1 on the SAME port
+  // that serves this SPA (repo-root dist/ via server/src/index.ts). A relative
+  // base keeps localhost AND LAN/self-hosted installs pointing at THEIR OWN
+  // server — never at a remote one. Deployed builds (Render/Vercel) and APKs
+  // bake an absolute VITE_API_URL, which overrides this. (The old
+  // 'http://localhost:3001/api/v1' literal broke LAN access: a phone hitting
+  // the machine's IP resolved 'localhost' to ITSELF.)
+  return '/api/v1';
 }
 
 export function getApiBase(): string {
@@ -69,6 +73,7 @@ let _currentBaseUrl = getApiBase();
 
 /** Scheme://host:port of a base URL. The server mounts /health at the ORIGIN. */
 export function originOf(base: string): string {
+  if (base.startsWith('/')) return ''; // same-origin relative base (the default)
   try { return new URL(base).origin; } catch { return base; }
 }
 
@@ -119,7 +124,17 @@ export async function runApiBaseMigration(): Promise<boolean> {
     if (Number.isFinite(ver) && ver >= API_BASE_VERSION) return false;
     const stored = window.localStorage.getItem(API_BASE_KEY);
     const baked = defaultApiBase();
-    if (stored && baked && stored !== baked && isPoisonedApiBase(stored)) {
+    // v2 rule: a stored *.onrender.com base is a legitimate target on the
+    // DEPLOYED app (same host), but a poison on any OTHER origin — the exact
+    // 'localhost:3001 fires at mealdrama.onrender.com' trap (a local build
+    // baked with VITE_API_URL pointed the local SPA at Render). Served from
+    // anywhere but Render, a render-hosted stored base is migrated the same
+    // way a stale private/tunnel base is.
+    const appHost = ((globalThis.window as Window | undefined)?.location?.hostname ?? '').toLowerCase();
+    let storedHost = '';
+    try { storedHost = new URL(stored ?? '').hostname.toLowerCase(); } catch { /* not a URL */ }
+    const renderHostedFromElsewhere = storedHost.endsWith('.onrender.com') && !appHost.endsWith('.onrender.com');
+    if (stored && baked && stored !== baked && !sameApiTarget(stored, baked) && (isPoisonedApiBase(stored) || renderHostedFromElsewhere)) {
       const reachable = await probeApiHealth(baked, 4000);
       if (reachable) {
         window.localStorage.setItem(API_BASE_KEY, baked);
@@ -135,13 +150,29 @@ export async function runApiBaseMigration(): Promise<boolean> {
 }
 
 // ─── Stale-base fallback (pure function — testable without localStorage/network mocks) ──
+/** Normalize an API base for target-comparison: a localhost-absolute base IS
+ *  the same target as the same-origin default ('/api/v1'). */
+export function normalizeApiBase(base: string): string {
+  if (base.startsWith('/')) return base;
+  try {
+    const u = new URL(base);
+    if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1') return u.pathname;
+  } catch { /* not a URL — return as-is */ }
+  return base;
+}
+
+/** True when two API bases address the SAME server. */
+export function sameApiTarget(a: string, b: string): boolean {
+  return normalizeApiBase(a) === normalizeApiBase(b);
+}
+
 // Returns a fresh base URL to try when the current base differs from the baked
 // default; null when nothing differs (current base IS the default). NOTE:
 // request() now heals UNCONDITIONALLY (it probes even when this returns null)
 // — this helper remains exported for tests/telemetry.
 export function resolveFallbackBaseUrl(currentBase: string): string | null {
   const freshDefault = defaultApiBase();
-  if (currentBase === freshDefault) return null; // same as the current default — nothing different to try
+  if (sameApiTarget(currentBase, freshDefault)) return null; // same target — nothing different to try
   return freshDefault;
 }
 // ───────────────────────────────────────────────────────────────────────────
@@ -219,6 +250,24 @@ function isServerError(err: unknown): err is FetchError {
 
 function isNetworkError(err: unknown): boolean {
   return err instanceof Error && !(err instanceof FetchError) && (err.name === 'TypeError' || err.message.includes('fetch') || err.message.includes('network'));
+}
+
+/** True when the server is unreachable OR erroring (network, 5xx, gateway).
+ *  NOT a confirmed auth rejection — callers must never treat a 503 as a
+ *  logged-out session (Λ-honest: backend down ≠ session expired). */
+export function isBackendUnavailable(err: unknown): boolean {
+  if (err instanceof FetchError) {
+    return err.status === 0 || (err.status >= 500 && err.status < 600) || err.status === 408 || err.status === 429;
+  }
+  return isNetworkError(err);
+}
+
+/** True when the server CONFIRMED the session is rejected (401/403). */
+export function isConfirmedAuthRejection(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (status === 401 || status === 403) return true;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return msg.includes('401') || msg.includes('unauthorized') || msg.includes('auth not ready');
 }
 
 function exponentialBackoff(attempt: number): number {
@@ -368,15 +417,59 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
       throw buildActionableNetworkError(err, attemptedBase, freshDefault);
     }
 
-    // Retry on 5xx (all methods) or network errors (non-idempotent methods only)
-    const shouldRetry = isServerError(err) || (isNetworkError(err) && !IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase()));
-    if (!shouldRetry || retryCount >= MAX_RETRIES) {
-      throw err;
+    // Retry on 5xx (all methods) or network errors (non-idempotent methods only).
+    // CORRECTED 2026-09-13: the old `return doFetch(...)` inside the
+    // catch let a SECOND 5xx rejection propagate straight out — the loop only
+    // ever retried ONCE no matter what MAX_RETRIES said. Now the bounded
+    // backoff loop actually runs (1 + MAX_RETRIES attempts) and a PERSISTENT
+    // 5xx ends with ONE stale-base heal + ONE retry — a 503 can never wedge
+    // the app onto a dead remote base (and can never grow into an unbounded
+    // re-arm storm: every path terminates with the REAL error).
+    let lastErr = err;
+    const willRetry = () =>
+      isServerError(lastErr) ||
+      (isNetworkError(lastErr) && !IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase()));
+    while (retryCount < MAX_RETRIES && willRetry()) {
+      retryCount++;
+      const delay = exponentialBackoff(retryCount);
+      await new Promise(r => setTimeout(r, delay));
+      try {
+        return await doFetch(_currentBaseUrl, controller.signal);
+      } catch (retryErr) {
+        lastErr = retryErr;
+        // tokenCleared latch: a 401 observed in a retry is terminal (the
+        // session expired mid-flight) — let it propagate as-is.
+        if (tokenCleared) throw lastErr;
+      }
     }
-    retryCount++;
-    const delay = exponentialBackoff(retryCount);
-    await new Promise(r => setTimeout(r, delay));
-    return doFetch(_currentBaseUrl, controller.signal);
+    // PERSISTENT 5xx — the server answered but keeps erroring. The current
+    // base may be STALE (e.g. a stored remote base while the same-origin
+    // local server is up): probe the baked default and heal ONCE, exactly
+    // like the network-error path. A 503 must never wedge the app onto a
+    // dead remote base (bounded: ONE probe + ONE retry, then the real error).
+    if (isServerError(lastErr)) {
+      const freshDefault = defaultApiBase();
+      if (freshDefault && (await probeApiHealth(freshDefault))) {
+        _currentBaseUrl = freshDefault;
+        try {
+          if (typeof window !== 'undefined') {
+            window.localStorage.setItem(API_BASE_KEY, freshDefault);
+          }
+        } catch { /* storage unavailable */ }
+        const retryController = new AbortController();
+        const retryTimeoutId = setTimeout(() => retryController.abort(), timeout);
+        try {
+          try {
+            return await doFetch(_currentBaseUrl, retryController.signal);
+          } catch (retryErr) {
+            throw retryErr; // the REAL 5xx/network error — never relabeled
+          }
+        } finally {
+          clearTimeout(retryTimeoutId);
+        }
+      }
+    }
+    throw lastErr;
   } finally {
     clearTimeout(timeoutId);
     if (externalSignal) {

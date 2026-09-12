@@ -456,14 +456,21 @@ const App: React.FC = () => {
     if (!token) return;
     if (_authMeVerified.current) return;
     _authMeVerified.current = true;
-    getMe().then(serverUser => {
-      if (!serverUser) {
-        useStore.getState().clearToken();
-      } else if (typeof serverUser.name === 'string' && serverUser.name) {
-        updateProfile({ username: serverUser.name as string });
-      }
-    });
-  }, [isHydrated, isLoggedIn, updateProfile]);
+    getMe()
+      .then(serverUser => {
+        if (!serverUser) {
+          useStore.getState().clearToken();
+        } else if (typeof serverUser.name === 'string' && serverUser.name) {
+          updateProfile({ username: serverUser.name as string });
+        }
+      })
+      .catch(() => {
+        // Backend unavailable (network/5xx) — NOT a confirmed expiry. Stay
+        // signed in and say so once: a 503 must never log the user out
+        // (honesty rule: backend down is not session expired).
+        setToast({ message: "Can't reach the server right now — staying signed in", type: 'info' });
+      });
+  }, [isHydrated, isLoggedIn, updateProfile, setToast]);
 
   // REGION-CHANGE RESEED — dropping/re-seeding isn't manual anymore. On region
   // edit: drop far-region tray leftovers, heal reps for the new region, toast.
@@ -488,10 +495,19 @@ const App: React.FC = () => {
     if (!isHydrated) return;
     const onUnauthorized = async () => {
       setToast({ message: 'Reconnecting — verifying session…', type: 'info' });
-      const serverUser = await getMe().catch(() => null);
-      if (!serverUser) {
-        useStore.getState().clearToken();
-        setToast({ message: 'Session expired — please log in again', type: 'error' });
+      try {
+        const serverUser = await getMe();
+        if (serverUser === null) {
+          // CONFIRMED rejection (401/403 — the server ANSWERED and rejected
+          // the token): the session is genuinely stale → logout.
+          useStore.getState().clearToken();
+          setToast({ message: 'Session expired — please log in again', type: 'error' });
+        }
+        // serverUser truthy → the transient 401 was noise; session is fine.
+      } catch {
+        // Backend unreachable/erroring — NOT an expiry. Keep the session: the
+        // app stays mounted on a retryable surface instead of logging out.
+        setToast({ message: 'Server unreachable — changes saved locally, will retry', type: 'info' });
       }
     };
     window.addEventListener('auth:unauthorized', onUnauthorized as any);
@@ -503,12 +519,29 @@ const App: React.FC = () => {
   // notification DOTS (every dot connected to a real household event).
   useEffect(() => {
     if (!isHydrated) return;
+    // BOUNDED refresh fan-out: ANY number of broadcast events (family:refresh /
+    // loop_updated / pantry:invalidate / household:refresh — several of which
+    // the refreshers THEMSELVES dispatch on completion) collapses into ONE
+    // refresh run via a 1.5s trailing debounce + in-flight single-flight.
+    // Without this, overlapping completion bursts schedule nested store
+    // updates and re-renders — the React 19 "Maximum update depth" (#185 risk)
+    // when the backend is slow/erroring (each 503-backed refresh takes ~7s and
+    // the next event lands mid-run).
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight = false;
     const refreshFeed = () => {
-      const hhId = useStore.getState().householdId;
-      if (hhId) {
-        void useHouseholdFeedStore.getState().refresh(hhId);
-        void useHouseholdKitchenStore.getState().refresh(hhId);
-      }
+      if (timer) return; // already scheduled — burst collapses
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (inFlight) return; // current run covers this event; next one schedules
+        const hhId = useStore.getState().householdId;
+        if (!hhId) return;
+        inFlight = true;
+        void Promise.all([
+          useHouseholdFeedStore.getState().refresh(hhId),
+          useHouseholdKitchenStore.getState().refresh(hhId),
+        ]).finally(() => { inFlight = false; });
+      }, 1500);
     };
     refreshFeed();
     const iv = setInterval(refreshFeed, 30000);
@@ -518,6 +551,8 @@ const App: React.FC = () => {
     window.addEventListener('family:refresh', refreshFeed);
     return () => {
       clearInterval(iv);
+      if (timer) clearTimeout(timer);
+      inFlight = false;
       window.removeEventListener('loop_updated', refreshFeed);
       window.removeEventListener('pantry:invalidate', refreshFeed);
       window.removeEventListener('household:refresh', refreshFeed);

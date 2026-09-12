@@ -14,10 +14,12 @@ describe('resolveFallbackBaseUrl — stale-base detection', () => {
     expect(resolveFallbackBaseUrl(DEV_DEFAULT)).toBeNull();
   });
 
-  it('returns a fresh base when the stored base differs from the default', () => {
+  it('returns a fresh base when the stored base differs from the default (same-origin target)', () => {
     const staleBase = 'http://192.168.1.100:3001/api/v1';
     const result = resolveFallbackBaseUrl(staleBase);
-    expect(result).toBe(DEV_DEFAULT);
+    // Same-origin contract: the baked default is '/api/v1' (the server that
+    // serves the SPA also mounts /api/v1) — deliberately changed 2026-09-13.
+    expect(result).toBe('/api/v1');
     expect(result).not.toBe(staleBase);
   });
 
@@ -38,8 +40,8 @@ describe('resolveFallbackBaseUrl — stale-base detection', () => {
   it('handles resolver throwing gracefully', () => {
     setLanIpResolver(() => { throw new Error('no network'); });
     const staleBase = 'http://192.168.1.100:3001/api/v1';
-    // Resolver throws → falls back to hardcoded default → stale base differs → returns it
-    expect(resolveFallbackBaseUrl(staleBase)).toBe(DEV_DEFAULT);
+    // Resolver throws → falls back to the same-origin default → stale base differs → returns it
+    expect(resolveFallbackBaseUrl(staleBase)).toBe('/api/v1');
   });
 
   it('getLanIpResolver / setLanIpResolver round-trip', () => {
@@ -79,15 +81,17 @@ describe('request() — network error wrapping and stale-base fallback', () => {
     } catch (err: unknown) {
       expect(err).toBeInstanceOf(Error);
       const msg = (err as Error).message;
-      // Must contain the diagnostic base URL
-      expect(msg).toContain('http://');
-      expect(msg).toContain('3001');
+      // Must contain the diagnostic base URL (same-origin default after 2026-09-13)
+      expect(msg).toContain('/api/v1');
       // Must be human-readable
       expect(msg).toContain('Cannot reach the MealDrama server');
     }
   });
 
   it('HTTP 500 error keeps the server message (different code path, no network wrap)', async () => {
+    // The corrected bounded retry loop waits real 1+2+4s backoffs — fake timers
+    // keep this a fast unit test while exercising the REAL loop (2026-09-13).
+    vi.useFakeTimers();
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
@@ -97,13 +101,16 @@ describe('request() — network error wrapping and stale-base fallback', () => {
     const { api, setAuthReady } = await import('../lib/api');
     setAuthReady(true);
 
+    const pending = api.get('/households').then(() => 'resolved', (e: Error) => e);
+    await vi.advanceTimersByTimeAsync(20000);
     try {
-      await api.get('/households');
-      expect.fail('Should have thrown');
-    } catch (err: unknown) {
-      // Should be a FetchError with the server's message, NOT the network message
+      const err: unknown = await pending;
+      expect(err).toBeInstanceOf(Error);
       expect((err as Error).message).toBe('Internal server error');
       expect((err as Error).message).not.toContain('Cannot reach');
+      return;
+    } finally {
+      vi.useRealTimers();
     }
   });
 

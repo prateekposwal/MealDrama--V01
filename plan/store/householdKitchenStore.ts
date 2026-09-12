@@ -8,6 +8,7 @@ export interface HouseholdKitchenState {
   assumptions: Record<string, 'have' | 'notHave'>;
   lanes: MemberLaneSnapshot[];
   lastError: string | null;
+  refreshing: boolean;
   refresh: (householdId: string) => Promise<void>;
   addPurchase: (householdId: string, name: string, quantity: number, unit: string) => Promise<void>;
   setAssumption: (householdId: string, name: string, flag: 'have' | 'notHave' | null, memberId?: string) => Promise<void>;
@@ -26,9 +27,16 @@ export const useHouseholdKitchenStore = create<HouseholdKitchenState>((set, get)
   assumptions: {},
   lanes: [],
   lastError: null,
+  refreshing: false,
 
+  // Same single-flight guard as householdFeedStore.refresh: the App feed-poll
+  // listener + every family:refresh/loop_updated/pantry:invalidate broadcast
+  // can arrive mid-run; an UNGUARDED second refresh overlaps the in-flight one
+  // (each ~7s under a 503), scheduling nested store updates back-to-back —
+  // the render-churn accumulation behind React 19 "Maximum update depth".
   refresh: async (householdId: string) => {
-    if (!householdId) return;
+    if (!householdId || get().refreshing) return;
+    set({ refreshing: true });
     try {
       const [stock, assumptions, lanes] = await Promise.all([
         householdKitchenApi.getStock(householdId),
@@ -40,6 +48,8 @@ export const useHouseholdKitchenStore = create<HouseholdKitchenState>((set, get)
       set({ stock: linesToMap(stock), assumptions: a, lanes, lastError: null });
     } catch (e: any) {
       set({ lastError: e?.message ?? 'kitchen unavailable' });
+    } finally {
+      set({ refreshing: false });
     }
   },
 

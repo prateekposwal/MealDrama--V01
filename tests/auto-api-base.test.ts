@@ -172,7 +172,7 @@ describe('runApiBaseMigration() — one-shot stale-base migration', () => {
     const migrated = await runApiBaseMigration();
     expect(migrated).toBe(true);
     expect(localStorage.getItem(API_BASE_KEY)).toBe(BAKED_DEFAULT);
-    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('1');
+    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('2'); // API_BASE_VERSION bumped 2026-09-13 (render-host rule)
   });
 
   it('(4b) .trycloudflare.com stored base + reachable baked default → migrated', async () => {
@@ -187,12 +187,12 @@ describe('runApiBaseMigration() — one-shot stale-base migration', () => {
     const migrated = await runApiBaseMigration();
     expect(migrated).toBe(true);
     expect(localStorage.getItem(API_BASE_KEY)).toBe(BAKED_DEFAULT);
-    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('1');
+    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('2'); // API_BASE_VERSION bumped 2026-09-13 (render-host rule)
   });
 
   it('(5) migration is ONE-SHOT — version stamp prevents re-probing on later launches', async () => {
     localStorage.setItem(API_BASE_KEY, POISON_BASE);
-    localStorage.setItem(API_BASE_VER_KEY, '1'); // already migrated by this build
+    localStorage.setItem(API_BASE_VER_KEY, '2'); // already migrated by this build
     let probes = 0;
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       probes++;
@@ -217,7 +217,7 @@ describe('runApiBaseMigration() — one-shot stale-base migration', () => {
     const migrated = await runApiBaseMigration();
     expect(migrated).toBe(false);
     expect(localStorage.getItem(API_BASE_KEY)).toBe(lanBase);     // preserved
-    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('1');     // stamped — no daily reprobing
+    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('2'); // API_BASE_VERSION bumped 2026-09-13 (render-host rule)     // stamped — no daily reprobing
   });
 
   it('(7) non-poisoned custom base is never migrated', async () => {
@@ -231,7 +231,7 @@ describe('runApiBaseMigration() — one-shot stale-base migration', () => {
     const migrated = await runApiBaseMigration();
     expect(migrated).toBe(false);
     expect(localStorage.getItem(API_BASE_KEY)).toBe(custom);
-    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('1');
+    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('2'); // API_BASE_VERSION bumped 2026-09-13 (render-host rule)
   });
 
   it('(2b) dev flow: stored LAN equals resolver default → untouched, no probe', async () => {
@@ -250,6 +250,6 @@ describe('runApiBaseMigration() — one-shot stale-base migration', () => {
     expect(migrated).toBe(false);
     expect(probes).toBe(0);
     expect(localStorage.getItem(API_BASE_KEY)).toBe(lanDev);
-    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('1');
+    expect(localStorage.getItem(API_BASE_VER_KEY)).toBe('2'); // API_BASE_VERSION bumped 2026-09-13 (render-host rule)
   });
 });

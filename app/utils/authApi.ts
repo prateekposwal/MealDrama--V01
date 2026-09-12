@@ -49,12 +49,24 @@ export async function logoutUser(): Promise<void> {
   }
 }
 
+/** True when the server CONFIRMED the session is rejected (401/403). A 5xx or
+ *  network failure is NOT a rejection — the backend may simply be down.
+ *  (Λ-honest: backend down ≠ session expired; a 503 must never masquerade as
+ *  a logged-out session and bounce the user to LoginScreen.) */
+export function isConfirmedAuthRejection(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  if (status === 401 || status === 403) return true;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return msg.includes('401') || msg.includes('unauthorized') || msg.includes('auth not ready');
+}
+
 export async function getMe(): Promise<Record<string, unknown> | null> {
   try {
     const result = await api.get<{ user: Record<string, unknown> }>('/auth/me');
     return result.user;
   } catch (err) {
-    console.warn('[AuthApi] getMe failed:', err);
-    return null;
+    if (isConfirmedAuthRejection(err)) return null; // CONFIRMED expiry → caller logs out
+    console.warn('[AuthApi] getMe backend unavailable (not an expiry):', err);
+    throw err; // backend down/erroring → rethrow so callers stay signed in
   }
 }
