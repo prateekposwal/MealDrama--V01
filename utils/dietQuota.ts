@@ -206,11 +206,21 @@ export function isCanonicalDiet(diet?: string | null): diet is CanonicalDiet {
  *  stripped non-veg dishes from profiles that merely stored a legacy alias.
  *  Unknown values return the unconstrained set (nothing stripped) and log a warn. */
 export function allowedTypesForDiet(diet?: string | null): string[] {
-  const d = (diet || '').toLowerCase().trim();
+  const d = (diet ?? '').trim().toLowerCase();
+  // undefined/null/'' is the EXPECTED pre-hydration / no-diet-set state (user
+  // object not yet restored on a first landing, or a logged-out session with
+  // prior storage) — NOT a data-integrity violation, and the boot purges
+  // (App.tsx purgeLoopDietViolations/purgePlanDietViolations) pass user?.diet
+  // BEFORE their own early returns. Return the unconstrained set silently;
+  // callers' guards (dietHeal's `if (!diet) return`) treat it as no-op.
+  if (!d) return ['veg', 'vegan', 'eggitarian', 'non-veg'];
   if (d === 'veg') return ['veg', 'vegan'];
   if (d === 'eggitarian') return ['veg', 'vegan', 'eggitarian'];
   if (d === 'non-veg') return ['veg', 'non-veg', 'vegan', 'eggitarian'];
   if (d === 'vegan') return ['vegan'];
+  // ONLY a NON-EMPTY unknown string is the real leak this warning was built
+  // for: updateProfile rejects unknown diets, so a non-empty unknown here means
+  // some other write path slipped a bad value through (Λ6.5 — no guesses).
   console.warn(`[dietQuota] allowedTypesForDiet: unknown diet "${diet}" — no constraint applied (updateProfile now rejects unknown diets)`);
   return ['veg', 'vegan', 'eggitarian', 'non-veg'];
 }

@@ -32,6 +32,7 @@ import { getRegionKey } from './utils/dishSearch';
 import { isPureSweetDish } from './meal/constants/pairingCatalog';
 import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, allowedTypesForDiet, keepRegionTrayItems } from './utils/dietQuota';
 import { changeDiet } from './utils/dietChange';
+import { hydrationRecoveryDecision } from './app/boot/hydrationGate';
 import { buildEnrichedLoopPool, poolTargetForCycleLength, healthMatchFor, getTraySlotCap } from './utils/loopPool';
 
 const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
@@ -355,17 +356,27 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // RECOVERY: If Zustand state is empty but storage has data, force rehydrate (once)
+  // RECOVERY (TRUE FAILURE ONLY): the old branch used `!isLoggedIn` as an
+  // "empty state" proxy — false-positive on EVERY normal landing of a logged-out
+  // user with prior storage (persist always writes mealdrama-store, so raw
+  // exists even when the state is CORRECTLY logged-out) → warned + re-ran
+  // rehydrate() (a no-op on the already-sync-completed hydration) on every
+  // first load. The honest gate checks "did hydration RUN?" (hasHydrated) —
+  // true on all normal loads (checkBoth above already waited for it). The
+  // forced-rehydrate path survives ONLY for a genuine miss (hydration never
+  // completed while storage has data) — logged then, once per mount.
   useEffect(() => {
-    if (isHydrated && !isLoggedIn && !_rehydrateAttempted.current) {
-      const raw = localStorage.getItem('mealdrama-store');
-      if (raw) {
-        console.warn('[App] Zustand state empty but storage has data. Forcing rehydrate.');
-        _rehydrateAttempted.current = true;
-        useStore.persist.rehydrate();
-      }
-    }
-  }, [isHydrated, isLoggedIn]);
+    const decision = hydrationRecoveryDecision({
+      isHydrated,
+      recoveryAttempted: _rehydrateAttempted.current,
+      storageHydrated: useStore.persist.hasHydrated(),
+      hasStoredData: !!localStorage.getItem('mealdrama-store'),
+    });
+    if (!decision.recoveryNeeded) return;
+    console.warn('[App] Hydration did not run while storage has data — forcing one-time rehydrate (true recovery).');
+    _rehydrateAttempted.current = true;
+    useStore.persist.rehydrate();
+  }, [isHydrated]);
 
   // OAuth callback: handle Google Sign-In token from URL (web redirect)
   // AND deep links from APK OAuth flow (mealdrama://auth/callback?token=...)
