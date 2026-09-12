@@ -5,6 +5,8 @@ import DishImage from '../new/DishImage';
 import type { MealType } from '../../plan/store/useTrayStore';
 import type { Dish } from '../../meal/constants/dishLibrary';
 import { getRegionKey, dishSortComparator, type DishHealthFilter } from '../../utils/dishSearch';
+import { estimateDishMacros } from '../../utils/macroEstimator';
+import { EstimatedMacroLabel } from './EstimatedMacroLabel';
 
 const HEALTH_LABELS = ["all", "low-cal", "high-protein", "low-carb", "balanced"] as const;
 type HealthFilter = DishHealthFilter;
@@ -146,7 +148,9 @@ export default function DishSearchModal({ isOpen, onClose, dishes, mealType, use
 
         <div className="flex-1 overflow-y-auto px-5 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
           <div className="grid grid-cols-2 gap-3">
-            {results.map(d => (
+            {results.map(d => {
+              const m = estimateDishMacros(d);
+              return (
               <button key={d.id} onClick={() => { onSelect?.(d); onClose(); }}
                 className="flex items-center gap-3 p-3 rounded-2xl border border-gray-100 bg-white active:scale-[0.98] transition-all text-left"
               >
@@ -161,13 +165,16 @@ export default function DishSearchModal({ isOpen, onClose, dishes, mealType, use
                       >{dishHealthScore(d)}%</span>
                     )}
                   </div>
-                  <div className="flex gap-1 mt-0.5">
-                    {d.calories && <span className="text-sm text-gray-400">{d.calories}cal</span>}
-                    {d.protein && <span className="text-sm text-gray-400">{d.protein}gP</span>}
+                  <div className="flex gap-1.5 mt-0.5">
+                    <EstimatedMacroLabel value={m.calories} unit="cal" estimated={m.estimated} className="text-sm text-gray-400" />
+                    {m.protein > 0 && (
+                      <EstimatedMacroLabel value={m.protein} unit="gP" estimated={m.estimated} className="text-sm text-gray-400" />
+                    )}
                   </div>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
           {displayCount < totalAvailable && (
             <div className="flex justify-center pt-2 pb-1">

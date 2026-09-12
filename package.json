@@ -8,8 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "cd server && npm run dev",
-    "test": "vitest run",
-    "validate-env": "npx tsx scripts/validate-env.ts"
+    "test": "npm run validate:data && vitest run",
+    "validate-env": "npx tsx scripts/validate-env.ts",
+    "validate:data": "node scripts/validateDataIntegrity.mjs",
+    "prebuild": "npm run validate:data"
   },
   "dependencies": {
     "@capacitor/android": "^8.0.0",

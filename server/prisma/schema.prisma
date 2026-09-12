@@ -27,6 +27,8 @@ model User {
   customDishes     CustomDish[]
   loopConfig       LoopConfig?
   dietPreference   DietPreference?
+  mealLogs         MealLog[]
+  householdPlans   HouseholdPlanItem[]
 }
 
 // 2. HOUSEHOLD
@@ -45,6 +47,7 @@ model Household {
   assumptions     HouseholdAssumption[]
   memberLanes     MemberLane[]
   activities      ActivityFeed[]
+  planItems       HouseholdPlanItem[]
 
   @@index([code])
 }
@@ -318,6 +321,48 @@ model CompletedSlot {
   @@unique([userId, date, slot])
   @@index([userId])
   @@index([userId, date])
+}
+
+/// Persisted per-user "consumed" meal history (Gap 2 closure). One row per
+/// dish eaten in a meal slot on a day, written from the REAL complete-slot
+/// flow ("meal done") — never guessed, never invented. An empty log is an
+/// honest empty (never fabricated rows).
+model MealLog {
+  id        String   @id @default(uuid())
+  userId    String
+  dishId    String
+  mealSlot  String // breakfast, lunch, snacks, dinner
+  eatenAt   DateTime @db.Date // the day the meal was eaten
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dishId, mealSlot, eatenAt])
+  @@index([userId, eatenAt])
+  @@index([userId])
+}
+
+/// Per-member CURRENT generated plan (Gap 3 closure) — upserted on every
+/// tray/plan generation so every household member sees ALL members' current
+/// dishes, not only the ones explicitly shared. The table holds EXACTLY what
+/// was last generated per member; members with nothing persisted are simply
+/// absent (recorded, not guessed).
+model HouseholdPlanItem {
+  id           String   @id @default(uuid())
+  householdId  String
+  authorUserId String
+  dishId       String
+  mealSlot     String // breakfast, lunch, snacks, dinner
+  dayIndex     Int      @default(0) // 0..6 — plan day within the current week
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, authorUserId, dishId, mealSlot, dayIndex])
+  @@index([householdId, authorUserId])
+  @@index([householdId])
 }
 
 // TRAY BUILDER 2.0

@@ -14,6 +14,7 @@ import type { TrayItem } from '../types/tray';
 import { compareRegion } from './regionPreference';
 import { getIngredientsForMealOption } from './ingredientUtils';
 import { getDishCalorieInfo } from '../meal/constants/dishCalories';
+import { estimateDishMacros } from './macroEstimator';
 
 export interface CalorieTally {
   /** Sum of today's per-dish calories (× servings) where calorie data exists. */
@@ -29,12 +30,20 @@ export interface CalorieTally {
   /** True when meals exist but NO dish has calorie data — honest "no data". */
   unknown: boolean;
   /** Number of estimated calorie entries (see estimatedCount above). */
-  /** Sum of today's per-dish protein (× servings) where protein data exists. */
+  /** True when EVERY counted dish's value is an estimate (today: always —
+   *  the whole library derives macros; flips false once lab nutrition
+   *  arrives). Drives the "est." label on the total. */
+  estimated: boolean;
+  /** Sum of today's per-dish protein (× servings) — derived from the macro
+   *  estimator (real populated signals), never fabricated. */
   totalProtein: number;
   /** Number of today's tray items whose dish had a real protein value. */
   proteinCountedItems: number;
   /** Number of today's tray items whose protein relied on a fallback estimate. */
   proteinEstimatedCount: number;
+  /** True when EVERY counted protein value is an estimate (today: always —
+   *  derived from the macro estimator). Drives the "est." label on protein. */
+  proteinEstimated: boolean;
 }
 
 /** Sum today's REAL dish calories, × servings. Never invents a value. */
@@ -54,12 +63,15 @@ export function computeTodaysCalories(trayItems: TrayItem[], dishes: Dish[]): Ca
       countedItems += 1;
       if (info.estimated) estimatedItems += 1;
     }
-    // Protein info (per-dish)
-    const proteinInfo = dish?.protein;
+    // Protein — the REAL signal is the deterministic macro estimator (derived
+    // from ingredient rows/weight/type/nutrition labels; ALWAYS estimated:true).
+    // A future explicit `dish.protein` lab value would take precedence.
+    const macros = dish ? estimateDishMacros(dish) : undefined;
+    const proteinInfo = macros?.protein ?? dish?.protein;
     if (proteinInfo && proteinInfo > 0) {
       totalProtein += Math.round(proteinInfo * Math.max(1, item.quantity || 1));
       proteinCountedItems += 1;
-      if (!info || info.estimated) proteinEstimatedItems += 1;
+      if (macros?.estimated) proteinEstimatedItems += 1;
     }
   }
   return {
@@ -70,9 +82,13 @@ export function computeTodaysCalories(trayItems: TrayItem[], dishes: Dish[]): Ca
     approximate: countedItems > 0 && (countedItems < items.length || estimatedItems > 0),
     unknown: items.length > 0 && countedItems === 0,
     estimatedCount: estimatedItems,
+    // Every counted value is an estimate (curated refs + derived macros are
+    // BOTH estimates — the flag flows from the source, never hardcoded here).
+    estimated: countedItems > 0 && estimatedItems === countedItems,
     totalProtein: Math.round(totalProtein),
     proteinCountedItems,
     proteinEstimatedCount: proteinEstimatedItems,
+    proteinEstimated: proteinCountedItems > 0 && proteinEstimatedItems === proteinCountedItems,
   };
 }
 

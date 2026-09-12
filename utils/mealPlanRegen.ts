@@ -56,6 +56,105 @@ export function resolveLibraryDish(library: Dish[], item: MealOption): Dish | nu
   );
 }
 
+/** Strict id-only resolution — the mapping a tray item CLAIMS. No name
+ *  fallback: a dead id must never silently re-map to a same-named live dish
+ *  (the "fallback silently substitutes" honesty hole). */
+export function resolveLibraryDishStrict(library: Dish[], item: MealOption): Dish | null {
+  const id = item.dishId || item.id;
+  if (!id) return null;
+  return library.find(d => d.id === id) ?? null;
+}
+
+/** True when the id belongs to a REAL custom dish: locally-created customs
+ *  ('custom-…' — QuickAddModal's id shape) or server-assigned UUIDs. These
+ *  are user data — always protected, never treated as dead library ids. */
+export function isCustomDishId(id: string | undefined | null): boolean {
+  if (!id) return false;
+  if (id.startsWith('custom-')) return true;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+/** True when the id has the SHAPE of a library dish id (lowercase slug /
+ *  snake — library ids start with a letter: 'idli', 'dal-tadka-central').
+ *  Custom ids are excluded first (see isCustomDishId). Used to decide whether
+ *  an unresolvable id is a DEAD library mapping (strip + record) vs an opaque
+ *  user id (protect). */
+export function looksLikeLibraryDishId(id: string | undefined | null): boolean {
+  if (!id || isCustomDishId(id)) return false;
+  return /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(id);
+}
+
+export interface InvalidMappingResult {
+  tray: TrayLibrary;
+  /** Items removed because their id CLAIMED a library dish that doesn't
+   *  exist AND no live dish matches their name — the fill step replaces them
+   *  with a VALID diet-compatible dish. */
+  removed: number;
+  /** Dead-id items RE-KEYED to a live dish by exact name (legacy same-dish
+   *  second cards) — every re-map is recorded, never silent. */
+  rekeyed: number;
+  /** Λ2.3 — every removal/rekey recorded:
+   *  `invalid_dish_mapping:<slot>:<id>:<name>` (excluded) or
+   *  `invalid_dish_mapping_rekeyed:<slot>:<deadId>-><liveId>:<name>`. */
+  reasons: string[];
+}
+
+/**
+ * NEVER hide a data-quality problem with a plausible meal. A tray item whose
+ * id claims a library dish but resolves to NOTHING is a dead/invalid mapping
+ * (e.g. a stale curated-map id injected into the plan):
+ *   · no live dish matches its name either → EXCLUDED, recorded, and the fill
+ *     step replaces it with a VALID diet-compatible dish;
+ *   · an EXACT live dish name matches → the item is RE-KEYED to that live
+ *     dish (recorded — never a silent substitution), so a legacy same-dish
+ *     second card still flows to the whole-plan dedupe.
+ * Genuine custom dishes (custom- prefix / UUID ids) are always protected.
+ * Items with no id at all (legacy name-only) keep the existing
+ * unresolvable-protected semantics — they cannot be proven library claims.
+ */
+export function stripInvalidDishMappings(
+  tray: TrayLibrary,
+  library: Dish[],
+): InvalidMappingResult {
+  const reasons: string[] = [];
+  let removed = 0;
+  let rekeyed = 0;
+  const out = emptyTrayClone(tray);
+  for (const slot of MEAL_SLOTS) {
+    const kept: MealOption[] = [];
+    for (const m of out[slot] ?? []) {
+      const idKey = m.dishId || m.id;
+      const strict = idKey ? resolveLibraryDishStrict(library, m) : null;
+      if (strict) {
+        kept.push(m);
+        continue;
+      }
+      if (!idKey || isCustomDishId(idKey)) {
+        kept.push(m); // custom / name-only → protected (recorded by caller)
+        continue;
+      }
+      if (looksLikeLibraryDishId(idKey)) {
+        // Dead library-shaped id. Exact-name re-key FIRST (recorded), so a
+        // regenerated-id legacy card keeps its real dish identity; otherwise
+        // exclude + record — a fabricated id never renders.
+        const byName = library.find(d => normName(d.name) === normName(m.name));
+        if (byName) {
+          rekeyed++;
+          reasons.push(`invalid_dish_mapping_rekeyed:${slot}:${idKey}->${byName.id}:${byName.name}`);
+          kept.push({ ...m, id: byName.id, dishId: byName.id, name: byName.name });
+          continue;
+        }
+        removed++;
+        reasons.push(`invalid_dish_mapping:${slot}:${idKey}:${normName(m.name) || 'unnamed'}`);
+        continue;
+      }
+      kept.push(m); // opaque non-library-shaped id → protected (legacy)
+    }
+    out[slot] = kept;
+  }
+  return { tray: out, removed, rekeyed, reasons };
+}
+
 /**
  * Canonical dish diet type. `type` is the canonical axis; the legacy `diet`
  * field ('egg' → eggitarian) is the fallback. Custom/unresolvable → ''.
@@ -476,11 +575,17 @@ export function regenerateMealPlanPipeline(input: PlanRegenInput): PlanRegenResu
   const totalBefore = countTray(input.tray);
   const reasons: string[] = [];
 
-  // 1+2) generate + validate: strip diet-invalid resolvable items in ONE
-  //      pass, id/name based (no index-shift artifacts). Custom/unresolvable
-  //      items are protected by design (counted in customKept at the end).
+  // 1+2) generate + validate: FIRST strip dead/invalid library-id mappings
+  //      (a plausible-looking meal must never render from a dead id — the
+  //      fill step replaces them with VALID dishes), THEN strip diet-invalid
+  //      resolvable items in ONE pass (no index-shift artifacts). Genuine
+  //      custom/unresolvable items are protected by design (counted in
+  //      customKept at the end).
   let tray = emptyTrayClone(input.tray);
   let invalidRemoved = 0;
+  const invalidMappings = stripInvalidDishMappings(tray, library);
+  tray = invalidMappings.tray;
+  reasons.push(...invalidMappings.reasons);
   for (const slot of MEAL_SLOTS) {
     const kept: MealOption[] = [];
     for (const m of tray[slot] ?? []) {

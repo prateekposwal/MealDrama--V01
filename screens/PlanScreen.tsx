@@ -27,6 +27,7 @@ import { SlotBody, SlotBodyProps, SlotMode } from '../components/meal/SlotBody';
 import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { Hint } from '../components/new/Hint';
+import PersonalizationHint from '../components/new/PersonalizationHint';
 import TrayScreen from '../components/new/TrayScreen';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import PullToRefresh from '../components/new/PullToRefresh';
@@ -858,6 +859,10 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
             </header>
 
             <Hint id="plan-autofill" trigger="first-visit" anchorRef={planHeaderRef} placement="bottom" text="Empty slots fill automatically from your tray loop — that's why dishes appear." />
+
+            {/* Honest empty-history state — shown ONLY until the persisted
+                MealLog has rows; replaced by nothing once real history exists. */}
+            <PersonalizationHint />
 
             {/* ─── Tab Nav ─── */}
             <div className="px-4 mb-4">

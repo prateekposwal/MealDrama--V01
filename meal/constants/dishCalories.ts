@@ -1,7 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Dish calorie lookups — per-serving (kcal) reference for the Health Insight
 // popup. Values are ESTIMATES from standard nutrition references for the dish
-// and its typical serving, NOT lab measurements. They let the "Today's
+// and its typical serving, NOT lab measurements. The curated map holds ONLY
+// live dish ids (every key resolves in DISH_LIBRARY — guarded by
+// scripts/validateDataIntegrity.mjs + tests/dataIntegrity.test.ts). They let the "Today's
 // calories" total compute for the whole library while staying honest: any dish
 // without a curated entry gets a deterministic estimate from its weight/type/
 // category, and dishes that still can't be judged return undefined (the UI
@@ -15,97 +17,43 @@ export const DISH_CALORIES: Record<string, number> = {
   'butter-chicken-wala': 480,
   'kulfi': 320,
   'aloo-paratha': 350,
-  'dal-tadka': 220,
-  'chole-bhature': 650,
   'chicken-biryani': 550,
   'mutton-biryani': 600,
-  'veg-biryani': 430,
   'paneer-butter-masala': 460,
-  'paneer-tikka': 310,
-  'paneer-tikka-masala': 440,
   'tandoori-chicken': 340,
-  'dal-makhani': 280,
-  'rajma': 260,
-  'palak-paneer': 330,
   'chana-masala': 240,
   'idli': 120,
   'dosa': 350,
-  'masala-dosa': 400,
-  'sambar': 140,
-  'vada': 180,
-  'puri-bhaji': 420,
   'samosa': 260,
   'kachori': 280,
   'pav-bhaji': 450,
   'vada-pav': 350,
   'uttapam': 300,
-  'parotta': 320,
-  'naan': 260,
-  'roti': 210,
-  'poori': 180,
-  'bhatura': 300,
   'chicken-tikka': 300,
-  'fish-fry': 380,
-  'fish-curry': 300,
-  'prawn-curry': 320,
-  'egg-curry': 280,
-  'egg-bhurji': 280,
   'andhra-chicken-curry': 420,
-  'kerala-chicken-stew': 350,
   'kerala-fish-curry': 320,
   'chettinad-egg-masala': 300,
   'hyderabadi-biryani': 560,
-  'korma': 380,
   'kadai-paneer': 420,
-  'matar-paneer': 380,
-  'aloo-gobi': 260,
-  'bhindi-masala': 200,
-  'baingan-bharta': 250,
-  'sambar-rice': 250,
   'lemon-rice': 260,
   'curd-rice': 230,
   'tamarind-rice': 280,
   'pongal': 300,
-  'khichdi': 280,
-  'khichuri': 320,
-  'dal-chawal': 320,
-  'dahi-vada': 220,
   'rasam': 100,
-  'poha': 220,
-  'upma': 240,
-  'idli-sambar': 240,
   'gulab-jamun': 150,
-  'jalebi': 300,
   'rasgulla': 160,
   'barfi': 180,
   'ladoo': 160,
-  'kheer': 250,
-  'phirni': 230,
-  'rasmalai': 200,
-  'malpua': 220,
-  'halwa': 260,
   'sheer-khurma': 320,
-  'shaahi-paneer': 450,
-  'mix-veg': 220,
   'gobi-manchurian': 380,
-  'paneer-chilli': 400,
   'chow-mein': 400,
-  'fried-rice': 420,
   'manchow-soup': 140,
-  'tomato-soup': 100,
-  'mushroom-soup': 110,
-  'sweet-corn-soup': 130,
   'dhokla': 180,
   'khandvi': 150,
-  'thepla': 180,
   'methi-thepla': 200,
   'fafda-jalebi': 500,
-  'sev-tameta': 220,
   'undhiyu': 300,
-  'macher-jhol': 320,
   'chingri-malai': 340,
-  'puchka': 180,
-  'biriyani': 500,
 };
 
 /** Deterministic estimate when a dish has no curated entry (never random). */
@@ -125,7 +73,7 @@ export function getDishCalorieInfo(dish: Dish): { kcal: number; estimated: boole
     return { kcal: dish.calories, estimated: false }; // explicit wins
   }
   const curated = DISH_CALORIES[dish.id];
-  if (curated) return { kcal: curated, estimated: false };
+  if (curated) return { kcal: curated, estimated: true }; // reference estimate, not a lab measurement
 
   // Category/weight/type-based estimate as an honest default.
   const cats = (dish.category || []).map(c => c.toLowerCase());

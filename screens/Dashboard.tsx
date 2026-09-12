@@ -43,6 +43,7 @@ import { fetchAISuggestions } from '../utils/aiEngine';
 import { classifySuggestion } from '../utils/classifySuggestion';
 import { inferDishHealthCategories } from '../utils/inferDishHealthCategories';
 import { computeTodaysCalories, missingPantryItems, orderDishesRegionFirst, pantryHasItem, dishIngredientGaps } from '../utils/healthInsight';
+import { EstimatedMacroLabel } from '../components/meal/EstimatedMacroLabel';
 import { getIngredientsForMealOption } from '../utils/ingredientUtils';
 import { planIngredients, planDishIds, familyDishIds, buyListFor, StockMap } from '../utils/buyList';
 import { dishBuyGroups, buySummary, radarUses, recipeIngredients, type BuyDishGroup, type BuySummary } from '../utils/buyByDish';
@@ -1964,13 +1965,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                                 ) : todayCalories.unknown ? (
                                     <span className="text-xs font-bold text-gray-400">Data unavailable for today's dishes</span>
                                 ) : (
-                                    <span className="text-xs font-bold text-gray-800">{todayCalories.approximate ? '~' : ''}{todayCalories.totalKcal.toLocaleString('en-IN')} kcal{todayCalories.approximate ? ' *' : ''}</span>
+                                    <EstimatedMacroLabel value={todayCalories.totalKcal.toLocaleString('en-IN')} unit="kcal" estimated={todayCalories.estimated} className="text-xs font-bold text-gray-800" />
                                 )}
                                 {todayCalories.totalProtein > 0 && (
-                                    <span className="text-xs text-gray-500 ml-2">· {todayCalories.totalProtein}g protein</span>
+                                    <span className="text-xs text-gray-500 ml-2">· <EstimatedMacroLabel value={todayCalories.totalProtein} unit="g protein" estimated={todayCalories.proteinEstimated} /></span>
                                 )}
                             </div>
-                            {todayCalories.approximate && (
+                            {todayCalories.estimated && (
+                                <p className="text-[10px] text-gray-400 -mt-2 text-right">*estimated — typical serving data &amp; standard references, not lab measurements</p>
+                            )}
+                            {todayCalories.approximate && !todayCalories.estimated && todayCalories.countedItems < todayCalories.totalItems && (
                                 <p className="text-[10px] text-gray-400 -mt-2 text-right">*approx — {todayCalories.countedItems} of {todayCalories.totalItems} dishes have calorie data</p>
                             )}
                             {plateScore.suggestions.length > 0 && (

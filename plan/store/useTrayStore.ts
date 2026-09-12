@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { create } from 'zustand';
+import { logMealEaten } from '../../app/lib/mealHistory';
 import { persist } from 'zustand/middleware';
 import { nanoid } from 'nanoid';
 import { trayApi, offlineQueue as trayOfflineQueue } from '../../app/lib/trayApi';
@@ -998,6 +999,17 @@ export const useTrayStore = create<TrayStore>()(
           completions: { ...s.completions, [key]: Date.now() },
           saveStatus: { ...s.saveStatus, [`complete:${key}`]: 'saving' },
         }));
+        // Gap 2 — the REAL "meal done" signal: log the slot's dishes as
+        // eaten (persisted history for personalization). Best-effort —
+        // offline never breaks the completion.
+        try {
+          const day = useTrayStore.getState().plan.days[date];
+          const slotItems = (day as unknown as Record<string, Array<{ meal_id?: string }>> | undefined)?.[mealType.toLowerCase()] ?? [];
+          const eaten = slotItems.map(i => i.meal_id).filter((x): x is string => Boolean(x));
+          if (eaten.length > 0) void logMealEaten(eaten, mealType, date);
+        } catch {
+          // plan day not materialized — nothing eaten to record (honest empty)
+        }
         debounceSave(`complete_${key}`, async () => {
           if (!navigator.onLine) return;
           try {

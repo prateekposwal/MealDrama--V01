@@ -16,17 +16,15 @@
 //
 // DATA FACTS (measured on DISH_LIBRARY, 679 dishes — honest, no fabrication):
 //   - ZERO dishes carry numeric calories/protein fields: the Dish schema
-//     declares `calories?`/`protein?` but NO dish row populates them. The
-//     per-focus weights are therefore grounded in the REAL populated features:
-//       nutrition[] (protein ×254, fiber-only ×126, both ×79, neither ×220),
-//       weight (light ×306, medium ×314, heavy ×59), tags (spicy ×68, sweet
-//       ×111, fried ×60, creamy ×38, dal ×23, paneer ×19, egg ×32, tofu ×7,
-//       millet ×5, oats ×6, steamed ×31, grilled ×10 …), dish TYPE
-//       (non-veg/eggitarian = protein-dense), and ingredient rows whose
-//       category is 'proteins' (×303 across variants).
-//   - We NEVER invent calorie numbers. Low Calorie / Weight Loss are scored
-//     from weight + cooking-style tags (fried/deep-fried/creamy/rich vs
-//     steamed/grilled/baked/roasted/salad/soup) — the honest closest signal.
+//     declares `calories?`/`protein?` but NO dish row populates them.
+//   - THE MACRO GAP IS CLOSED: utils/macroEstimator.ts DERIVES numeric
+//     macros (calories/protein/fiber/fat, always `estimated: true`) for
+//     EVERY dish from the real populated features — ingredient rows
+//     (523 dishes, 6042 rows; category sets), weight tier (light ×306,
+//     medium ×314, heavy ×59), dish type (veg ×335 / non-veg ×128 / vegan
+//     ×187 / eggitarian ×29), nutrition[] labels (protein ×333, carb ×217,
+//     fiber ×205, fat ×50 …) and tags. Dish densities now span a real
+//     measured gradient (rasam ~54 kcal/100g … gulab-jamun ~206).
 //   - Meal history: there is no persisted per-user "consumed" log. The
 //     PRACTICAL proxy is wired from real data that DOES exist: the user's
 //     swap log (utils/trayRegen reads store.swaps — every dish the user
@@ -129,38 +127,41 @@ export function healthFocusFor(goal?: string | null): HealthFocus | null {
   return null;
 }
 
-// ─── 3 · Focus signals — REAL dish features, never invented macros ───────────
+// ─── 3 · Focus signals — DERIVED MACROS first, tags/weight as tie-breakers ──
+// Gap-1 closure (2026-09-13): the signals are now keyed off the numeric
+// macro estimator (utils/macroEstimator.ts — deterministic, documented, every
+// value `estimated: true`), normalized into the same 0..3 bands the weights
+// were built against. Tags/weight ONLY nudge within the macro ordering:
+//   protein        = protein g/100g ÷ 6            (0..3; ~18g/100g → 3)
+//   fiber          = fiber g/100g ÷ 1.2            (0..2.5; ~3g/100g → 2.5)
+//   satiety        = protein+fiber satiation blend (0..2)
+//   sugar          = nutrition label / sweet tag    (0..1)
+//   fat            = fat g/100g ÷ 8                 (0..3; ~24g/100g → 3)
+//   caloricDensity = kcal/100g ÷ 70                 (0..3; ~210 → 3)
+// Tie-breakers: creamy/rich/buttery tags nudge density +0.1, steamed/grilled/
+// /light tags nudge −0.1 — the estimator already captures the frying/cream
+// evidence, so the tags only disambiguate equal-macro dishes.
 export interface FocusSignals {
-  /** 0..3 — protein evidence. */
+  /** 0..3 — protein grams per 100g (derived macros). */
   protein: number;
-  /** 0..2.5 — fiber evidence. */
+  /** 0..2.5 — fiber grams per 100g (derived macros). */
   fiber: number;
-  /** 0..2 — satiety cues (protein + dal/whole-grain comfort). */
+  /** 0..2 — satiety cues (protein + fiber grams). */
   satiety: number;
   /** 0..1 — sugar/sweet evidence. */
   sugar: number;
-  /** 0..3 — caloric density (weight + frying/cream/fat tags). HIGH is bad for
+  /** 0..3 — fat grams per 100g (derived macros). HIGH is bad for Low Fat. */
+  fat: number;
+  /** 0..3 — caloric density kcal/100g (derived macros). HIGH is bad for
    *  Low Calorie / Low Fat / Weight Loss. */
   caloricDensity: number;
 }
 
-const FIBER_TAGS = new Set([
-  'dal', 'lentil', 'millet', 'oats', 'besan', 'quinoa', 'whole-grain',
-  'whole-wheat', 'buckwheat', 'ragi', 'vegetable', 'veggie', 'leafy',
-  'greens', 'sprouts', 'beans', 'rajma', 'chole', 'chickpea', 'kidney-bean',
-]);
-const SATIETY_TAGS = new Set([
-  'dal', 'lentil', 'beans', 'rajma', 'chole', 'chickpea', 'tofu', 'paneer',
-  'roti', 'bread', 'rice', 'pulao', 'biryani', 'idli', 'dosa', 'upma',
-  'paratha', 'poha', 'pongal', 'puri', 'naan', 'khichdi',
-]);
 const SUGAR_TAGS = new Set([
   'sweet', 'dessert', 'chocolate', 'jaggery', 'halwa', 'kheer', 'laddoo',
   'sugar', 'ice-cream',
 ]);
-const CALORIC_TAGS = new Set([
-  'fried', 'deep-fried', 'creamy', 'rich', 'buttery', 'oily', 'ghee', 'malai',
-]);
+const CREAMY_TAGS = new Set(['creamy', 'rich', 'buttery', 'ghee', 'malai']);
 const LIGHT_TAGS = new Set([
   'steamed', 'grilled', 'baked', 'roasted', 'salad', 'soup', 'light', 'healthy',
   'stir-fry', 'raw', 'boiled',
@@ -178,81 +179,63 @@ export function proteinIngredientCount(d: Dish): number {
   return n;
 }
 
-/** Extract the per-focus signals from REAL dish fields. */
+import { estimateDishMacros } from './macroEstimator';
+
+/** Extract the per-focus signals — derived macros first, tags as tie-breakers. */
 export function dishFocusSignals(d: Dish): FocusSignals {
   const nut = (d.nutrition ?? []).map(s => s.toLowerCase());
   const tags = (d.tags ?? []).map(s => s.toLowerCase());
-  const type = (d.type ?? '').toLowerCase();
-  const weight = (d.weight ?? 'medium').toLowerCase();
-
   const hasNut = (s: string) => nut.includes(s);
   const hasTag = (s: string) => tags.includes(s);
 
-  // Protein: nutrition/tag evidence + protein-dense types + real ingredient rows.
-  let protein = 0;
-  if (hasNut('protein')) protein += 1.5;
-  if (hasTag('high-protein') || hasTag('protein')) protein += 1;
-  if (type === 'non-veg' || type === 'eggitarian') protein += 1;
-  const pig = proteinIngredientCount(d);
-  if (pig >= 1) protein += 0.5;
-  protein = Math.min(3, protein);
+  const m = estimateDishMacros(d);
+  const g = m.servingGrams;
+  const k100 = (m.calories / g) * 100;
+  const p100 = (m.protein / g) * 100;
+  const f100 = (m.fiber / g) * 100;
+  const ft100 = (m.fat / g) * 100;
 
-  // Fiber: nutrition/tag evidence from actual whole-grain + veg dishes.
-  let fiber = 0;
-  if (hasNut('fiber')) fiber += 1.5;
-  if (tags.some(t => FIBER_TAGS.has(t))) fiber += 1;
-  fiber = Math.min(2.5, fiber);
-
-  // Satiety: protein (satiation per calorie) + dal/staple carbs.
-  let satiety = 0;
-  if (protein >= 1) satiety += 1;
-  if (hasNut('protein') || hasNut('fiber')) satiety += 0.5;
-  if (tags.some(t => SATIETY_TAGS.has(t))) satiety += 0.5;
-  satiety = Math.min(2, satiety);
-
-  // Sugar.
+  const protein = Math.min(3, p100 / 6);
+  const fiber = Math.min(2.5, f100 / 1.2);
+  let density = Math.min(3, k100 / 70);
+  const fat = Math.min(3, ft100 / 8);
   const sugar = hasNut('sugar') || hasNut('sweet') || tags.some(t => SUGAR_TAGS.has(t)) ? 1 : 0;
+  const satiety = Math.min(2, protein * 0.45 + fiber * 0.5 + (protein >= 1 ? 0.3 : 0));
 
-  // Caloric density: weight is the honest package-level signal; frying/cream
-  // tags add density; steamed/grilled/light subtract.
-  let density = weight === 'light' ? 0.2 : weight === 'medium' ? 1 : 2;
-  if (tags.some(t => CALORIC_TAGS.has(t))) density += 0.6;
-  if (tags.some(t => LIGHT_TAGS.has(t))) density = Math.max(0, density - 0.4);
-  density = Math.min(3, density);
+  // Tie-breakers only — macro-evidence already carries the frying/cream axis.
+  if (tags.some(t => CREAMY_TAGS.has(t))) density = Math.min(3, density + 0.1);
+  if (tags.some(t => LIGHT_TAGS.has(t))) density = Math.max(0, density - 0.1);
 
-  return { protein, fiber, satiety, sugar, caloricDensity: density };
+  return { protein, fiber, satiety, sugar, fat, caloricDensity: density };
 }
 
 /**
  * Per-focus ranking weights — MEANINGFULLY DIFFERENT vectors, each grounded
- * in the real signals above. Higher = more preferred for that focus.
- *   balanced      protein + fiber both count; sugar/density mildly penalized
- *                 (the "eat well" default — prefers protein+fiber staples).
- *   high-protein  protein ×3 dominates; satiety helps; sugar avoided.
- *   high-fiber    fiber ×3 dominates; protein co-occurs (dal has both).
- *   low-calorie   caloric density −2 strongly penalized; sugar −1.5; the
- *                 light/steamed/salad/soup signals lift via density ≈ 0.
- *   low-fat       density −2.5 (fried/creamy/buttery are punished hardest);
- *                 lean protein still counts.
- *   weight-loss   density −1.5 + protein ×1.2 + fiber ×1.2 + satiety ×1 —
- *                 satiation per calorie (keeps you full on less).
+ * in the real (derived-macro) signals above. Higher = more preferred.
+ *   balanced      protein + fiber both count; sugar/density/fat mildly
+ *                 penalized (the "eat well" default).
+ *   high-protein  protein ×4 dominates; satiety helps; sugar avoided.
+ *   high-fiber    fiber ×4 dominates; protein co-occurs (dal has both).
+ *   low-calorie   caloric density −3.5 (kcal/100g axis) punished hardest.
+ *   low-fat       fat grams −3.0 (the grease axis) — fried/buttery/creamy
+ *                 dishes drop on their measured fat; density also penalized.
+ *   weight-loss   density −2.5 + fat −0.5 + satiation (protein+fiber+satiety
+ *                 ≈ full on less).
  */
 export const FOCUS_WEIGHTS: Record<HealthFocus, {
-  protein: number; fiber: number; satiety: number; sugar: number; caloricDensity: number;
+  protein: number; fiber: number; satiety: number; sugar: number; fat: number; caloricDensity: number;
 }> = {
-  // Measured against the library (per-slot top-5 must re-rank on focus change):
-  // balanced keeps protein+fiber roughly even and only mildly penalizes density.
-  'balanced':     { protein: 1.0, fiber: 1.0, satiety: 0.4, sugar: -0.8, caloricDensity: -0.5 },
+  'balanced':     { protein: 1.2, fiber: 1.2, satiety: 0.4, sugar: -0.8, fat: -0.2, caloricDensity: -0.6 },
   // high-protein: protein ×4 dominates (egg/meat/sprouted/dal dishes lead).
-  'high-protein': { protein: 4.0, fiber: 0.4, satiety: 1.0, sugar: -1.5, caloricDensity: -0.3 },
+  'high-protein': { protein: 4.0, fiber: 0.4, satiety: 1.0, sugar: -1.5, fat: -0.2, caloricDensity: -0.4 },
   // high-fiber: fiber ×4 dominates (whole-grain/dal/veg dishes lead).
-  'high-fiber':   { protein: 0.5, fiber: 4.0, satiety: 1.0, sugar: -1.2, caloricDensity: -0.3 },
+  'high-fiber':   { protein: 0.5, fiber: 4.0, satiety: 1.0, sugar: -1.2, fat: -0.1, caloricDensity: -0.3 },
   // low-calorie: density −3.5 punishes fried/creamy/heavy hardest; light lifts.
-  'low-calorie':  { protein: 0.9, fiber: 0.9, satiety: 0.5, sugar: -2.0, caloricDensity: -3.5 },
-  // low-fat: density −4.0 (the grease axis) — fried/buttery/creamy dishes drop.
-  'low-fat':      { protein: 0.7, fiber: 0.6, satiety: 0.4, sugar: -1.8, caloricDensity: -4.0 },
-  // weight-loss: density −2.5 + satiation (protein+fiber+satiety ≈ full on less).
-  'weight-loss':  { protein: 1.6, fiber: 1.6, satiety: 1.2, sugar: -2.5, caloricDensity: -2.5 },
+  'low-calorie':  { protein: 0.9, fiber: 0.9, satiety: 0.5, sugar: -2.0, fat: -0.3, caloricDensity: -3.5 },
+  // low-fat: fat grams −3.0 (the measured grease axis); density also counts.
+  'low-fat':      { protein: 0.7, fiber: 0.6, satiety: 0.4, sugar: -1.8, fat: -3.0, caloricDensity: -1.0 },
+  // weight-loss: density −2.5 + fat −0.5 + satiation (full on less).
+  'weight-loss':  { protein: 1.6, fiber: 1.6, satiety: 1.2, sugar: -2.5, fat: -0.5, caloricDensity: -2.5 },
 };
 
 /** Focus score for one dish — the re-rank axis (higher = better for focus). */

@@ -184,6 +184,8 @@ app.use('/api/v1/households', require('./routes/sharedPlan').default);
 app.use('/api/v1/households', require('./routes/householdKitchen').default);
 app.use('/api/v1/diet', require('./routes/diet').default);
 app.use('/api/v1/households', require('./routes/diet').householdDietsRouter);
+app.use('/api/v1/meal-log', require('./routes/mealLog').default);
+app.use('/api/v1/households', require('./routes/householdPlans').default);
 
 // SPA fallback (shared with the asset-MIME regression suite — see
 // server/src/lib/spaFallback.ts for the contract). Serves index.html ONLY for

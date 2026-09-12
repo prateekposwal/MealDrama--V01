@@ -21,6 +21,7 @@ import JoinHouseholdModal from './JoinHouseholdModal';
 import InviteMemberModal from './InviteMemberModal';
 import { MapPin, ShieldAlert, Flame, Phone, LogOut, Bell, BellOff, Check, ChevronDown, ChevronRight, ArrowRight, SlidersHorizontal, RefreshCw, Plus, Edit3, Trash2, X, Camera, Users, Copy, LogIn } from 'lucide-react';
 import WeeklyHealthSummary from '../health/WeeklyHealthSummary';
+import PersonalizationHint from './PersonalizationHint';
 import NotificationCenter from '../../components/notification/NotificationCenter';
 import { useNotificationStore } from '../../app/notifications';
 import { healTrayDietGaps } from '../../utils/dietHeal';
@@ -559,6 +560,10 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                 <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
                 {/* Visual stat cards removed: replaced by a focused Profile editing experience */}
             </header>
+            {/* Honest empty-history state — same component as the Plan screen:
+                shown ONLY while the persisted MealLog is confirmed loaded AND
+                empty; replaced by nothing once real history exists. */}
+            <PersonalizationHint />
             <div className="px-4 pb-6">
                 <div
                     className="p-5 rounded-[22px] bg-white border border-gray-100 shadow-sm hover:shadow-md transition-all cursor-pointer"
