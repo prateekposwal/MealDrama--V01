@@ -28,6 +28,17 @@ const GuestModeSchema = z.object({
   guestDays: z.number().int().min(1).max(14),
 });
 
+/** Honest 400 message (Λ2.3): name the offending field so a blank "Invalid
+ *  payload" becomes debuggable. The refine errors carry no path — their
+ *  message already names the requirement ("Either mealId or customDishId is
+ *  required"). Contract unchanged: same { error, details } shape. */
+function zodErrorSummary(err: z.ZodError): string {
+  const first = err.errors[0];
+  if (!first) return 'Invalid payload';
+  const field = first.path.length ? first.path.join('.') : null;
+  return field ? `Invalid payload: ${field} — ${first.message}` : `Invalid payload: ${first.message}`;
+}
+
 // ============================================================================
 // TRAY SLOT CRUD
 // ============================================================================
@@ -93,7 +104,7 @@ router.post('/slot', async (req: Request, res: Response) => {
     res.json(result);
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid payload', details: error.errors });
+      return res.status(400).json({ error: zodErrorSummary(error), details: error.errors });
     }
     console.error('[API] Tray slot upsert error:', error);
     res.status(500).json({ error: 'Failed to save tray slot' });
@@ -230,7 +241,7 @@ router.post('/guest-mode', async (req: Request, res: Response) => {
   } catch (error: any) {
     if (error instanceof APIError) throw error;
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid payload', details: error.errors });
+      return res.status(400).json({ error: zodErrorSummary(error), details: error.errors });
     }
     console.error('[API] Guest mode error:', error);
     res.status(500).json({ error: 'Failed to enable guest mode' });
@@ -337,7 +348,7 @@ router.post('/slot/:date/:slot/items', async (req: Request, res: Response) => {
   } catch (error: any) {
     if (error instanceof APIError) throw error;
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid payload', details: error.errors });
+      return res.status(400).json({ error: zodErrorSummary(error), details: error.errors });
     }
     console.error('[API] Add tray item error:', error);
     res.status(500).json({ error: 'Failed to add tray item' });
@@ -393,7 +404,7 @@ router.patch('/item/:itemId', async (req: Request, res: Response) => {
   } catch (error: any) {
     if (error instanceof APIError) throw error;
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid payload', details: error.errors });
+      return res.status(400).json({ error: zodErrorSummary(error), details: error.errors });
     }
     console.error('[API] Update tray item error:', error);
     res.status(500).json({ error: 'Failed to update tray item' });
@@ -521,7 +532,7 @@ router.patch('/slot/:date/:slot/customize', async (req: Request, res: Response) 
   } catch (error: any) {
     if (error instanceof APIError) throw error;
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Invalid payload', details: error.errors });
+      return res.status(400).json({ error: zodErrorSummary(error), details: error.errors });
     }
     console.error('[API] Customize slot error:', error);
     res.status(500).json({ error: 'Failed to customize slot' });

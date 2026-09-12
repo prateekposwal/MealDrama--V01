@@ -222,9 +222,17 @@ export const offlineQueue = {
     for (const action of sorted) {
       try {
         switch (action.type) {
-          case 'add':
-            await trayApi.addSlotItem(action.payload.slotId as string, action.payload.item as AddSlotPayload);
+          case 'add': {
+            // The tray store queues `{ date, mealType, item }` (useTrayStore
+            // addMealToSlot / swapMealInSlot), NOT a slotId — rebuild the key
+            // so queued adds reach the route. (Before: slotId was undefined →
+            // parseSlotId TypeError → the fake-success fallback reported the
+            // add as "synced" while nothing ever reached the server.)
+            const p = action.payload as { slotId?: string; date?: string; mealType?: string; item?: AddSlotPayload };
+            const slotId = p.slotId ?? (p.date && p.mealType ? `${p.date}::${p.mealType}` : '');
+            await trayApi.addSlotItem(slotId, p.item as AddSlotPayload);
             break;
+          }
           case 'swap':
           case 'update':
             await trayApi.updateItem(action.payload.itemId as string, action.payload as UpdateItemPayload);
@@ -235,9 +243,10 @@ export const offlineQueue = {
         }
         successIds.push(action.id);
         synced++;
-      } catch {
+      } catch (drainErr) {
         if (action.retryCount >= 3) {
           failed++; // exhausted — will be removed below
+          console.warn('[TrayApi] drain dropped exhausted action (bounded, no loop):', (drainErr as Error)?.message ?? drainErr);
         } else {
           retryIncrements.set(action.id, action.retryCount + 1);
           retryable++;
@@ -325,20 +334,36 @@ export const trayApi = {
    */
   async addSlotItem(slotId: string, payload: AddSlotPayload, signal?: AbortSignal): Promise<AddSlotResponse> {
     const { date, mealType } = parseSlotId(slotId);
-    try {
-
-      const result = await api.post<Record<string, unknown>>(`/tray/slot/${date}/${mealType}/items`, payload, { signal });
-      return {
-        item_id: (result.id as string) ?? `item_${Date.now()}`,
-        success: true,
-      };
-    } catch (err) {
-      console.warn('[TrayApi] addSlotItem failed, using fallback:', err);
-      return {
-        item_id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        success: true,
-      };
-    }
+    // SERVER CONTRACT (server/src/routes/tray.ts TrayItemSchema): the items
+    // route validates CAMELCASE mealId/customDishId — the plan store's
+    // snake_case meal_id is stripped by zod, the refine (mealId || customDishId)
+    // fails, and the server 400s "Invalid payload" (the first-load seed 400 +
+    // #185 chain). ONE translation point here fixes every caller: the
+    // onboarding seed's debounced adds, MealRepository retries, and the
+    // offline-queue drain. Flat offline-item shapes ({gravy, roti, ...} without
+    // defaults) resolve through the same pick().
+    const raw = payload as unknown as Record<string, unknown>;
+    const d = (payload.defaults ?? {}) as Record<string, unknown>;
+    const pick = (k: string): string | undefined => (d[k] as string | undefined) ?? (raw[k] as string | undefined);
+    const serverPayload = {
+      mealId: payload.meal_id,
+      quantity: payload.quantity ?? 1,
+      gravyStyle: pick('gravy') ?? 'Default',
+      rotiType: pick('roti') ?? 'Phulka',
+      riceType: pick('rice') ?? 'Plain',
+      sides: (d.sides as string[] | undefined) ?? (raw.sides as string[] | undefined) ?? [],
+      beverages: (d.beverages as string[] | undefined) ?? (raw.beverages as string[] | undefined) ?? [],
+    };
+    // NO fake-success fallback (Λ2.3 — never a silent lie): a 400/5xx/network
+    // failure PROPAGATES the real reason, so callers mark saveStatus 'error'
+    // (terminal) and the offline drain retries at most 3× then drops. The old
+    // catch returned success:true + a fabricated id — the seed/pantry effects
+    // had no honest terminal signal, which re-armed the #185 churn.
+    const result = await api.post<Record<string, unknown>>(`/tray/slot/${date}/${mealType}/items`, serverPayload, { signal });
+    return {
+      item_id: (result.id as string) ?? `item_${Date.now()}`,
+      success: true,
+    };
   },
 
   /**

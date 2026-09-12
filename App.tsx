@@ -33,6 +33,7 @@ import { isPureSweetDish } from './meal/constants/pairingCatalog';
 import { pickDietRepresentativesWithSlots, distinctiveTypeFor, dietDeficitBySlot, allowedTypesForDiet, keepRegionTrayItems } from './utils/dietQuota';
 import { changeDiet } from './utils/dietChange';
 import { hydrationRecoveryDecision } from './app/boot/hydrationGate';
+import { seedPreflight } from './app/boot/seedGate';
 import { buildEnrichedLoopPool, poolTargetForCycleLength, healthMatchFor, getTraySlotCap } from './utils/loopPool';
 
 const getDishLibrary = () => import('./meal/constants/dishLibrary').then(m => m.DISH_LIBRARY);
@@ -241,6 +242,11 @@ const App: React.FC = () => {
   // ─── ALL hooks must be before any conditional return (Rules of Hooks) ──
   const [isHydrated, setIsHydrated] = useState(false);
   const _rehydrateAttempted = useRef(false);
+  // #185 seed chain: single-flight + terminal per mount — the failed
+  // addSlotItem fallback must NEVER re-arm the pantry/tray seed (one seed per
+  // mount, and a finished/failed seed stays finished until the next mount).
+  const _seedInFlight = useRef(false);
+  const _seedRan = useRef(false);
   const _trayLibrary = useStore(s => s.trayLibrary);
   const planDays = useTrayStore(s => s.plan.days);
   const today = getISODate();
@@ -795,6 +801,30 @@ onComplete={async (preferences) => {
               console.log('[App] Onboarding data persisted');
 
               // Phase 3: Auto-seed tray with 1 dish per slot + default loop
+              // ORDERING GATE (#185 first-load seed 400): the seed chain (tray
+              // writes + 4 debounced addSlotItem POSTs) must run ONLY after
+              // hydration + user/profile are available — the SAME honest
+              // hasHydrated() booleans the f44cc41 boot gate uses, checked
+              // through seedPreflight (app/boot/seedGate.ts). A blocked seed
+              // logs and skips: no writes, no POSTs — first-load then reaches
+              // the reload outcome (seed skipped on a hydrated store).
+              const preflight = seedPreflight({
+                useStoreHydrated: useStore.persist.hasHydrated(),
+                trayStoreHydrated: useTrayStore.persist.hasHydrated(),
+                hasUser: !!user,
+                hasRegion: !!preferences.region,
+              });
+              if (!preflight.ok) {
+                console.warn(`[App] Seed blocked (${preflight.reason}) — no tray writes, no addSlotItem POSTs`);
+                setAuthReady(true);
+                return;
+              }
+              if (_seedInFlight.current || _seedRan.current) {
+                console.warn('[App] Seed skipped — in-flight or already ran this mount (single-flight, terminal)');
+                setAuthReady(true);
+                return;
+              }
+              _seedInFlight.current = true;
               const regionKey = getRegionKey(preferences.region) || 'north';
               const dietPref = preferences.diet || 'Veg';
               const dietTypes: Record<string, string[]> = {
@@ -958,6 +988,11 @@ onComplete={async (preferences) => {
 
             } catch (e) {
               console.error('[App] First-time onboarding error:', e);
+            } finally {
+              // Terminal per mount — a finished OR failed seed never re-arms
+              // the chain (reload is the recovery path for a failed seed).
+              _seedInFlight.current = false;
+              _seedRan.current = true;
             }
             setAuthReady(true);
           }}

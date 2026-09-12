@@ -371,7 +371,10 @@ export const useTrayStore = create<TrayStore>()(
               },
             });
             set((s) => ({ saveStatus: { ...s.saveStatus, [newItem.id]: 'saved' } }));
-          } catch {
+          } catch (addErr) {
+            // HONEST terminal state (#185): a failed add marks 'error' and
+            // surfaces the real reason — never a fake 'saved', never a re-arm.
+            console.warn('[TrayStore] addSlotItem failed — not saved (terminal):', (addErr as Error)?.message ?? addErr);
             set((s) => ({ saveStatus: { ...s.saveStatus, [newItem.id]: 'error' } }));
           }
         });
