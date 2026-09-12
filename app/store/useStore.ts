@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { nativeStorage } from '../utils/nativeStorage';
 import { loadAuth, saveAuth, clearAuth } from '../../utils/authStorage';
-import api, { setAuthReady, runApiBaseMigration } from '../../lib/api';
+import api, { setAuthReady, runApiBaseMigration, setTokenGetter } from '../../lib/api';
 import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
 import { householdApi } from '../utils/householdApi';
@@ -1237,3 +1237,9 @@ export const useStore = create<StoreState>()(
     }
   )
 );
+
+// Bridge the live token to the api layer (see lib/api.ts setTokenGetter).
+// Registered here instead of imported by api.ts so the browser bundle never
+// contains the bare `require(...)` that silently dropped Authorization
+// headers on every authed request (dcb9d9b regression, fixed 2026-09-12).
+setTokenGetter(() => useStore.getState().token ?? null);

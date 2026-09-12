@@ -1,15 +1,16 @@
-// Lazy getter — breaks circular module init (api ↔ useStore).
-// Top-level `import { useStore }` caused ReferenceError: Cannot access
-// '_authReady' before initialization because useStore.ts calls setAuthReady()
-// during zustand hydration before api.ts finishes evaluating its `let`.
-// Dynamic import() resolves synchronously once modules are registered.
-let _useStoreMod: typeof import('../app/store/useStore') | null = null;
-function _useStore() {
-  if (!_useStoreMod) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    _useStoreMod = require('../app/store/useStore') as typeof import('../app/store/useStore');
-  }
-  return _useStoreMod.useStore;
+// Bundler-safe token access — api.ts must NEVER `require()`/import the store.
+// dcb9d9b tried a lazy `require('../app/store/useStore')` to break the circular
+// api ↔ useStore init, but Vite leaves `require` untransformed in the browser
+// bundle (`<script type="module">`): getToken() threw ReferenceError, its
+// catch returned null, and EVERY authed request silently lost its
+// Authorization header ("Authentication pending"/401 on household create).
+// Instead the store REGISTERS a live token getter here during its own module
+// init (useStore already imports api.ts, so there is no cycle, and the
+// bundle never references `require`).
+let _tokenGetter: (() => string | null) | null = null;
+
+export function setTokenGetter(getter: (() => string | null) | null): void {
+  _tokenGetter = getter;
 }
 
 // ─── Pluggable LAN-IP resolver ────────────────────────────────────────────
@@ -180,11 +181,7 @@ interface FetchOptions extends RequestInit {
 }
 
 function getToken(): string | null {
-  try {
-    return _useStore().getState().token ?? null;
-  } catch {
-    return null;
-  }
+  return _tokenGetter ? _tokenGetter() : null;
 }
 
 let tokenCleared = false;
