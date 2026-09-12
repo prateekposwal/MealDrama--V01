@@ -26,6 +26,7 @@ model User {
   traySlots        TraySlot[]
   customDishes     CustomDish[]
   loopConfig       LoopConfig?
+  dietPreference   DietPreference?
 }
 
 // 2. HOUSEHOLD
@@ -197,6 +198,28 @@ model UserProfile {
   healthGoal    String   @default("") // balanced / high-protein / …
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// The user's REAL diet preferences — first-class source of truth for what a
+/// member actually eats. One row per user (upserted on first PUT /api/v1/diet;
+/// a member with NO row has "not set" everywhere — never a fabricated default).
+/// The legacy UserProfile.dietType/region/etc fields stay for compatibility and
+/// are used as fallbacks, but DietPreference is authoritative for household views.
+model DietPreference {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  dietType      String   @default("veg") // veg, non-veg, eggitarian, vegan
+  region        String   @default("north") // north, south, east, west, central, northeast
+  allergies     String[] // ["peanuts", "gluten"]
+  dislikedItems String[] // ["okra", "bitter-gourd"]
+  spiceLevel    String   @default("medium") // mild, medium, hot
+  healthGoal    String   @default("") // balanced / high-protein / ...
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // 4. MASTER MEAL CATALOG
