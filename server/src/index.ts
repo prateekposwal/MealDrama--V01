@@ -5,6 +5,7 @@ import passport from 'passport';
 import path from 'path';
 import dotenv from 'dotenv';
 import { prisma, connectWithRetry } from './lib/prisma';
+import { APIError } from './lib/apiError';
 import './lib/auth';
 
 // Load environment variables
@@ -68,17 +69,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // ERROR HANDLING CLASS
 // ============================================================================
 
-export class APIError extends Error {
-  constructor(
-    public code: string,
-    public message: string,
-    public statusCode: number = 400,
-    public details?: any
-  ) {
-    super(message);
-    this.name = 'APIError';
-  }
-}
+// APIError moved to lib/apiError.ts (leaf) so route modules can import it
+// without pulling this app into vitest; re-exported for backward compat.
+export { APIError } from './lib/apiError';
 
 // ============================================================================
 // ERROR HANDLER MIDDLEWARE
@@ -188,6 +181,8 @@ app.use('/api/v1/households', require('./routes/pantry').default);
 app.use('/api/v1/households', require('./routes/householdFeed').default);
 app.use('/api/v1/households', require('./routes/sharedPlan').default);
 app.use('/api/v1/households', require('./routes/householdKitchen').default);
+app.use('/api/v1/diet', require('./routes/diet').default);
+app.use('/api/v1/households', require('./routes/diet').householdDietsRouter);
 
 // SPA catch-all: serve index.html ONLY for navigation-like (extensionless) GET
 // requests. Any request whose path carries a file extension that express.static

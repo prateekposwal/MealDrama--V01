@@ -26,7 +26,7 @@ router.get('/:householdId', async (req: Request, res: Response) => {
       where: { id: householdId },
       include: {
         members: {
-          include: { user: { include: { profile: true } } },
+          include: { user: { include: { profile: true, dietPreference: true } } },
         },
       },
     });
@@ -115,7 +115,7 @@ router.post('/', async (req: Request, res: Response) => {
           create: { name: req.user?.name || 'Owner', role: 'admin', userId },
         },
       },
-      include: { members: { include: { user: { include: { profile: true } } } } },
+      include: { members: { include: { user: { include: { profile: true, dietPreference: true } } } } },
     });
 
     res.status(201).json({
@@ -166,7 +166,7 @@ router.post('/join', async (req: Request, res: Response) => {
 
     const updated = await prisma.household.findUnique({
       where: { id: household.id },
-      include: { members: { include: { user: { include: { profile: true } } } } },
+      include: { members: { include: { user: { include: { profile: true, dietPreference: true } } } } },
     });
 
     res.json({
