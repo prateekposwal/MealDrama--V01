@@ -189,6 +189,16 @@ export const useHouseholdFeedStore = create<HouseholdFeedState>((set, get) => ({
       const updated = await householdFeedApi.patchSharedPlan(householdId, itemId, { status, requestedFor });
       set(s => ({ sharedPlan: s.sharedPlan.map(i => (i.id === itemId ? updated : i)) }));
       await get().postActivity(householdId, status, `${updated.dishName} (${updated.mealType})`); notifyFamily();
+      // LEDGER: a meal marked DONE cooks and consumes — draw the household
+      // pantry down (best-effort, clamped at zero server-side).
+      if (status === 'completed' && householdId) {
+        const { consumeSharedItemStock } = await import('../../utils/stockConsume');
+        void consumeSharedItemStock(householdId, {
+          dishId: updated.dishId,
+          dishName: updated.dishName,
+          quantity: updated.quantity,
+        });
+      }
     } catch {
       // ignore transient failures — next poll reconciles
     }

@@ -1,8 +1,10 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { authMiddleware } from '../lib/auth';
 
 const router = Router();
+router.use(authMiddleware);
 
 // server root: server/src/routes → ../.. (also dist/routes in prod)
 const LOG_DIR = path.join(__dirname, '../../logs');

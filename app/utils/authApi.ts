@@ -24,11 +24,11 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-export async function registerUser(id: string, name: string): Promise<RegisterOutcome> {
+export async function registerUser(id: string, name: string, deviceSecret: string): Promise<RegisterOutcome> {
   let lastError = 'unknown error';
   for (let attempt = 0; attempt < REGISTER_RETRIES; attempt++) {
     try {
-      const result = await api.post<{ user: Record<string, unknown>; token: string }>('/auth/register', { id, name });
+      const result = await api.post<{ user: Record<string, unknown>; token: string }>('/auth/register', { id, name, deviceSecret });
       return { ok: true, ...result };
     } catch (err) {
       lastError = errorMessage(err);

@@ -224,6 +224,12 @@ function getToken(): string | null {
   return _tokenGetter ? _tokenGetter() : null;
 }
 
+/** Public token accessor for raw-fetch paths (tts, analytics flush) that
+ *  must send the same Authorization header the api object attaches. */
+export function getApiToken(): string | null {
+  return getToken();
+}
+
 let tokenCleared = false;
 
 function isAuthFailure(err: Error): boolean {
@@ -425,7 +431,7 @@ async function request<T>(endpoint: string, options: FetchOptions = {}): Promise
     // 5xx ends with ONE stale-base heal + ONE retry — a 503 can never wedge
     // the app onto a dead remote base (and can never grow into an unbounded
     // re-arm storm: every path terminates with the REAL error).
-    let lastErr = err;
+    let lastErr: unknown = err;
     const willRetry = () =>
       isServerError(lastErr) ||
       (isNetworkError(lastErr) && !IDEMPOTENT_METHODS.has((fetchOptions.method ?? 'GET').toUpperCase()));

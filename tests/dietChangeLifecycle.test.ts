@@ -556,7 +556,11 @@ describe('retryDietSync — visible retry on failed sync (TC-UX)', () => {
     expect(profileSrc).toContain('retryDietSync');
     expect(profileSrc).toContain('not synced');
     expect(profileSrc).toContain('retry');
-    expect(profileSrc).toContain("disabled={dietSyncState === 'saving'}");
+    // The retry is disabled/spinner via a LOCAL in-flight flag — a retry can
+    // never run twice from the failed panel (the old `dietSyncState ===
+    // 'saving'` could never be true inside a `failed` block — dead code).
+    expect(profileSrc).toContain('disabled={dietRetrying}');
+    expect(profileSrc).toContain('dietRetrying');
   });
 });
 

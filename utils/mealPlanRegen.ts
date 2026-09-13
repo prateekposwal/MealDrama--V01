@@ -40,7 +40,7 @@ import { dishDietType, isMealDietCompatible } from './dietCompat';
 import { getRegionKey } from './dishSearch';
 import { isPureSweetDish } from '../meal/constants/pairingCatalog';
 import { upsertMealToSlot } from './trayUpsert';
-import { personalizationScore, householdPenalty, rotateBandForUser } from './mealPersonalization';
+import { personalizationScore, householdPenalty, rotateBandForUser, affinityTierLift } from './mealPersonalization';
 import type { PersonalizationContext } from './mealPersonalization';
 
 export const MEAL_SLOTS: readonly MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
@@ -259,6 +259,14 @@ export function fillCandidatesForSlot(
   const healthTiebreak = (a: Dish, b: Dish): number =>
     hs(b) - hs(a) || a.name.localeCompare(b.name);
   const cmp = personalizationComparator(personalization, healthTiebreak);
+  // Goal-2 (2026-09-13): a mild/low-spice user's explicit cuisine affinity
+  // lifts a matching dish's effective region tier (affinityTierLift) — the
+  // affinity becomes an appropriateness signal FOR THAT USER. Non-mild users,
+  // users with no affinities, and non-matching dishes keep the legacy tier
+  // (byte-identical). All gates (diet, category, pure-sweet, used-set) still
+  // run BEFORE this sort; the lift only re-orders candidates.
+  const tierOf = (d: Dish): number =>
+    regionTier(d, regionKey) + affinityTierLift(d, personalization?.preferences, personalization?.tasteProfile);
   const sorted = library
     .filter(d =>
       isMealDietCompatible(d, diet) &&
@@ -268,7 +276,7 @@ export function fillCandidatesForSlot(
       !usedNames.has(normName(d.name)))
     .sort((a, b) =>
       distBonus(a) - distBonus(b) ||
-      regionTier(a, regionKey) - regionTier(b, regionKey) ||
+      tierOf(a) - tierOf(b) ||
       (priorityMap[dishDietType(a)] ?? 99) - (priorityMap[dishDietType(b)] ?? 99) ||
       cmp(a, b));
   // Structural per-user rotation over the top band (diet/region appropriateness
@@ -417,6 +425,11 @@ export function dedupeWholePlan(
   const distType = distinctiveTypeFor(diet);
   const distBonus = (d: Dish): number => (distType && dishDietType(d) === distType) ? 0 : 1;
   const candidateSub = (slot: MealType): Dish | undefined => {
+    // Same Goal-2 tier lift as the fill step — dedupe substitutions must see
+    // the SAME ordering as the fill (a mild-affinity user's substitutions
+    // prefer their loved cuisines; everyone else stays byte-identical).
+    const tierOf = (d: Dish): number =>
+      regionTier(d, regionKey) + affinityTierLift(d, opts?.personalization?.preferences, opts?.personalization?.tasteProfile);
     const sorted = library
       .filter(d =>
         isMealDietCompatible(d, diet) &&
@@ -426,7 +439,7 @@ export function dedupeWholePlan(
         !usedNames.has(normName(d.name)))
       .sort((a, b) =>
         distBonus(a) - distBonus(b) ||
-        regionTier(a, regionKey) - regionTier(b, regionKey) ||
+        tierOf(a) - tierOf(b) ||
         (priorityMap[dishDietType(a)] ?? 99) - (priorityMap[dishDietType(b)] ?? 99) ||
         cmp(a, b));
     return (opts?.personalization ? rotateBandForUser(sorted, slot, opts.personalization) : sorted)[0];

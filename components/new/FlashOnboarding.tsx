@@ -342,7 +342,7 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
                 <label className="text-sm font-bold text-gray-700">Cook's WhatsApp Number</label>
               </div>
               <p className="text-sm text-gray-500 mb-5 leading-relaxed">
-                Your cook receives the full plan — dishes, quantities, pairings — every morning. No app needed on their end.
+                Your cook gets a live link to today's plan that updates on its own — no app needed on their end. You can also WhatsApp the plan anytime.
               </p>
               <input
                 type="tel"
@@ -355,7 +355,7 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
               {cookContact.length >= 10 && (
                 <div className="mt-4 flex items-center gap-2 text-green-600 animate-in fade-in">
                   <Check size={16} />
-                  <span className="text-sm font-medium">Number set — plan will be shared daily</span>
+                  <span className="text-sm font-medium">Number set — send the plan to the cook anytime</span>
                 </div>
               )}
             </div>

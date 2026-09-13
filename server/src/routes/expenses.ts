@@ -180,6 +180,11 @@ router.get('/:householdId/balances', async (req: Request, res: Response) => {
 // ─── Activity feed ──
 router.get('/:householdId/activity', async (req: Request, res: Response) => {
   const householdId = strParam(req.params.householdId);
+  const userId = (req as any).user?.userId ?? (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const member = await getMember(userId, householdId);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
+
   const activities = await prisma.activityFeed.findMany({
     where: { householdId },
     orderBy: { date: 'desc' },
@@ -191,6 +196,11 @@ router.get('/:householdId/activity', async (req: Request, res: Response) => {
 // ─── Log activity ──
 router.post('/:householdId/activity', async (req: Request, res: Response) => {
   const householdId = strParam(req.params.householdId);
+  const userId = (req as any).user?.userId ?? (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const member = await getMember(userId, householdId);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
+
   const { memberName, action, detail } = req.body;
   if (!memberName || !action || !detail) {
     return res.status(400).json({ error: 'memberName, action, detail required' });
@@ -204,6 +214,10 @@ router.post('/:householdId/activity', async (req: Request, res: Response) => {
 // ─── Consolidated grocery list: all members' meals ──
 router.get('/:householdId/meals', async (req: Request, res: Response) => {
   const householdId = strParam(req.params.householdId);
+  const userId = (req as any).user?.userId ?? (req as any).user?.id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const member = await getMember(userId, householdId);
+  if (!member) return res.status(403).json({ error: 'Not a member' });
   const { start, end } = req.query;
 
   // Get all household members with their userIds

@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authMiddleware } from '../lib/auth';
 import { APIError } from '../index';
-import { z } from 'zod';
 
 const router = Router();
 router.use(authMiddleware);
@@ -82,68 +81,11 @@ router.get('/:householdId/requests', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/households/:id/activity
- * Household activity feed (meal adds, requests, pantry purchases).
+ * GET /api/v1/households/:id/activity and POST /api/v1/households/:id/activity
+ * are mounted by routes/expenses.ts, which is registered BEFORE this router in
+ * index.ts. These two routes were shadowed (the expenses handlers won for both
+ * GET and POST) and are REMOVED here — they were never reachable. The active
+ * handlers in expenses.ts carry the membership gate and the memberName rules.
  */
-router.get('/:householdId/activity', async (req: Request, res: Response) => {
-  try {
-    const householdId = String(req.params.householdId || '');
-    await requireMembership(req, householdId);
-    const feed = await prisma.activityFeed.findMany({
-      where: { householdId },
-      orderBy: { date: 'desc' },
-      take: 50,
-    });
-    res.json(feed.map(e => ({
-      id: e.id,
-      memberName: e.memberName,
-      action: e.action,
-      detail: e.detail,
-      date: e.date.toISOString(),
-    })));
-  } catch (error) {
-    if (error instanceof APIError) throw error;
-    console.error('[API] Household activity error:', error);
-    res.status(500).json({ error: 'Failed to fetch household activity' });
-  }
-});
-
-/**
- * POST /api/v1/households/:id/activity
- * Record a household event (meal requested/added, pantry purchase).
- * Any member may log; memberName comes from the caller's membership row.
- */
-router.post('/:householdId/activity', async (req: Request, res: Response) => {
-  try {
-    const householdId = String(req.params.householdId || '');
-    const household = await requireMembership(req, householdId);
-    const payload = z.object({
-      action: z.string().min(1).max(40),
-      detail: z.string().min(1).max(200),
-    }).parse(req.body);
-
-    const me = household.members.find((m: any) => m.userId === (req as any).user?.userId);
-    const created = await prisma.activityFeed.create({
-      data: {
-        householdId,
-        memberName: me?.name ?? (req as any).user?.name ?? 'Member',
-        action: payload.action,
-        detail: payload.detail,
-      },
-    });
-    res.status(201).json({
-      id: created.id,
-      memberName: created.memberName,
-      action: created.action,
-      detail: created.detail,
-      date: created.date.toISOString(),
-    });
-  } catch (error: any) {
-    if (error instanceof APIError) throw error;
-    if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid payload' });
-    console.error('[API] Household activity post error:', error);
-    res.status(500).json({ error: 'Failed to record activity' });
-  }
-});
 
 export default router;

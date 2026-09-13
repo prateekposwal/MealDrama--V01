@@ -7,14 +7,35 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authMiddleware } from '../lib/auth';
+import { APIError } from '../lib/apiError';
+import { canonicalName } from '../lib/canonicalName';
+import { z } from 'zod';
 
 const router = Router();
 router.use(authMiddleware);
+
+/**
+ * Gate: the caller must be a member of the household — otherwise any
+ * authenticated user could read any household's pantry/ingredient plan.
+ */
+async function requireMembership(req: Request, householdId: string) {
+  const userId = (req as any).user?.userId;
+  if (!userId) throw new APIError('UNAUTHORIZED', 'Unauthorized', 401);
+  const household = await prisma.household.findUnique({
+    where: { id: householdId },
+    include: { members: true },
+  });
+  if (!household) throw new APIError('NOT_FOUND', 'Household not found', 404);
+  const isMember = household.members.some((m: any) => m.userId === userId);
+  if (!isMember) throw new APIError('FORBIDDEN', 'Not a member of this household', 403);
+  return household;
+}
 
 // ─── Helper: fetch all meals for household members ──
 router.get('/:householdId/pantry', async (req: Request, res: Response) => {
   try {
     const householdId = String(req.params.householdId || '');
+    await requireMembership(req, householdId);
     const { start, end } = req.query;
 
     // Get all household members with userIds
@@ -124,8 +145,77 @@ router.get('/:householdId/pantry', async (req: Request, res: Response) => {
       })),
     });
   } catch (err: any) {
+    if (err instanceof APIError) throw err;
     console.error('[Pantry API] Error:', err.message);
     res.status(500).json({ error: 'Failed to resolve pantry' });
+  }
+});
+
+const ConsumeSchema = z.object({
+  items: z.array(z.object({
+    name: z.string().min(1).max(64),
+    unit: z.string().max(16).optional(),
+    quantity: z.number().positive().max(99999),
+  })).max(100),
+});
+
+/**
+ * POST /:householdId/stock/consume — the LEDGER side: cooking meals must draw
+ * down the household pantry. The client sends the quantities the cooked meal
+ * used (already normalized to buy-friendly units via the same toBuyGrams the
+ * buy list uses), and the server clamps at zero — stock never goes negative
+ * and you cannot consume what no one ever logged. Best-effort reconciliation:
+ * matches on the shared canonical name; a unit mismatch is SKIPPED (never
+ * corrupts a row with a nonsensical subtraction).
+ */
+router.post('/:householdId/stock/consume', async (req: Request, res: Response) => {
+  try {
+    const householdId = String(req.params.householdId || '');
+    await requireMembership(req, householdId);
+    const { items } = ConsumeSchema.parse(req.body);
+
+    const rows = await prisma.householdStock.findMany({ where: { householdId } });
+    if (rows.length === 0 || items.length === 0) {
+      return res.json({ consumed: 0, skipped: items.length });
+    }
+
+    const want = new Map<string, { name: string; unit: string | undefined; quantity: number }>();
+    for (const it of items) {
+      const key = canonicalName(it.name);
+      const cur = want.get(key);
+      if (cur) {
+        cur.quantity += it.quantity;
+      } else {
+        want.set(key, { name: it.name, unit: it.unit, quantity: it.quantity });
+      }
+    }
+
+    let consumed = 0;
+    const skipped: string[] = [];
+    const updates = rows
+      .map((row: any) => {
+        const req = want.get(canonicalName(row.name));
+        if (!req) return null;
+        const rowUnit = (row.unit || '').toLowerCase();
+        const wantUnit = (req.unit || '').toLowerCase();
+        if (rowUnit !== wantUnit) {
+          skipped.push(row.name);
+          return null;
+        }
+        const nextQty = Math.max(0, row.quantity - req.quantity);
+        consumed += Math.min(row.quantity, req.quantity);
+        if (nextQty === row.quantity) return null;
+        return prisma.householdStock.update({ where: { id: row.id }, data: { quantity: nextQty } });
+      })
+      .filter(Boolean);
+
+    await Promise.all(updates as Promise<unknown>[]);
+    res.json({ consumed, skipped });
+  } catch (err: any) {
+    if (err instanceof APIError) throw err;
+    if (err instanceof z.ZodError) return res.status(400).json({ error: 'Invalid payload' });
+    console.error('[Pantry API] consume error:', err.message);
+    res.status(500).json({ error: 'Failed to consume stock' });
   }
 });
 

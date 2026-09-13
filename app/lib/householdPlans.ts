@@ -53,9 +53,13 @@ export async function pushCurrentTrayAsHouseholdPlan(
   if (!householdId || !userId) return 0;
   const rows: Array<{ dishId: string; mealSlot: string; dayIndex: number }> = [];
   for (const slot of ['breakfast', 'lunch', 'snacks', 'dinner'] as const) {
-    for (const m of tray[slot] ?? []) {
+    for (const [idx, m] of (tray[slot] ?? []).entries()) {
       const dishId = m.dishId || m.id;
-      if (dishId) rows.push({ dishId, mealSlot: slot, dayIndex: 0 });
+      // The tray library holds this slot's meals in plan order — so the
+      // position IS the day index of the current week. Writing 0 for every
+      // dish collapsed the family plan onto a single day; the real index
+      // keeps per-day rows so the household/cook views show a real week.
+      if (dishId) rows.push({ dishId, mealSlot: slot, dayIndex: idx });
     }
   }
   if (rows.length === 0) return 0;

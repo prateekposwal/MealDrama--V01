@@ -1,0 +1,11 @@
+import { PrismaClient } from '@prisma/client';
+const p = new PrismaClient();
+const meals = await p.meal.count();
+const variants = await p.mealVariant.count();
+const ingredients = await p.ingredient.count();
+const dal = await p.meal.findUnique({ where: { id: 'dal-tadka-central' }, select: { id: true, name: true, region: true, category: true, type: true } });
+const dalVariants = await p.mealVariant.findMany({ where: { mealId: 'dal-tadka-central' }, select: { id: true } });
+const poha = await p.meal.findUnique({ where: { id: 'poha-mp' }, select: { id: true } });
+const testUsers = await p.user.findMany({ where: { OR: [{ id: 'test-user-001' }, { id: 'test-user-002' }, { phone: '+919876543210' }, { phone: '+919876543211' }] }, select: { id: true, phone: true } });
+console.log(JSON.stringify({ meals, variants, ingredients, dal, dalVariants: dalVariants.map(v => v.id), poha, testUsers }, null, 2));
+await p.$disconnect();

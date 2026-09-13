@@ -97,3 +97,139 @@ export function buildPlanApp(): Express {
   });
   return app;
 }
+
+/**
+ * Test-only express harness for the SHARED household-week routes
+ * (sharedPlan.ts) — the family week, meal ownership, status flow, timezone.
+ */
+import sharedPlanRouter from '../routes/sharedPlan';
+
+export function buildSharedPlanApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/households', sharedPlanRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}
+
+/**
+ * Test-only express harness for the pantry routes (pantry.ts) — membership
+ * gating on the shared ingredient resolver.
+ */
+import pantryRouter from '../routes/pantry';
+
+export function buildPantryApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/households', pantryRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}
+
+/**
+ * Test-only express harness for the expenses routes (expenses.ts) — the
+ * active /activity + /meals handlers now carry the membership gate.
+ */
+import expensesRouter from '../routes/expenses';
+
+export function buildExpensesApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/households', expensesRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}
+
+/**
+ * Test-only express harness for the loop-config routes (loopConfig.ts) — now
+ * authenticated + self-scoped + Prisma-persisted.
+ */
+import loopConfigRouter from '../routes/loopConfig';
+
+export function buildLoopConfigApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/loop-config', loopConfigRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}
+
+/**
+ * Test-only express harness for the auth routes (auth.ts) — the device-bound
+ * register/login contract that replaced the property-login account takeover.
+ */
+import authRouter from '../routes/auth';
+
+export function buildAuthApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/auth', authRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}
+
+/**
+ * Test-only express harness for the cook-share routes (cookShare.ts) — the
+ * household cook link + the PUBLIC no-login /cook/:token page.
+ */
+import cookShareRouter, { cookPageRouter } from '../routes/cookShare';
+
+export function buildCookShareApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/households', cookShareRouter);
+  app.use('/api/v1', cookPageRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}
+
+/**
+ * Test-only express harness for the WhatsApp webhook (whatsappWebhook.ts).
+ * Mirrors index.ts: an express.raw parser is mounted on the webhook path AHEAD
+ * of everything, so the route receives the RAW body and can verify the
+ * X-Hub-Signature-256 HMAC exactly as production does.
+ */
+import whatsappWebhookRouter from '../routes/whatsappWebhook';
+
+export function buildWhatsAppWebhookApp(): Express {
+  const app = express();
+  app.use('/api/v1/webhook/whatsapp', express.raw({ type: 'application/json', limit: '1mb' }));
+  app.use('/api/v1', whatsappWebhookRouter);
+  return app;
+}

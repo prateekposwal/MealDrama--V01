@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authMiddleware } from '../lib/auth';
-import { APIError } from '../index';
+import { APIError } from '../lib/apiError';
 import { z } from 'zod';
 
 const router = Router();
@@ -43,13 +43,32 @@ function toJson(i: any) {
     requestedFor: i.requestedFor ?? null,
     status: i.status,
     quantity: i.quantity,
+    version: i.version ?? 0,
     createdAt: i.createdAt.toISOString(),
   };
+}
+
+// ─── Member-pointer integrity ────────────────────────────────────────────────
+// requestedBy/requestedFor must be a HouseholdMember.id (OR the member's NAME,
+// which we resolve to the id at the write boundary), or null = the family.
+// This gives the field ONE authority — a member id — instead of the historic
+// mix of user ids and free strings that silently detach across member edits.
+function resolveMemberRef(members: any[], value: string | null, field: string): string | null {
+  if (value === null || value === undefined) return null;
+  const byId = members.find((m: any) => m.id === value);
+  if (byId) return value;
+  const byName = members.find((m: any) => m.name && m.name.toLowerCase() === value.toLowerCase());
+  if (byName) return byName.id;
+  throw new APIError('BAD_REQUEST', `${field} must be a household member (or null for the family)`, 400);
 }
 
 /**
  * GET /api/v1/households/:id/plan?from=YYYY-MM-DD&days=7
  * The family week in ONE table (merged across members).
+ *
+ * Dates are calendar days: queries AND rows both resolve to UTC-midnight,
+ * so a meal planned for 2026-09-20 stays on 2026-09-20 in every timezone
+ * (no ±1-day drift from server-local parsing).
  */
 router.get('/:householdId/plan', async (req: Request, res: Response) => {
   try {
@@ -57,8 +76,11 @@ router.get('/:householdId/plan', async (req: Request, res: Response) => {
     await requireMembership(req, householdId);
 
     const fromStr = String(req.query.from || '');
-    const days = Math.min(Number(req.query.days || 7), 14);
-    const from = fromStr ? new Date(fromStr) : new Date(new Date().toDateString());
+    const rawDays = Number(req.query.days || 7);
+    const days = Number.isFinite(rawDays) ? Math.min(Math.max(1, Math.floor(rawDays)), 14) : 7;
+    const from = fromStr
+      ? new Date(fromStr + 'T00:00:00Z')
+      : (() => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return d; })();
     const until = new Date(from.getTime() + days * 86400000);
 
     const items = await prisma.sharedPlanItem.findMany({
@@ -76,11 +98,11 @@ router.get('/:householdId/plan', async (req: Request, res: Response) => {
 const ItemSchema = z.object({
   date: z.string(),
   mealType: z.enum(['breakfast', 'lunch', 'snacks', 'dinner']),
-  dishId: z.string().nullable().optional(),
+  dishId: z.string().min(1).max(200).nullable().optional(),
   dishName: z.string().min(1).max(200),
   icon: z.string().optional(),
-  requestedBy: z.string().nullable().optional(),
-  requestedFor: z.string().nullable().optional(),
+  requestedBy: z.string().min(1).max(64).nullable().optional(),
+  requestedFor: z.string().min(1).max(64).nullable().optional(),
   status: z.enum(['planned', 'requested', 'accepted', 'completed']).optional(),
   quantity: z.number().int().min(1).max(99).optional(),
 });
@@ -91,6 +113,8 @@ router.post('/:householdId/plan', async (req: Request, res: Response) => {
     const householdId = String(req.params.householdId || '');
     const { userId, members } = await requireMembership(req, householdId);
     const p = ItemSchema.parse(req.body);
+    p.requestedBy = resolveMemberRef(members, (p.requestedBy ?? null) as string | null, 'requestedBy');
+    p.requestedFor = resolveMemberRef(members, (p.requestedFor ?? null) as string | null, 'requestedFor');
 
     // Area 6/10: a view-only member may READ but never write the family week.
     const me = members.find((m: any) => m.userId === userId);
@@ -101,7 +125,7 @@ router.post('/:householdId/plan', async (req: Request, res: Response) => {
       data: {
         householdId,
         authorUserId: userId,
-        date: new Date(p.date + 'T00:00:00'),
+        date: new Date(p.date + 'T00:00:00Z'),
         mealType: p.mealType,
         dishId: p.dishId ?? null,
         dishName: p.dishName,
@@ -121,19 +145,29 @@ router.post('/:householdId/plan', async (req: Request, res: Response) => {
   }
 });
 
-/** PATCH /api/v1/households/:id/plan/:itemId — accept / complete / re-target. */
+/** PATCH /api/v1/households/:id/plan/:itemId — accept / complete / re-target.
+ *  Optional optimistic lock: send the `ifVersion` you last saw; the PATCH only
+ *  applies when the row is still on that version (409 otherwise) — two people
+ *  editing the family week can never silently overwrite each other. */
 router.patch('/:householdId/plan/:itemId', async (req: Request, res: Response) => {
   try {
     const householdId = String(req.params.householdId || '');
     const itemId = String(req.params.itemId || '');
     const { userId, members } = await requireMembership(req, householdId);
-    const p = ItemSchema.partial().omit({ date: true, mealType: true }).parse(req.body);
+    // passthrough() so the optimistic-lock key (ifVersion) rides along with
+    // the editable fields without being a persisted column itself.
+    const p = ItemSchema.partial().omit({ date: true, mealType: true }).passthrough().parse(req.body);
+
+    // Member-pointer integrity at the write boundary (resolve names → ids).
+    if ('requestedBy' in p) p.requestedBy = resolveMemberRef(members, p.requestedBy ?? null, 'requestedBy') as any;
+    if ('requestedFor' in p) p.requestedFor = resolveMemberRef(members, p.requestedFor ?? null, 'requestedFor') as any;
+
+    const existing = await prisma.sharedPlanItem.findUnique({ where: { id: itemId } });
+    if (!existing || existing.householdId !== householdId) throw new APIError('NOT_FOUND', 'Item not found', 404);
 
     // Status machine: only legal transitions (the "accept round-trip" is
     // requested→accepted; a completed row is terminal).
     if (p.status) {
-      const existing = await prisma.sharedPlanItem.findUnique({ where: { id: itemId } });
-      if (!existing || existing.householdId !== householdId) throw new APIError('NOT_FOUND', 'Item not found', 404);
       if (!isValidStatus(existing.status, p.status)) {
         throw new APIError('BAD_REQUEST', `Cannot move ${existing.status} → ${p.status}`, 400);
       }
@@ -148,9 +182,38 @@ router.patch('/:householdId/plan/:itemId', async (req: Request, res: Response) =
       }
     }
 
+    // Build the update from ONLY the fields actually present. The old
+    // `...p, requestedFor: p.requestedFor ?? null` set requestedFor to null
+    // on EVERY status-only PATCH, silently dropping "this meal is for X".
+    const data: Record<string, unknown> = {};
+    if ('dishId' in p) data.dishId = p.dishId;
+    if ('dishName' in p) data.dishName = p.dishName;
+    if ('icon' in p) data.icon = p.icon;
+    if ('requestedBy' in p) data.requestedBy = p.requestedBy;
+    if ('requestedFor' in p) data.requestedFor = p.requestedFor;
+    if ('status' in p) data.status = p.status;
+    if ('quantity' in p) data.quantity = p.quantity;
+
+    const expectedVersion = req.body ? Number((req.body as any).ifVersion) : NaN;
+    if (Number.isFinite(expectedVersion)) {
+      const result = await prisma.sharedPlanItem.updateMany({
+        where: { id: itemId, householdId, version: expectedVersion },
+        data: { ...data, version: { increment: 1 } },
+      });
+      if (result.count === 0) {
+        // Either the row moved, or it was already changed by someone else.
+        const fresh = await prisma.sharedPlanItem.findUnique({ where: { id: itemId } });
+        if (!fresh || fresh.householdId !== householdId) throw new APIError('NOT_FOUND', 'Item not found', 404);
+        throw new APIError('CONFLICT', 'This meal changed on another device — refresh and try again', 409);
+      }
+      const fresh = await prisma.sharedPlanItem.findUnique({ where: { id: itemId } });
+      res.json(toJson(fresh));
+      return;
+    }
+
     const updated = await prisma.sharedPlanItem.update({
       where: { id: itemId },
-      data: { ...p, requestedFor: p.requestedFor ?? null },
+      data,
     });
     res.json(toJson(updated));
   } catch (error: any) {

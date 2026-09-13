@@ -43,6 +43,9 @@ router.post('/', async (req, res) => {
 
     res.json(completed);
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
     console.error('[API] Complete slot error:', error);
     res.status(500).json({ error: 'Failed to mark slot as complete' });
   }

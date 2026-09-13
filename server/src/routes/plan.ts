@@ -84,6 +84,9 @@ router.post('/', async (req: Request, res: Response) => {
     if (error?.status === 409) {
       return res.status(409).json({ error: 'Conflict: plan was modified by another device. Please refresh and try again.' });
     }
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
     console.error('[API] Plan upsert error:', error);
     res.status(500).json({ error: 'Failed to update plan' });
   }

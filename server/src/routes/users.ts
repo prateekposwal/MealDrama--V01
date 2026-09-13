@@ -1,46 +1,36 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma';
-import { authMiddleware, generateAccessToken } from '../lib/auth';
-import type { TokenPayload } from '../lib/auth';
+import { authMiddleware } from '../lib/auth';
 
 const router = Router();
 
-// POST /api/v1/users — Create or update user (PUBLIC — no auth required)
-// Generates a JWT session token and sets it as an HttpOnly cookie.
-router.post('/', async (req, res) => {
+// POST /api/v1/users — update the CALLER's own profile.
+// Authenticated + SELF-SCOPED: never creates, never touches another user, and
+// NEVER issues a token or sets a session cookie. (The old public upsert issued
+// a JWT for any client-supplied id and could overwrite another account.)
+router.post('/', authMiddleware, async (req, res) => {
   try {
     const { id, name, email, phone, onboardingComplete } = req.body;
-    if (!id) {
-      return res.status(400).json({ error: 'Missing user id' });
+    if (id && id !== req.user?.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
+    const data: Record<string, unknown> = {};
+    if (name !== undefined) data.name = name;
+    if (email !== undefined) data.email = email;
+    if (phone !== undefined) data.phone = phone;
+    if (onboardingComplete !== undefined) data.onboardingComplete = onboardingComplete;
 
-    const user = await prisma.user.upsert({
-      where: { id },
-      update: { name, email, phone, onboardingComplete: onboardingComplete ?? false },
-      create: { id, name, email, phone, onboardingComplete: onboardingComplete ?? false },
+    const user = await prisma.user.update({
+      where: { id: req.user!.userId },
+      data,
     });
-
-    // Generate JWT for this user session
-    const payload: TokenPayload = {
-      userId: id,
-      email: email || '',
-      phone: phone || null,
-    };
-    const token = generateAccessToken(payload);
-
-    // Set HttpOnly session cookie
-    res.cookie('token', token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
-
-    // Return user + token so frontend can store in localStorage too
-    res.json({ user, token });
-  } catch (error) {
-    console.error('[API] User create error:', error);
-    res.status(500).json({ error: 'Failed to create user' });
+    res.json({ user });
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(400).json({ error: 'No account for this session' });
+    }
+    console.error('[API] User update error:', error);
+    res.status(500).json({ error: 'Failed to update user' });
   }
 });
 

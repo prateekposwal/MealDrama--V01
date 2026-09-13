@@ -4,7 +4,8 @@ import type { ShareLanguage as _Lang6 } from '../../utils/shareMessages';
 import { ALL_LANGUAGES, LANG_TTS_MAP, renderSharePreview, messageCharCount, WHATSAPP_LIMIT, SHARE_STRINGS } from '../../utils/shareMessages';
 import type { ShareLanguage } from '../../utils/shareMessages';
 import { useStore } from '../../app/store/useStore';
-import { getApiBase } from '../../lib/api';
+import { cookShareApi, cookShareUrl } from '../../app/utils/cookShareApi';
+import { getApiBase, getApiToken } from '../../lib/api';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 
 interface Props {
@@ -36,6 +37,17 @@ export default function WhatsAppShareModal({
   const [speaking, setSpeaking] = useState(false);
   const [includeEnglish, setIncludeEnglish] = useState(false);
   const [mode, setMode] = useState<'plan' | 'recipe'>('plan');
+  // Cook's live link (one stable, no-login page the cook can bookmark).
+  const householdId = useStore(s => s.householdId);
+  const [cookShare, setCookShare] = useState<{ displayName: string; enabled: boolean; url?: string; cookPhone?: string | null; notifyEnabled?: boolean; notifyAt?: string; language?: 'hi' | 'en' } | null>(null);
+  const [cookShareState, setCookShareState] = useState<'idle' | 'loading' | 'created' | 'error'>('idle');
+  const [cookLinkCopied, setCookLinkCopied] = useState(false);
+
+  // Daily WhatsApp push draft (kept local until the cook saves it).
+  const [daily, setDaily] = useState<{ enabled: boolean; phone: string; time: string; language: 'hi' | 'en' }>({
+    enabled: false, phone: '', time: '08:00', language: 'hi',
+  });
+  const [dailyState, setDailyState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
     if (isOpen) {
@@ -46,6 +58,96 @@ export default function WhatsAppShareModal({
       );
     }
   }, [isOpen, preselectedSlot, availableSlots, completedSlots]);
+
+  // Load the existing cook link when the household context opens the modal.
+  useEffect(() => {
+    let cancelled = false;
+    if (isOpen && householdId) {
+      setCookShareState('loading');
+      cookShareApi.get(householdId)
+        .then((r: any) => {
+          if (cancelled) return;
+          if (r.share) {
+            setCookShare({ ...r.share, url: r.share.url });
+            // Prefill the daily push from what's already saved (or the cook
+            // number the manager entered elsewhere) — never overwrite the
+            // user's own phone ex hdr.
+            setDaily(d => ({
+              enabled: r.share.notifyEnabled ?? false,
+              phone: r.share.cookPhone ?? defaultPhone,
+              time: r.share.notifyAt ?? d.time,
+              language: r.share.language ?? d.language,
+            }));
+          } else {
+            setCookShare(null);
+            setDaily(d => ({ ...d, phone: defaultPhone }));
+          }
+          setCookShareState('idle');
+        })
+        .catch(() => {
+          if (!cancelled) setCookShareState('error');
+        });
+    }
+    return () => { cancelled = true; };
+  }, [isOpen, householdId, defaultPhone]);
+
+  const createCookShare = useCallback(async () => {
+    if (!householdId) return;
+    setCookShareState('loading');
+    try {
+      const r: any = await cookShareApi.put(householdId, {});
+      setCookShare({ ...r.share, url: r.share.url });
+      setCookShareState('created');
+    } catch {
+      setCookShareState('error');
+    }
+  }, [householdId]);
+
+  const rotateCookShare = useCallback(async () => {
+    if (!householdId) return;
+    setCookShareState('loading');
+    try {
+      const r: any = await cookShareApi.put(householdId, { rotate: true });
+      setCookShare({ ...r.share, url: r.share.url });
+      setCookShareState('idle');
+    } catch {
+      setCookShareState('error');
+    }
+  }, [householdId]);
+
+  // Save the daily WhatsApp push config (auto-creates the cook link — PUT
+  // upserts). Enabling it with a phone captures the cook's opt-in server-side.
+  const saveDailyConfig = useCallback(async () => {
+    if (!householdId || !daily.phone.replace(/\D/g, '') || !daily.enabled) return;
+    setDailyState('saving');
+    try {
+      const r: any = await cookShareApi.put(householdId, {
+        cookPhone: daily.phone,
+        notifyEnabled: daily.enabled,
+        notifyAt: daily.time.padStart(5, '0'),
+        language: daily.language,
+      });
+      setCookShare({ ...r.share, url: r.share.url });
+      setDailyState('saved');
+      useStore.getState().setToast?.({ message: daily.enabled ? 'Daily WhatsApp plan saved' : 'Daily WhatsApp plan turned off', type: 'success' });
+      setTimeout(() => setDailyState('idle'), 2500);
+    } catch {
+      setDailyState('error');
+    }
+  }, [householdId, daily]);
+
+  const toggleDaily = (enabled: boolean) => {
+    setDaily(d => ({ ...d, enabled }));
+    if (!enabled) setDailyState('idle');
+  };
+
+  const copyCookLink = useCallback(() => {
+    if (!cookShare?.url) return;
+    navigator.clipboard.writeText(cookShareUrl(cookShare.url)).then(() => {
+      setCookLinkCopied(true);
+      setTimeout(() => setCookLinkCopied(false), 2000);
+    });
+  }, [cookShare]);
 
   const preview = useMemo(() => {
     const lang6 = language as _Lang6;
@@ -94,7 +196,10 @@ export default function WhatsAppShareModal({
     try {
       const resp = await fetch(`${getApiBase()}/tts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getApiToken() ? { Authorization: `Bearer ${getApiToken()}` } : {}),
+        },
         body: JSON.stringify({ text: speakText, language }),
       });
       if (resp.ok) {
@@ -145,6 +250,99 @@ export default function WhatsAppShareModal({
         </div>
 
         <div className="overflow-y-auto px-5 py-4 space-y-4 flex-1">
+          {householdId && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Cook's live link</p>
+                  <p className="text-[11.5px] text-gray-500 mt-0.5">
+                    {cookShare
+                      ? 'One stable page your cook can bookmark — updates on its own as the household changes meals.'
+                      : 'A no-login page with today\'s family plan that updates automatically. No app, no login needed.'}
+                  </p>
+                </div>
+                <button onClick={rotateCookShare} disabled={!cookShare || cookShareState === 'loading'}
+                  className="shrink-0 ml-2 px-2.5 py-1.5 rounded-lg bg-white border border-emerald-300 text-[10.5px] font-bold text-emerald-700 active:scale-95 disabled:opacity-40"
+                  title="Rotate (revoke) the link">{cookShare ? 'Rotate' : ''}</button>
+              </div>
+              {cookShareState === 'loading' && (
+                <p className="text-[11px] text-gray-400 mt-2">Loading…</p>
+              )}
+              {cookShareState === 'error' && (
+                <p className="text-[11px] text-red-500 mt-2">Couldn't reach the server. Try again.</p>
+              )}
+              {cookShareState !== 'loading' && !cookShare && householdId && (
+                <button onClick={createCookShare}
+                  className="w-full mt-2 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold active:scale-[0.98]">
+                  Create cook link
+                </button>
+              )}
+              {cookShare?.url && (
+                <div className="flex items-center gap-2 mt-2">
+                  <code className="flex-1 min-w-0 truncate rounded-lg bg-white border border-emerald-200 px-2.5 py-2 text-[11px] text-gray-600">{cookShareUrl(cookShare.url)}</code>
+                  <button onClick={copyCookLink} className="shrink-0 px-2.5 py-2 rounded-lg bg-white border border-emerald-300 text-xs font-bold text-emerald-700 active:scale-95">
+                    {cookLinkCopied ? '✓' : 'Copy'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {householdId && (
+            <div className="rounded-xl border border-[#FF385C]/15 bg-white p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-[#FF385C]">Daily on WhatsApp</p>
+                  <p className="text-[11.5px] text-gray-500 mt-0.5">
+                    Every morning the cook gets today's plan + what's left to do. Cook replies on WhatsApp — "done" closes the day, "tomatoes nahi" flags shortages.
+                  </p>
+                </div>
+                <button
+                  onClick={() => toggleDaily(!daily.enabled)}
+                  className={`shrink-0 w-12 h-7 rounded-full transition-colors ${daily.enabled ? 'bg-[#FF385C]' : 'bg-gray-200'}`}
+                  aria-pressed={daily.enabled}
+                >
+                  <span className={`block w-5 h-5 rounded-full bg-white transition-transform ${daily.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
+              {daily.enabled && (
+                <>
+                  <div className="mt-3 space-y-2">
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                      <input type="tel" value={daily.phone} onChange={e => setDaily(d => ({ ...d, phone: e.target.value }))}
+                        placeholder="+91 98765 43210"
+                        className="w-full bg-gray-50 rounded-xl py-2.5 pl-9 pr-3 text-sm font-medium border border-gray-200 outline-none focus:border-[#FF385C] transition-all"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="time" value={daily.time} onChange={e => setDaily(d => ({ ...d, time: e.target.value }))}
+                        className="flex-1 bg-gray-50 rounded-xl py-2.5 px-3 text-sm font-medium border border-gray-200 outline-none focus:border-[#FF385C] transition-all"
+                      />
+                      <select value={daily.language} onChange={e => setDaily(d => ({ ...d, language: e.target.value as 'hi' | 'en' }))}
+                        className="flex-1 bg-gray-50 rounded-xl py-2.5 px-3 text-sm font-bold border border-gray-200 outline-none focus:border-[#FF385C] transition-all"
+                      >
+                        <option value="hi">हिन्दी (Hinglish)</option>
+                        <option value="en">English</option>
+                      </select>
+                    </div>
+                    <p className="text-[10.5px] text-gray-400 leading-snug">
+                      The cook has to say yes to this — WhatsApp Business messages need their opt-in. Turning it on saves their consent. Turn off anytime.
+                    </p>
+                  </div>
+
+                  <button onClick={saveDailyConfig} disabled={!daily.phone.replace(/\D/g, '') || dailyState === 'saving'}
+                    className={`w-full mt-2.5 py-2.5 rounded-xl text-xs font-bold active:scale-[0.98] transition-all disabled:opacity-40 ${
+                      dailyState === 'error' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-[#FF385C] text-white'
+                    }`}
+                  >
+                    {dailyState === 'saving' ? 'Saving…' : dailyState === 'saved' ? `✓ Daily plan on ✓ ${daily.phone.replace(/\D/g, '').slice(-10)}` : dailyState === 'error' ? "Couldn't save — try again" : 'Save daily plan'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
           {recipeBuilder && (
             <div className="flex rounded-xl border border-gray-200 overflow-hidden text-xs font-bold">
               <button onClick={() => setMode('plan')}

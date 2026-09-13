@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authMiddleware } from '../lib/auth';
-import { APIError } from '../index';
+import { APIError } from '../lib/apiError';
 import { z } from 'zod';
 
 const router = Router();

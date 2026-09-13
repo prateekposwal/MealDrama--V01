@@ -27,6 +27,11 @@ app.set('trust proxy', 1);
 // MIDDLEWARE
 // ============================================================================
 
+// The WhatsApp webhook needs the RAW body for X-Hub-Signature-256 verification.
+// It claims this path BEFORE the global json parser below (body-parser marks
+// `req._body`; the global json then skips the already-parsed request).
+app.use('/api/v1/webhook/whatsapp', express.raw({ type: 'application/json', limit: '1mb' }));
+
 // JSON parsing
 app.use(express.json({ limit: '100kb' }));
 app.use(express.urlencoded({ extended: true, limit: '100kb' }));
@@ -187,6 +192,9 @@ app.use('/api/v1/households', require('./routes/diet').householdDietsRouter);
 app.use('/api/v1/meal-log', require('./routes/mealLog').default);
 app.use('/api/v1/taste-ledger', require('./routes/tasteLedger').default);
 app.use('/api/v1/households', require('./routes/householdPlans').default);
+app.use('/api/v1/households', require('./routes/cookShare').default);
+app.use('/api/v1', require('./routes/cookShare').cookPageRouter);
+app.use('/api/v1', require('./routes/whatsappWebhook').default);
 
 // SPA fallback (shared with the asset-MIME regression suite — see
 // server/src/lib/spaFallback.ts for the contract). Serves index.html ONLY for
@@ -229,6 +237,12 @@ const startServer = async () => {
       console.log(`✓ Health Check: http://localhost:${PORT}/health`);
       console.log(`✓ Trust proxy: ${app.get('trust proxy')}`);
     });
+
+    // Cook WhatsApp channel — the daily work-order push (idempotent, unref'd):
+    // harmless in dry-run (logs the composed message), real sends once the
+    // WHATSAPP_* env values land.
+    const { startCookScheduler } = require('./lib/cookScheduler');
+    startCookScheduler();
 
     // Graceful shutdown
     process.on('SIGTERM', async () => {

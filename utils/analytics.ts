@@ -3,7 +3,7 @@
 // Telemetry targets the SAME base the app uses (getApiBase) so a stale
 // hardcoded default can never fight the API-base self-heal.
 
-import { getApiBase, defaultApiBase } from '../lib/api';
+import { getApiBase, defaultApiBase, getApiToken } from '../lib/api';
 
 const KEY = 'md-events';
 const CAP = 200;
@@ -76,9 +76,13 @@ async function flush(): Promise<void> {
   flushing = true;
   try {
     const toSend = buf.slice();
+    const token = getApiToken();
     const res = await fetch(flushTarget(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ events: toSend }),
     });
     if (res.ok) {

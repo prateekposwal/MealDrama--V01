@@ -114,6 +114,7 @@ const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType
     const defaultName = user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : '');
     const [nameDraft, setNameDraft] = useState<string>(defaultName);
     const [showSaved, setShowSaved] = useState(false);
+    const [dietRetrying, setDietRetrying] = useState(false);
     const savedTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
     // "What changed" — any diet/region/slots edit gets a plain-language toast.
@@ -622,12 +623,15 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                         )}
                         {dietSyncState === 'failed' && (
                             <button
-                                onClick={() => retryDietSync()}
-                                disabled={dietSyncState === 'saving'}
+                                onClick={() => {
+                                    setDietRetrying(true);
+                                    void retryDietSync().finally(() => setDietRetrying(false));
+                                }}
+                                disabled={dietRetrying}
                                 className="flex items-center gap-0.5 text-[10px] font-bold text-[#FF385C] hover:text-[#E31C5F] disabled:opacity-40 disabled:cursor-not-allowed"
                                 aria-label="Retry diet sync"
                             >
-                                {dietSyncState === 'saving'
+                                {dietRetrying
                                     ? <><RefreshCw size={11} className="animate-spin" /> retrying…</>
                                     : <><RefreshCw size={11} /> retry</>
                                 }

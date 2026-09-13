@@ -282,6 +282,69 @@ export function regionProximity(pref: string, dishRegion: string): number {
   return 0;
 }
 
+/** TRUE when the user's spice surface is mild/low — the axis that AMPLIFIES
+ *  cuisine affinity (Goal-2 tuning, 2026-09-13). Reads EITHER surface (the
+ *  profile preferences OR the canonical taste profile) so the amplification
+ *  works regardless of which source the caller wired. 'low' (a legacy label)
+ *  and numeric-1 (onboarding scale) both normalize to mild upstream. */
+export function isMildSpiceUser(
+  prefs?: PreferenceFields | null,
+  tasteProfile?: TasteProfile | null,
+): boolean {
+  if (prefs) {
+    const s = _norm(prefs.spiceLevel ?? '');
+    if (s === 'mild' || s === 'low') return true;
+  }
+  if (tasteProfile?.spiceLevel === 'mild') return true;
+  return false;
+}
+
+/** The cuisine-affinity boost per matched key for a given user. Mild/low-spice
+ *  users get DOUBLE the per-key boost and a higher cap (1.6/key → 3.0 max vs
+ *  the legacy 0.8/key → 2.0 max): for a mild palate the ONLY thing that can
+ *  express "I love South Indian food" IS the cuisine affinity (spicy south
+ *  dishes are already penalised by the mild-spice term), so the affinity must
+ *  carry more weight. Non-mild users keep the EXACT legacy numbers — the
+ *  function returns the legacy tuple whenever isMild is false. */
+export function cuisineAffinityBoostUnit(isMild: boolean): { perKey: number; cap: number } {
+  return isMild ? { perKey: 1.6, cap: 3.0 } : { perKey: 0.8, cap: 2.0 };
+}
+
+/**
+ * Region-tier adjustment for the candidate sort (Goal-2, 2026-09-13): a
+ * mild/low-spice user's EXPLICIT cuisine affinity is an appropriateness
+ * signal, not a tie-break — a dish carrying a cuisine the user loves is at
+ * least as appropriate for THEM as their home region. Returns a NEGATIVE tier
+ * delta (-3) for a matching dish of a mild-affinity user, so the match sorts
+ * ahead of home-region dishes (matched tier-2 → -1, tier-1 → -2, tier-0 → -3).
+ * Returns 0 — the legacy region tier, byte-identical — for non-mild users,
+ * users without affinities, or non-matching dishes.
+ *
+ * WHY THIS IS NEEDED (measured, 2026-09-13): with exact-key matching today a
+ * north-region user's south affinity had ZERO effect on their plan (same
+ * userId with/without the affinity → identical 20/20) — the region tier
+ * (north tier-0 pool ≥34/slot) was compared BEFORE the personalization
+ * comparator, so no score could ever lift a far-region match into the picks.
+ * The 10-11/20 overlap between "South+mild" and "simple-home" (same
+ * North+Veg+Balanced) was pure jitter. The lift makes the affinity real for
+ * the user who can genuinely use it (mild palate), while every other user's
+ * ordering stays byte-identical.
+ */
+export function affinityTierLift(
+  d: Dish,
+  prefs?: PreferenceFields | null,
+  tasteProfile?: TasteProfile | null,
+): number {
+  if (!isMildSpiceUser(prefs, tasteProfile)) return 0;
+  const affin = [
+    ...(prefs?.cuisineAffinities ?? []),
+    ...(tasteProfile?.cuisineAffinities ?? []),
+  ].map(normalizeCuisineAffinityKey).filter(Boolean);
+  if (affin.length === 0) return 0;
+  const cs = new Set(dishCuisineKeys(d).map(normalizeCuisineAffinityKey));
+  return affin.some(a => cs.has(a)) ? -3 : 0;
+}
+
 /** Preference proximity score — spice alignment + disliked penalty + region
  *  boost. Higher = better. Disliked penalties dominate jitter so an explicit
  *  dislike reliably drops a dish below its peers. */
@@ -325,12 +388,15 @@ export function preferenceScore(d: Dish, prefs?: PreferenceFields | null): numbe
   }
 
   // Cuisine affinity — reward dishes whose REAL cuisine tags the user loves.
+  // Mild/low-spice users get the amplified boost (1.6/key, cap 3.0) — the
+  // Goal-2 tuning; everyone else keeps the legacy 0.8/key, cap 2.0 exactly.
   const aff = prefs.cuisineAffinities;
   if (aff?.length) {
     const cs = new Set(dishCuisineKeys(d));
+    const { perKey, cap } = cuisineAffinityBoostUnit(isMildSpiceUser(prefs));
     let boost = 0;
-    for (const a of aff) if (cs.has(normalizeCuisineAffinityKey(a))) boost += 0.8;
-    score += Math.min(2.0, boost);
+    for (const a of aff) if (cs.has(normalizeCuisineAffinityKey(a))) boost += perKey;
+    score += Math.min(cap, boost);
   }
   return score;
 }

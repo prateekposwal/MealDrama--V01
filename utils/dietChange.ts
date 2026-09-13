@@ -128,7 +128,7 @@ export async function changeDiet(
     diet: string;
     prevDiet?: string;
     region?: string;
-    spiceLevel?: number;
+    spiceLevel?: 'mild' | 'medium' | 'hot';
     healthGoals?: string[];
     plannedSlots?: string[];
     cookContact?: string;

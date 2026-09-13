@@ -15,6 +15,7 @@ model User {
   name               String?
   googleId           String?  @unique
   systemId           String?  @unique // e.g., USER-8821
+  deviceSecret       String? // bcrypt hash binding this guest account to a device (self-heal proof)
   createdAt          DateTime @default(now())
   onboardingComplete Boolean  @default(false)
 
@@ -44,6 +45,7 @@ model Household {
   members         HouseholdMember[]
   expenses        Expense[]
   sharedPlanItems SharedPlanItem[]
+  cookShare       CookShare?
   stock           HouseholdStock[]
   assumptions     HouseholdAssumption[]
   memberLanes     MemberLane[]
@@ -132,6 +134,7 @@ model SharedPlanItem {
   requestedFor String?  @db.VarChar(64) // memberId it's for (null = family)
   status       String   @default("planned") // planned, requested, accepted, completed
   quantity     Int      @default(1)
+  version      Int      @default(0) // optimistic lock — bump on every PATCH (CAS basis)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -139,6 +142,36 @@ model SharedPlanItem {
 
   @@index([householdId, date])
   @@index([householdId, mealType])
+}
+
+/// A single, stable, no-login cook link for a household. The cook opens the
+/// token URL and sees the family's plan for the day WITHOUT an account. The
+/// token is the credential — rotate to revoke.
+///
+/// Since 2026-09-16 this is ALSO the WhatsApp channel config: the cook's ONLY
+/// channel is WhatsApp Business API. `cookPhone` + `notifyEnabled` +
+/// `consentAt` gate the daily push; `lastSentDate` makes the send idempotent
+/// (a restart never re-sends the same day); `language` picks the composed
+/// work-order message (Hindi first — the cook-artifact must be utterable).
+model CookShare {
+  id            String    @id @default(uuid())
+  householdId   String    @unique
+  token         String    @unique
+  displayName   String    @default("Cook") // how the page addresses the cook
+  enabled       Boolean   @default(true)
+  cookPhone     String? // E.164 cook WhatsApp number — the send target
+  notifyEnabled Boolean   @default(false) // daily plan push on WhatsApp
+  notifyAt      String    @default("08:00") // local HH:MM the push aligns to
+  notifyTz      String    @default("Asia/Kolkata")
+  language      String    @default("hi") // work-order message language: hi | en
+  lastSentDate  String? // YYYY-MM-DD of the last daily send (idempotent)
+  consentAt     DateTime? // explicit cook opt-in captured at save time
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
 }
 
 /// The shared KITCHEN — one pantry ledger per household. Any member's

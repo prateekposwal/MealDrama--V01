@@ -534,7 +534,8 @@ export const useStore = create<StoreState>()(
         // registerUser() retries internally (3 attempts with backoff).
         // If it still fails, ensureToken() will retry before household ops.
         try {
-          const result = await registerUser(userId, username);
+          const { getOrCreateDeviceSecret } = await import('../../utils/deviceSecret');
+          const result = await registerUser(userId, username, getOrCreateDeviceSecret());
           if (result.ok && result.token) {
             get().setToken(result.token);
           } else if (!result.ok) {
@@ -1113,7 +1114,8 @@ export const useStore = create<StoreState>()(
         if (!user?.id) {
           return { ok: false, reason: 'No account is signed in on this device. Sign in again, then create the household.' };
         }
-        const result = await registerUser(user.id, user.username || user.name || 'user');
+        const { getOrCreateDeviceSecret } = await import('../../utils/deviceSecret');
+        const result = await registerUser(user.id, user.username || user.name || 'user', getOrCreateDeviceSecret());
         if (result?.ok && result?.token) {
           get().setToken(result.token);
           return { ok: true };

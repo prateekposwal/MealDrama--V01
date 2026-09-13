@@ -10,7 +10,7 @@ const STEPS = [
     { icon: '🍛', label: 'Pick meals', desc: '400+ Indian dishes to choose from' },
     { icon: '🔄', label: 'Swap & customize', desc: 'Adjust servings, sides & pairings' },
     { icon: '🤖', label: 'Auto-rotates weekly', desc: 'New plan every week from favorites' },
-    { icon: '👨‍🍳', label: 'Cook gets it', desc: 'Full plan on WhatsApp every morning' },
+    { icon: '👨‍🍳', label: 'Cook gets it', desc: 'Live plan link that updates itself' },
 ];
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {

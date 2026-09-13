@@ -52,6 +52,10 @@ import {
   rotateBandForUser,
   fnv1a,
   isoWeekKey,
+  isMildSpiceUser,
+  cuisineAffinityBoostUnit,
+  affinityTierLift,
+  preferenceScore,
   type PersonalizationContext,
 } from '../utils/mealPersonalization';
 import { allowedTypesForDiet } from '../utils/dietQuota';
@@ -582,5 +586,182 @@ describe('change-surface behavior: two profiles differing only in focus → diff
     expect(trayA).not.toEqual(trayB);
     const overlap = trayA.filter(x => trayB.includes(x)).length;
     expect(trayA.length - overlap).toBeGreaterThanOrEqual(5);         // materially different fills
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9 · Cuisine-affinity weight tuning for MILD users (2026-09-13)
+//
+// Goal-2 contract: a mild/low-spice user's explicit cuisine affinity must
+// genuinely shape the plan. BEFORE this change a north-region user's south
+// affinity had ZERO effect (same userId with/without affinity → identical
+// 20/20 — the region tier was compared before the personalization comparator,
+// and the tier-0 pool ≥34/slot always filled first). The measured baseline of
+// the QA pair (South+mild vs simple-home, same North+Veg+Balanced) was
+// 10/20 shared (Jaccard 0.333) — pure jitter. AFTER the tuning (affinity
+// tier-lift + doubled boost for mild users) the same pair measures 3-6/20
+// shared (Jaccard 0.08-0.18, Dice 0.15-0.30) across the deterministic ID
+// pairs tested — inside the stated band "≤ ~6/20 (Jaccard ≤ ~0.23)".
+//   south-mild:       mild spice + 'south-indian' affinity
+//   simple-home:      mild spice, familiar-only, no affinities
+//   punjabi-spicy:    HOT spice + 'punjabi' affinity (NOT mild — untouched)
+//   allergic-novelty: medium + peanuts/dairy allergies + adventurous (untouched)
+// PRESERVED (locked below + by the suites above): diet gate (20/20 compliance),
+// allergy/dislike exclusion, health-focus weights, household/history penalties
+// (existing suites), variety/near-dup gate (dedupe), seeded-PRNG determinism,
+// and byte-identical plans for NON-mild users (the strongly-flavored pair
+// overlaps are asserted EXACTLY — they cannot move).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('goal-2: mild users get a REAL cuisine-affinity signal (South+mild vs simple-home separates)', () => {
+  type TP = NonNullable<PersonalizationContext['tasteProfile']>;
+  const tp = (p: Partial<TP>): TP => ({ spiceLevel: 'medium', allergies: [], dislikedItems: [], noveltyPreference: 'balanced', cuisineAffinities: [], ...p });
+  const rmCtx = (userId: string, p: Partial<PersonalizationContext>): PersonalizationContext => ({
+    userId, deviceId: `dev-${userId}`, healthFocus: 'Balanced',
+    preferences: { spiceLevel: 'medium', preferredRegions: ['North India'], dislikedItems: [] },
+    ...p,
+  });
+
+  const ROOMMATES: Array<[string, PersonalizationContext]> = [
+    ['south-mild', rmCtx('rm-south-mild', {
+      preferences: { spiceLevel: 'mild', preferredRegions: ['North India'], dislikedItems: [], cuisineAffinities: ['south-indian'] },
+      tasteProfile: tp({ spiceLevel: 'mild', cuisineAffinities: ['south-indian'] }),
+    })],
+    ['simple-home', rmCtx('rm-simple-home', {
+      preferences: { spiceLevel: 'mild', preferredRegions: ['North India'], dislikedItems: [] },
+      tasteProfile: tp({ spiceLevel: 'mild', noveltyPreference: 'familiar' }),
+    })],
+    ['punjabi-spicy', rmCtx('rm-punjabi-spicy', {
+      preferences: { spiceLevel: 'hot', preferredRegions: ['North India'], dislikedItems: [], cuisineAffinities: ['punjabi'] },
+      tasteProfile: tp({ spiceLevel: 'hot', cuisineAffinities: ['punjabi'] }),
+    })],
+    ['allergic-novelty', rmCtx('rm-allergic-novelty', {
+      preferences: { spiceLevel: 'medium', preferredRegions: ['North India'], dislikedItems: [] },
+      tasteProfile: tp({ allergies: ['peanuts', 'dairy'], noveltyPreference: 'adventurous' }),
+    })],
+  ];
+
+  const plans = new Map<string, string[]>();
+  const trays = new Map<string, ReturnType<typeof gen>>();
+  for (const [k, c] of ROOMMATES) {
+    const r = gen(c);
+    trays.set(k, r);
+    plans.set(k, planIds(r.tray));
+  }
+
+  it('all four roommate plans stay 20/20, diet/region-valid, unique (the gates never yield to the affinity)', () => {
+    for (const [k, r] of trays) {
+      expect(r.complete, k).toBe(true);
+      expect(trayTotals(r.tray).total, k).toBe(20);
+      expect(finalCompliance(r.tray, 'veg').violations, k).toEqual([]);
+      expect(uniqueIds(r.tray), k).toBe(true);
+    }
+  });
+
+  it('THE MILD-PAIR: South+mild × simple-home drops from 10-11/20 shared to ≤ 6/20 (Jaccard ≤ 0.23, Dice ≤ 0.30)', () => {
+    const a = plans.get('south-mild')!;
+    const b = plans.get('simple-home')!;
+    const shared = a.filter(x => b.includes(x)).length;
+    // Honest band: target ≤ 6/20 (Jaccard ≤ ~0.23); measured on the real
+    // library with deterministic IDs: rm-* pair = 3/20, qa-exact pair = 6/20
+    // (both inside the band — asserted ≤ 6 here).
+    expect(shared).toBeLessThanOrEqual(6);
+    expect(shared).toBeLessThan(10); // hard regression floor: the OLD 10-11/20 baseline can never return
+    expect(jaccard(a, b)).toBeLessThanOrEqual(0.23);
+    const dice = (2 * shared) / (a.length + b.length);
+    expect(dice).toBeLessThanOrEqual(0.30);
+    // The south-mild plan must actually LOOK south: ≥ 6 of 20 dishes carry a
+    // south-family cuisine key (the affinity reached the plan — the old
+    // equivalent was 0: the affinity did nothing).
+    const southKeys = ['south-indian', 'andhra', 'kerala', 'chettinad', 'tamil', 'udupi', 'coorg', 'hyderabadi', 'goan', 'south'];
+    const southCount = a.filter(id => {
+      const d = DISH_LIBRARY.find(x => x.id === id)!;
+      const tags = new Set((d.tags ?? []).map(t => t.toLowerCase()));
+      const region = (d.region ?? '').toLowerCase();
+      return southKeys.some(k => region.includes(k) || tags.has(k));
+    }).length;
+    expect(southCount).toBeGreaterThanOrEqual(6);
+  });
+
+  it('the strongly-flavored profiles KEEP their existing overlaps EXACTLY (non-mild users are byte-identical)', () => {
+    // punjabi-spicy (hot) and allergic-novelty (medium) are NOT mild → no
+    // tier-lift, no boost change → their plans and pairwise overlaps cannot
+    // move. simple-home is mild but has NO affinities → also untouched.
+    const sh = plans.get('simple-home')!;
+    const pj = plans.get('punjabi-spicy')!;
+    const al = plans.get('allergic-novelty')!;
+    const shared = (x: string[], y: string[]) => x.filter(v => y.includes(v)).length;
+    expect(shared(sh, pj)).toBe(11); // measured BEFORE == AFTER for non-lifted pairs
+    expect(shared(sh, al)).toBe(9);
+    expect(shared(pj, al)).toBe(8);
+  });
+
+  it('determinism holds for the new tuned paths: same inputs → byte-identical plans (seeded PRNG untouched)', () => {
+    const c = ROOMMATES[0]![1];
+    const r1 = gen(c);
+    const r2 = gen(c);
+    expect(JSON.stringify(r1.tray)).toBe(JSON.stringify(r2.tray));
+  });
+
+  it('RNG isolation holds for the tuned paths: poisoned Math.random → identical plan', () => {
+    const c = ROOMMATES[0]![1];
+    const clean = gen(c);
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.123456789);
+    const poisoned = gen(c);
+    spy.mockRestore();
+    expect(JSON.stringify(poisoned.tray)).toBe(JSON.stringify(clean.tray));
+  });
+});
+
+describe('goal-2 unit surface: mild amplification + tier lift, non-mild byte-identical', () => {
+  const tp = (p: Partial<NonNullable<PersonalizationContext['tasteProfile']>>): NonNullable<PersonalizationContext['tasteProfile']> =>
+    ({ spiceLevel: 'medium', allergies: [], dislikedItems: [], noveltyPreference: 'balanced', cuisineAffinities: [], ...p });
+
+  it('isMildSpiceUser: mild/low on EITHER surface is mild; medium/hot/absent are not', () => {
+    expect(isMildSpiceUser({ spiceLevel: 'mild' })).toBe(true);
+    expect(isMildSpiceUser({ spiceLevel: 'low' })).toBe(true);
+    expect(isMildSpiceUser({ spiceLevel: 'medium' })).toBe(false);
+    expect(isMildSpiceUser({ spiceLevel: 'hot' })).toBe(false);
+    expect(isMildSpiceUser({})).toBe(false);
+    expect(isMildSpiceUser(null, tp({ spiceLevel: 'mild' }))).toBe(true);
+    expect(isMildSpiceUser({ spiceLevel: 'hot' }, tp({ spiceLevel: 'mild' }))).toBe(true);
+    expect(isMildSpiceUser(undefined, tp({ spiceLevel: 'hot' }))).toBe(false);
+  });
+
+  it('cuisineAffinityBoostUnit: mild = 1.6/key cap 3.0; every non-mild user keeps the legacy 0.8/key cap 2.0', () => {
+    expect(cuisineAffinityBoostUnit(true)).toEqual({ perKey: 1.6, cap: 3.0 });
+    expect(cuisineAffinityBoostUnit(false)).toEqual({ perKey: 0.8, cap: 2.0 });
+  });
+
+  it('affinityTierLift: -3 only for a mild user whose affinity matches a dish; 0 for everyone else', () => {
+    const rasam = DISH_LIBRARY.find(d => d.id === 'rasam')!; // keys: tamil/south-indian/south
+    const alooParatha = DISH_LIBRARY.find(d => d.id === 'aloo-paratha')!; // north, no south key
+    // Mild + matched → -3 (the affinity lifts the dish ahead of the home tier).
+    expect(affinityTierLift(rasam, { spiceLevel: 'mild', cuisineAffinities: ['south-indian'] })).toBe(-3);
+    // Mild but dish NOT matched → 0 (byte-identical tier).
+    expect(affinityTierLift(alooParatha, { spiceLevel: 'mild', cuisineAffinities: ['south-indian'] })).toBe(0);
+    // Non-mild (hot / medium / absent) → 0 even for a matching dish.
+    expect(affinityTierLift(rasam, { spiceLevel: 'hot', cuisineAffinities: ['south-indian'] })).toBe(0);
+    expect(affinityTierLift(rasam, { spiceLevel: 'medium', cuisineAffinities: ['south-indian'] })).toBe(0);
+    expect(affinityTierLift(rasam, undefined)).toBe(0);
+    // Mild but NO affinities → 0.
+    expect(affinityTierLift(rasam, { spiceLevel: 'mild' })).toBe(0);
+    // Taste-profile surface drives the lift too.
+    expect(affinityTierLift(rasam, undefined, tp({ spiceLevel: 'mild', cuisineAffinities: ['south-indian'] }))).toBe(-3);
+    expect(affinityTierLift(rasam, undefined, tp({ spiceLevel: 'medium', cuisineAffinities: ['south-indian'] }))).toBe(0);
+  });
+
+  it('preferenceScore: the mild boost is amplified, the non-mild boost is the EXACT legacy value', () => {
+    const rasam = DISH_LIBRARY.find(d => d.id === 'rasam')!;
+    const mild = personalizationScore(rasam, { userId: 'u-b', preferences: { spiceLevel: 'mild', cuisineAffinities: ['south-indian'] }, jitterScale: 0 });
+    const medium = personalizationScore(rasam, { userId: 'u-b', preferences: { spiceLevel: 'medium', cuisineAffinities: ['south-indian'] }, jitterScale: 0 });
+    const legacy0 = preferenceScore(rasam, { spiceLevel: 'medium', cuisineAffinities: ['south-indian'] });
+    const legacyHot = preferenceScore(rasam, { spiceLevel: 'hot', cuisineAffinities: ['south-indian'] });
+    const mildScore = preferenceScore(rasam, { spiceLevel: 'mild', cuisineAffinities: ['south-indian'] });
+    expect(mildScore - preferenceScore(rasam, { spiceLevel: 'mild', cuisineAffinities: [] }))
+      .toBeCloseTo(1.6); // one matched key × amplified unit
+    expect(mild).toBeGreaterThan(medium); // the tuned path lifts explicitly
+    // Non-mild: hot and medium produce the SAME legacy +0.8 boost (byte-identical).
+    expect(legacy0).toBe(legacyHot);
+    expect(legacy0 - preferenceScore(rasam, { spiceLevel: 'medium' })).toBeCloseTo(0.8);
   });
 });

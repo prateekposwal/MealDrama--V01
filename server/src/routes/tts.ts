@@ -2,8 +2,10 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
+import { authMiddleware } from '../lib/auth';
 
 const router = Router();
+router.use(authMiddleware);
 
 const TMP_DIR = path.join(__dirname, '../../tmp/audio');
 if (!fs.existsSync(TMP_DIR)) {
