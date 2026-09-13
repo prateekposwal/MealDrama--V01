@@ -17,6 +17,7 @@ import { getDishStyle } from '../../meal/constants/dishStyles';
 import { getIngredientsForMealOption } from '../../utils/ingredientUtils';
 import { GENERATED_INGREDIENTS } from '../../meal/constants/generatedIngredients';
 import { useStore } from '../../app/store/useStore';
+import { recordTasteEvent } from '../../app/lib/tasteLedger';
 import { getISODate, addDaysISO, daysBetweenISO } from '../../utils/dateUTC';
 import { onConnectivityChange } from '../../app/utils/connectivity';
 import { nativeStorage } from '../../app/utils/nativeStorage';
@@ -542,6 +543,15 @@ export const useTrayStore = create<TrayStore>()(
         const swappedIngredients = getIngredientNamesForMeal(newMeal.id);
         if (swappedIngredients.length > 0) {
           useStore.getState().addToPantry(swappedIngredients);
+        }
+
+        // Taste ledger: the REPLACEMENT event — old dish → new dish. ONE hook
+        // (the swap is the only rewritten-meal surface), so a swap is never
+        // double-recorded. Fire-and-forget; offline failures never break the
+        // swap flow (the local cache keeps the read model fresh).
+        const swapUserId = useStore.getState().user?.id;
+        if (swapUserId && oldMealId && newMeal.id) {
+          void recordTasteEvent(swapUserId, oldMealId, 'replacedTo', newMeal.id);
         }
 
         // FIX 1: Sync swap to loop queue — replace oldDishId with newDishId

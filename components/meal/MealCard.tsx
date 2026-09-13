@@ -43,6 +43,12 @@ interface MealCardProps {
     /** Extra servings from guest mode */
     guestExtra?: number;
     onUpdateInline?: (updates: Partial<TrayItem>) => void;
+    /** Taste personalization reason line (recommendationReason) — rendered
+     *  under the title ONLY when truthy (never filler). */
+    reason?: string | null;
+    /** Optional taste feedback — renders ❤️ / 👎 on the card, calls back
+     *  with the dish id + action. Absent → no buttons (byte-identical). */
+    onTasteAction?: (dishId: string, action: 'like' | 'dislike') => void;
     hideTime?: boolean;
     hideChips?: boolean;
     onShareSlot?: () => void;
@@ -54,7 +60,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
     isLocked, isMissed, onRemove, editable = true,
     swapCustomizeOpen, onSwapCustomizeOpen, onSwapCustomizeClose,
     onUpdateInline, hideTime = false, onShareSlot, hideSlotLabel,
-    guestExtra,
+    guestExtra, reason, onTasteAction,
 }) => {
     const [editingTime, setEditingTime] = useState(false);
     const [justSwapped, setJustSwapped] = useState(false);
@@ -185,6 +191,11 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                     <h4 className="font-bold text-[16px] leading-snug text-gray-900 h-[40px] flex items-center">
                         <span className="line-clamp-2">{item.title || item.name}</span>
                     </h4>
+                    {reason && (
+                        <p className="text-[11px] leading-snug text-gray-500 mt-0.5" data-testid={`reason-${item.meal_id}`}>
+                            {reason}
+                        </p>
+                    )}
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {/* Pairing items display — right under dish title */}
                         {(() => {
@@ -233,6 +244,22 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                             </span>
                         )}
                     </div>
+                    {onTasteAction && (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'like'); }}
+                                className="w-7 h-7 rounded-full flex items-center justify-center bg-rose-50 border border-rose-200 text-rose-500 active:scale-90 transition-all"
+                                aria-label={`Like ${item.name}`}
+                                title="I like this dish"
+                            >❤️</button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'dislike'); }}
+                                className="w-7 h-7 rounded-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all"
+                                aria-label={`Dislike ${item.name}`}
+                                title="I don't like this dish"
+                            >👎</button>
+                        </div>
+                    )}
                     <div className="flex items-center gap-2 mt-1">
                         {item.quantity > 1 && (
                             <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-bold flex-shrink-0">

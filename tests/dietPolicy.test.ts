@@ -132,6 +132,7 @@ describe('serializeDietPreference — API shape', () => {
     expect(serializeDietPreference(row)).toEqual({
       dietType: 'vegan', region: 'west', allergies: ['Soy'], dislikedItems: [],
       spiceLevel: 'medium', healthGoal: 'Low Calorie',
+      noveltyPreference: 'balanced', cuisineAffinities: [],
     });
   });
 });

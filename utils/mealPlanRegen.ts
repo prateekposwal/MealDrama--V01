@@ -36,6 +36,7 @@ import type { MealOption, TrayLibrary } from '../app/store/useStore';
 import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
 import { allowedTypesForDiet, distinctiveTypeFor } from './dietQuota';
 import { getTraySlotCap, dietPriorityFor, healthMatchFor } from './loopPool';
+import { dishDietType, isMealDietCompatible } from './dietCompat';
 import { getRegionKey } from './dishSearch';
 import { isPureSweetDish } from '../meal/constants/pairingCatalog';
 import { upsertMealToSlot } from './trayUpsert';
@@ -155,54 +156,15 @@ export function stripInvalidDishMappings(
   return { tray: out, removed, rekeyed, reasons };
 }
 
-/**
- * Canonical dish diet type. `type` is the canonical axis; the legacy `diet`
- * field ('egg' → eggitarian) is the fallback. Custom/unresolvable → ''.
- */
-export function dishDietType(dish: Dish): string {
-  const t = (dish.type || '').toLowerCase().trim();
-  if (t) return t;
-  const d = (dish.diet || '').toLowerCase().trim();
-  return d === 'egg' ? 'eggitarian' : d;
-}
-
-/**
- * EXACT animal-derived ingredient/side names — the only honest name-level
- * guard. Never substring-matches (plant milks are not dairy). Mirror of the
- * vegan-integrity F2/F3 contract set, plus Curd/Egg variants the spec lists
- * (paneer, curd, buttermilk, ghee, eggs…).
- */
-export const ANIMAL_INGREDIENT_NAMES: ReadonlySet<string> = new Set([
-  'Ghee', 'Milk', 'Yogurt', 'Cheese', 'Butter', 'Cream', 'Paneer',
-  'Buttermilk', 'Lassi', 'Raita', 'Curd',
-  'Whole Milk (chilled)', 'Vanilla Ice Cream',
-  'Egg', 'Eggs', 'Egg White', 'Egg Yolk',
-]);
-
-/** True when any variant ingredient or default side carries an exact
- *  animal-derived name (dairy or egg). */
-export function dishHasAnimalDerivedIngredients(dish: Dish): boolean {
-  const names: string[] = [];
-  for (const v of dish.variants ?? []) {
-    for (const i of v.ingredients ?? []) names.push(i.name);
-  }
-  for (const s of dish.defaultPairings?.sides ?? []) names.push(s);
-  return names.some(n => ANIMAL_INGREDIENT_NAMES.has(n));
-}
-
-/**
- * Diet compatibility of ONE dish — validates the FINAL dish, not just the
- * first selection:
- *   - type gate: allowedTypesForDiet(diet) on the canonical type
- *   - vegan extra gate: a vegan-typed dish carrying REAL dairy/egg ingredient
- *     names is excluded (the 5 mislabeled dishes never reach a vegan plan).
- */
-export function isMealDietCompatible(dish: Dish, diet?: string | null): boolean {
-  const allowed = new Set(allowedTypesForDiet(diet));
-  if (!allowed.has(dishDietType(dish))) return false;
-  if ((diet ?? '').toLowerCase().trim() === 'vegan' && dishHasAnimalDerivedIngredients(dish)) return false;
-  return true;
-}
+// ─── Diet-compat helpers live in utils/dietCompat (shared with the
+// ─── recommendation gates — ONE implementation). Re-exported here so every
+// ─── existing importer of mealPlanRegen keeps working unchanged.
+export {
+  dishDietType,
+  ANIMAL_INGREDIENT_NAMES,
+  dishHasAnimalDerivedIngredients,
+  isMealDietCompatible,
+} from './dietCompat';
 
 export interface DietViolation {
   slot: MealType;

@@ -34,6 +34,8 @@ export const REGION_LABEL_TO_KEY: Record<string, string> = {
 
 export const SPICE_VALUES = ['mild', 'medium', 'hot'] as const;
 
+export const NOVELTY_VALUES = ['familiar', 'balanced', 'adventurous'] as const;
+
 /** ℹ️ healthGoal stores the picker's canonical display label, not a key —
  *  the same strings FlashOnboarding persists to user.healthGoals[0] and
  *  goalToDishHealthFilter() already understands. */
@@ -59,6 +61,10 @@ export const dietPreferenceSchema = z.object({
   dislikedItems: STRING_ARRAY.default([]),
   spiceLevel: z.enum(SPICE_VALUES),
   healthGoal: HEALTH_GOAL.default(''),
+  // Taste personalization (canonical — the ONE shape onboarding, Profile and
+  // the scorer share; see utils/tasteProfile.ts).
+  noveltyPreference: z.enum(NOVELTY_VALUES).default('balanced'),
+  cuisineAffinities: STRING_ARRAY.default([]),
 });
 
 export type DietPreferenceInput = z.infer<typeof dietPreferenceSchema>;
@@ -71,6 +77,8 @@ export interface DietPreferenceView {
   dislikedItems: string[];
   spiceLevel: string;
   healthGoal: string;
+  noveltyPreference: string;
+  cuisineAffinities: string[];
 }
 
 export function serializeDietPreference(row: any): DietPreferenceView {
@@ -81,6 +89,8 @@ export function serializeDietPreference(row: any): DietPreferenceView {
     dislikedItems: row?.dislikedItems ?? [],
     spiceLevel: row?.spiceLevel ?? 'medium',
     healthGoal: row?.healthGoal ?? '',
+    noveltyPreference: row?.noveltyPreference ?? 'balanced',
+    cuisineAffinities: row?.cuisineAffinities ?? [],
   };
 }
 

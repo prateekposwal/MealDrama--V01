@@ -43,6 +43,8 @@ export interface DietPreference {
   dislikedItems: string[];
   spiceLevel: string;
   healthGoal: string;
+  noveltyPreference?: string;
+  cuisineAffinities?: string[];
 }
 
 /** One member's row in GET /households/:id/diets — diet null = "not set". */

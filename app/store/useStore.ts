@@ -7,6 +7,7 @@ import { RequestTracker, requestDedupCache } from '../../utils/asyncGuard';
 import { onConnectivityChange } from '../utils/connectivity';
 import { householdApi } from '../utils/householdApi';
 import { dietApi } from '../utils/dietApi';
+import { tasteProfileFromUser } from '../../utils/tasteProfile';
 import { registerUser, logoutUser } from '../utils/authApi';
 import { createCustomDish, updateCustomDish as updateCustomDishApi, deleteCustomDish as deleteCustomDishApi } from '../utils/customDishApi';
 import type { Household } from '../../types/household';
@@ -109,6 +110,10 @@ export interface User {
   /** Lowercase canonical diet key ('veg' | 'non-veg' | 'eggitarian' | 'vegan') — normalized by updateProfile. */
   diet?: 'veg' | 'non-veg' | 'eggitarian' | 'vegan';
   spiceLevel?: 'mild' | 'medium' | 'hot';
+  /** Canonical taste nuance — familiar | balanced | adventurous. */
+  noveltyPreference?: 'familiar' | 'balanced' | 'adventurous';
+  /** Cuisine keys the user loves (matched against REAL dish cuisine tags). */
+  cuisineAffinities?: string[];
   onboardingComplete?: boolean;
   cookContact?: string;
   cookControl?: string;
@@ -584,13 +589,16 @@ export const useStore = create<StoreState>()(
       syncDietToServer: async (prevDietType?: string) => {
         const u = get().user;
         if (!u) return { ok: false, dietChanged: false, wasUnset: false, changed: { dietType: false, region: false, allergies: false } };
+        const taste = tasteProfileFromUser(u);
         const payload = {
           dietType: (u.diet ?? 'veg') as string,
           region: (u.region ?? 'north') as string,
-          allergies: u.allergies ?? [],
-          dislikedItems: u.dislikedItems ?? [],
-          spiceLevel: (u.spiceLevel ?? 'medium') as string,
+          allergies: taste.allergies,
+          dislikedItems: taste.dislikedItems,
+          spiceLevel: taste.spiceLevel,
           healthGoal: u.healthGoals?.[0] ?? '',
+          noveltyPreference: taste.noveltyPreference,
+          cuisineAffinities: taste.cuisineAffinities,
         };
         set({ pendingSyncPrevDiet: prevDietType, dietSyncState: 'saving' });
         // R1 — guarantee a JWT FIRST. Without a token the PUT arrives without an

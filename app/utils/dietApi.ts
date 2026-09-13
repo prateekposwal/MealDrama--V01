@@ -14,6 +14,8 @@ export interface DietUpsertPayload {
   dislikedItems: string[];
   spiceLevel: string;
   healthGoal: string;
+  noveltyPreference?: string;
+  cuisineAffinities?: string[];
 }
 
 /** PUT /api/v1/diet response — the server's diet-changed signal (see the

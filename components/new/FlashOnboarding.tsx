@@ -26,18 +26,38 @@ const HEALTH_GOALS = [
   { label: 'Weight Loss', icon: '🔥', note: 'Calorie-conscious' },
 ] as const;
 
+// ─── Taste step (single source: utils/tasteProfile.ts) ──────────────────────
+const SPICE_OPTIONS = [
+  { value: 'mild', label: 'Mild', icon: '🌱', note: 'Gentle, low heat' },
+  { value: 'medium', label: 'Medium', icon: '🌶️', note: 'A comfortable kick' },
+  { value: 'hot', label: 'Hot', icon: '🔥', note: 'Bring the fire' },
+] as const;
+
+const NOVELTY_OPTIONS = [
+  { value: 'familiar', label: 'Familiar', icon: '🏠', note: 'Stick with cuisines I love' },
+  { value: 'balanced', label: 'Balanced', icon: '⚖️', note: 'Favourites + new dishes' },
+  { value: 'adventurous', label: 'Adventurous', icon: '🧭', note: 'Surprise me with new cuisines' },
+] as const;
+
+const COMMON_ALLERGIES = ['Peanuts', 'Nuts', 'Dairy', 'Gluten', 'Eggs', 'Soy', 'Shellfish', 'Sesame'] as const;
+
 const STEPS = [
   { key: 'region', title: 'Your Food Region', subtitle: 'What kind of flavors do you love?', benefit: 'We\'ll recommend dishes from your favorite cuisine.' },
   { key: 'diet', title: 'Your Diet Preference', subtitle: 'What do you eat?', benefit: 'Every suggested dish will match your diet.' },
   { key: 'health', title: 'Your Health Focus', subtitle: 'Any specific goal?', benefit: 'Meals will be tailored to your wellness needs.' },
+  { key: 'taste', title: 'Your Taste Profile', subtitle: 'Spice, allergies and how adventurous you are', benefit: 'Dishes will match your spice level, avoid your allergens, and balance familiar vs new.' },
   { key: 'cook', title: 'Cook\'s WhatsApp', subtitle: 'Who makes the meals?', benefit: 'Your cook gets the daily plan every morning.' },
 ] as const;
+
+type NoveltyValue = 'familiar' | 'balanced' | 'adventurous';
 
 interface FlashOnboardingProps {
   onComplete: (data: {
     region: string;
     diet: string;
     spiceLevel: number;
+    allergies: string[];
+    noveltyPreference: NoveltyValue;
     cookContact: string;
     plannedSlots: ('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[];
     healthGoal: string;
@@ -52,6 +72,8 @@ interface FlashOnboardingProps {
     plannedSlots?: ('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[];
     cookContact?: string;
     healthGoal?: string;
+    allergies?: string[];
+    noveltyPreference?: NoveltyValue;
   };
 }
 
@@ -59,7 +81,9 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
   const [step, setStep] = useState(initialStep ?? 0);
   const [region, setRegion] = useState(prefill?.region ?? '');
   const [diet, setDiet] = useState(prefill?.diet ?? '');
-  const [spiceLevel] = useState(prefill?.spiceLevel ?? 2);
+  const [spiceLevel, setSpiceLevel] = useState(prefill?.spiceLevel ?? 2);
+  const [allergies, setAllergies] = useState<string[]>(prefill?.allergies ?? []);
+  const [noveltyPreference, setNoveltyPreference] = useState<NoveltyValue>(prefill?.noveltyPreference ?? 'balanced');
   const [healthGoal, setHealthGoal] = useState(prefill?.healthGoal ?? '');
   const [cookContact, setCookContact] = useState(prefill?.cookContact ?? '');
   const [plannedSlots] = useState<('Breakfast' | 'Lunch' | 'Dinner' | 'Snacks')[]>(
@@ -67,6 +91,10 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
   );
 
   const canContinue = step === 0 ? !!region : step === 1 ? !!diet : step === 2 ? !!healthGoal : true;
+
+  const toggleAllergy = (a: string) => {
+    setAllergies(prev => prev.includes(a) ? prev.filter(x => x !== a) : [...prev, a]);
+  };
 
   const goNext = useCallback(() => {
     if (step < STEPS.length - 1) setStep(s => s + 1);
@@ -81,12 +109,14 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
       region: region || 'North India',
       diet: diet || 'Veg',
       spiceLevel,
+      allergies,
+      noveltyPreference,
       healthGoal: healthGoal || 'Balanced',
       cookContact,
       plannedSlots,
       onboardingComplete: true,
     });
-  }, [onComplete, region, diet, spiceLevel, healthGoal, cookContact, plannedSlots]);
+  }, [onComplete, region, diet, spiceLevel, allergies, noveltyPreference, healthGoal, cookContact, plannedSlots]);
 
   const isLastStep = step === STEPS.length - 1;
   const stepProgress = ((step + 1) / STEPS.length) * 100;
@@ -200,8 +230,70 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
           </div>
         )}
 
-        {/* Step 4: Summary + Cook Contact */}
+        {/* Step 4: Taste Profile — spice + allergies + novelty in ONE screen */}
         {step === 3 && (
+          <div className="animate-in fade-in slide-in-from-right-2 duration-300">
+            <div className="mb-6">
+              <h2 className="text-3xl font-black tracking-tight text-gray-900">{STEPS[3].title}</h2>
+              <p className="text-base text-gray-500 mt-2">{STEPS[3].subtitle}</p>
+              <div className="mt-4 p-4 rounded-xl bg-rose-50 border border-rose-100">
+                <p className="text-sm text-rose-700 font-medium leading-relaxed">{STEPS[3].benefit}</p>
+              </div>
+            </div>
+
+            {/* Spice */}
+            <p className="text-sm font-bold text-gray-700 mb-2">🌶️ Spice level</p>
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {SPICE_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => setSpiceLevel(opt.value === 'mild' ? 1 : opt.value === 'hot' ? 3 : 2)}
+                  className={`p-4 rounded-2xl border-2 text-center transition-all active:scale-[0.98] ${
+                    (opt.value === 'mild' ? spiceLevel === 1 : opt.value === 'hot' ? spiceLevel === 3 : spiceLevel === 2)
+                      ? 'border-[#FF385C] bg-[#FF385C]/5 ring-2 ring-[#FF385C]/20' : 'border-gray-100 bg-white hover:border-gray-200'
+                  }`}>
+                  <p className="text-xl mb-1">{opt.icon}</p>
+                  <p className="font-bold text-sm text-gray-900">{opt.label}</p>
+                  <p className="text-[11px] text-gray-500 leading-tight mt-0.5">{opt.note}</p>
+                </button>
+              ))}
+            </div>
+
+            {/* Allergies */}
+            <p className="text-sm font-bold text-gray-700 mb-2">🚫 Allergies (we never recommend these)</p>
+            <div className="flex flex-wrap gap-2 mb-6">
+              {COMMON_ALLERGIES.map(a => (
+                <button key={a} onClick={() => toggleAllergy(a)}
+                  className={`px-3 py-2 rounded-full border-2 text-xs font-bold transition-all active:scale-95 ${
+                    allergies.includes(a) ? 'border-[#FF385C] bg-[#FF385C]/5 text-[#FF385C]' : 'border-gray-100 bg-white text-gray-600 hover:border-gray-200'
+                  }`}>
+                  {allergies.includes(a) ? '✓ ' : ''}{a}
+                </button>
+              ))}
+              {allergies.length > 0 && (
+                <button onClick={() => setAllergies([])} className="px-3 py-2 rounded-full text-xs font-bold text-gray-400 active:opacity-60">
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {/* Novelty */}
+            <p className="text-sm font-bold text-gray-700 mb-2">🧭 How adventurous are you?</p>
+            <div className="grid grid-cols-3 gap-3">
+              {NOVELTY_OPTIONS.map(opt => (
+                <button key={opt.value} onClick={() => setNoveltyPreference(opt.value)}
+                  className={`p-4 rounded-2xl border-2 text-center transition-all active:scale-[0.98] ${
+                    noveltyPreference === opt.value ? 'border-[#FF385C] bg-[#FF385C]/5 ring-2 ring-[#FF385C]/20' : 'border-gray-100 bg-white hover:border-gray-200'
+                  }`}>
+                  <p className="text-xl mb-1">{opt.icon}</p>
+                  <p className="font-bold text-sm text-gray-900">{opt.label}</p>
+                  <p className="text-[11px] text-gray-500 leading-tight mt-0.5">{opt.note}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Step 5: Summary + Cook Contact */}
+        {step === 4 && (
           <div className="animate-in fade-in slide-in-from-right-2 duration-300">
             <div className="mb-8">
               <h2 className="text-3xl font-black tracking-tight text-gray-900">Almost there!</h2>
@@ -229,6 +321,16 @@ const FlashOnboarding: React.FC<FlashOnboardingProps> = ({ onComplete, isEditMod
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Health Focus</p>
                   <p className="text-base font-bold text-gray-900">{healthGoal || 'Balanced'}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 p-4 rounded-xl bg-white border border-gray-100">
+                <span className="text-2xl">{spiceLevel === 1 ? '🌱' : spiceLevel === 3 ? '🔥' : '🌶️'}</span>
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Taste</p>
+                  <p className="text-base font-bold text-gray-900">
+                    {spiceLevel === 1 ? 'Mild' : spiceLevel === 3 ? 'Hot' : 'Medium'} · {NOVELTY_OPTIONS.find(n => n.value === noveltyPreference)?.label}
+                    {allergies.length > 0 ? ` · ${allergies.join(', ')}` : ''}
+                  </p>
                 </div>
               </div>
             </div>

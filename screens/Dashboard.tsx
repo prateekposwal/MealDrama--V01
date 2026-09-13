@@ -7,6 +7,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspens
 import { useTrayStore, MealType, TrayItem } from '../plan/store/useTrayStore';
 import { useLoopStore } from '../plan/store/useLoopStore';
 import { useStore } from '../app/store/useStore';
+import { recordTasteEvent } from '../app/lib/tasteLedger';
 import type { Meal, GuestMode } from '../types/tray';
 import type { SuggestionMeal } from '../app/lib/trayApi';
 const QuickAddModal = lazy(() => import('../components/new/QuickAddModal'));
@@ -685,6 +686,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             }
             addToTray(mealType, { id: meal.id, dishId: meal.id, name: meal.name, icon: meal.icon, sourceRegion: meal.region });
             addMealToSlot(date, mealType, meal);
+            const addUserId2 = useStore.getState().user?.id;
+            if (addUserId2) void recordTasteEvent(addUserId2, meal.id, 'added');
         };
     }, [addMealToSlot, getMeals, setToast, addToTray]);
 
@@ -712,6 +715,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
             addon: variant?.addOn,
             ...(requestForMemberId ? { requestedBy: requestForMemberId } : {}),
         });
+        // Taste ledger: an explicitly ADDED dish extends affinity (the 🆕
+        // surface). Fire-and-forget; the local cache updates immediately.
+        const addUserId = useStore.getState().user?.id;
+        if (addUserId) void recordTasteEvent(addUserId, dish.id, 'added');
         // Member-request flow: announce a family request in the household feed.
         if (requestForMemberId && household?.id) {
             const memberName = household.members.find(m => m.id === requestForMemberId)?.name;

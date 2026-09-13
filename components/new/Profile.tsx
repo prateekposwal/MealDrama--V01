@@ -92,6 +92,23 @@ const REGION_EMOJI: Record<string, string> = {
 const ALLERGIES_LIST = ['Dairy', 'Nuts', 'Gluten', 'Soy', 'Seafood', 'Eggs'];
 const SPICE_LABELS: Record<string, string> = { 'mild': 'Mild 🌿', 'medium': 'Medium 🌶️', 'hot': 'Hot 🔥' };
 
+const TASTE_CUISINES: Array<{ key: string; label: string }> = [
+  { key: 'punjabi', label: 'Punjabi' }, { key: 'south-indian', label: 'South Indian' },
+  { key: 'chettinad', label: 'Chettinad' }, { key: 'andhra', label: 'Andhra' },
+  { key: 'kerala', label: 'Keralan' }, { key: 'bengali', label: 'Bengali' },
+  { key: 'gujarati', label: 'Gujarati' }, { key: 'maharashtrian', label: 'Maharashtrian' },
+  { key: 'tamil', label: 'Tamil' }, { key: 'hyderabadi', label: 'Hyderabadi' },
+  { key: 'goan', label: 'Goan' }, { key: 'rajasthani', label: 'Rajasthani' },
+  { key: 'tandoori', label: 'Tandoori' }, { key: 'udupi', label: 'Udupi' },
+  { key: 'kashmiri', label: 'Kashmiri' }, { key: 'mughlai', label: 'Mughlai' },
+] as const;
+
+const NOVELTY_OPTIONS_PROFILE: Array<{ value: 'familiar' | 'balanced' | 'adventurous'; label: string; icon: string }> = [
+  { value: 'familiar', label: 'Familiar', icon: '🏠' },
+  { value: 'balanced', label: 'Balanced', icon: '⚖️' },
+  { value: 'adventurous', label: 'Adventurous', icon: '🧭' },
+] as const;
+
 const Profile: React.FC<{ onLogout?: () => void; onManageTray?: (slot?: MealType) => void }> = ({ onLogout, onManageTray }) => {
     const { user, updateProfile, openQuickSetup, household, householdId, dietSyncState, retryDietSync } = useStore();
     const defaultName = user?.name || (user?.primaryId ? compactPrimaryId(user.primaryId) : '');
@@ -942,6 +959,58 @@ const [showCustomDetails, setShowCustomDetails] = useState(false);
                             {SPICE_LABELS[user?.spiceLevel || 'medium'] ?? 'Medium 🌶️'}
                         </button>
                     </div>
+                    {/* Novelty preference — the canonical 3-way picker */}
+                    <div className="mt-3">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5">Novelty</p>
+                        <div className="grid grid-cols-3 gap-2">
+                            {NOVELTY_OPTIONS_PROFILE.map(opt => (
+                                <button
+                                    key={opt.value}
+                                    onClick={() => {
+                                        updateProfile({ noveltyPreference: opt.value });
+                                        void useStore.getState().syncDietToServer();
+                                    }}
+                                    className={`px-2 py-2 rounded-xl border-2 text-[11px] font-bold transition-all active:scale-95 ${
+                                        (user?.noveltyPreference ?? 'balanced') === opt.value
+                                            ? 'border-[#FF385C] bg-[#FF385C]/5 text-[#FF385C]'
+                                            : 'border-gray-100 bg-white text-gray-600 hover:border-gray-200'
+                                    }`}
+                                >
+                                    {opt.icon} {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Cuisine affinities — matched against REAL dish cuisine tags */}
+                    <div className="mt-3">
+                        <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5">Cuisines I love</p>
+                        <div className="flex flex-wrap gap-1.5">
+                            {TASTE_CUISINES.map(c => {
+                                const active = (user?.cuisineAffinities ?? []).includes(c.key);
+                                return (
+                                    <button
+                                        key={c.key}
+                                        onClick={() => {
+                                            const next = active
+                                                ? (user?.cuisineAffinities ?? []).filter(k => k !== c.key)
+                                                : [...(user?.cuisineAffinities ?? []), c.key];
+                                            updateProfile({ cuisineAffinities: next });
+                                            void useStore.getState().syncDietToServer();
+                                        }}
+                                        className={`px-2.5 py-1.5 rounded-full border-2 text-[11px] font-bold transition-all active:scale-95 ${
+                                            active
+                                                ? 'border-orange-300 bg-orange-50 text-orange-600'
+                                                : 'border-gray-100 bg-white text-gray-600 hover:border-gray-200'
+                                        }`}
+                                    >
+                                        {active ? '✓ ' : ''}{c.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     <div className="flex items-center gap-2 mt-3">
                         <button
                             onClick={() => {

@@ -57,6 +57,13 @@ import {
   pushCurrentTrayAsHouseholdPlan,
 } from '../app/lib/householdPlans';
 import type { PersonalizationContext, HistoryItem, HouseholdDish } from './mealPersonalization';
+import { tasteProfileFromUser } from './tasteProfile';
+import { buildLedgerSignals } from './tasteLedger';
+import {
+  getCachedTasteLedger,
+  refreshTasteLedger,
+  isTasteLedgerLoaded,
+} from '../app/lib/tasteLedger';
 
 /** Build the per-user PersonalizationContext for THIS rebuild from the live
  *  store — the ONE surface that feeds region+diet+focus+preferences+history+
@@ -138,15 +145,31 @@ export function buildPersonalizationContext(): PersonalizationContext | null {
     pushDish(row.dishId);
   }
 
+  // 3) Taste profile — THE canonical builder (onboarding, Profile and this
+  //    scorer share ONE shape; see utils/tasteProfile.ts).
+  const tasteProfile = tasteProfileFromUser(user);
+
+  // 4) Learning ledger — persisted TasteLedger rows → the PURE read model.
+  //    Fire-and-forget refresh never blocks regeneration; while the ledger is
+  //    unloaded the scorer runs WITHOUT the ledger term (honest no-learning).
+  if (myUserId) void refreshTasteLedger(myUserId);
+  const ledgerEvents = isTasteLedgerLoaded(myUserId) ? getCachedTasteLedger(myUserId) : null;
+  const dishIndex = new Map(DISH_LIBRARY.map(d => [d.id, d]));
+  const ledger = ledgerEvents ? buildLedgerSignals(ledgerEvents, dishIndex) : null;
+
   return {
     userId: myUserId || store.deviceId,
     deviceId: store.deviceId,
     healthFocus: user?.healthGoals?.[0],
     preferences: {
-      spiceLevel: user?.spiceLevel,
+      spiceLevel: tasteProfile.spiceLevel,
       preferredRegions: user?.preferredRegions,
-      dislikedItems: user?.dislikedItems,
+      dislikedItems: tasteProfile.dislikedItems,
+      allergies: tasteProfile.allergies,
+      cuisineAffinities: tasteProfile.cuisineAffinities,
     },
+    tasteProfile,
+    ledgerSignals: ledger,
     recentlyEaten: recently.slice(0, 80),
     householdDishes: household.slice(0, 80),
   };

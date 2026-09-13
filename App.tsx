@@ -718,6 +718,8 @@ const App: React.FC = () => {
               plannedSlots: payload.plannedSlots,
               healthGoals: [payload.healthGoal],
               onboardingComplete: true,
+              allergies: payload.allergies,
+              noveltyPreference: payload.noveltyPreference,
             }).then(r => {
               if (!r.ok) console.warn('[App] background diet change incomplete:', r.reason);
             }).catch(e => {
@@ -797,6 +799,8 @@ onComplete={async (preferences) => {
                 plannedSlots: preferences.plannedSlots,
                 healthGoals: [preferences.healthGoal],
                 onboardingComplete: true,
+                allergies: preferences.allergies,
+                noveltyPreference: preferences.noveltyPreference,
               });
               console.log('[App] Onboarding data persisted');
 

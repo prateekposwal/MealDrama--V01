@@ -29,6 +29,7 @@ model User {
   dietPreference   DietPreference?
   mealLogs         MealLog[]
   householdPlans   HouseholdPlanItem[]
+  tasteLedgers     TasteLedger[]
 }
 
 // 2. HOUSEHOLD
@@ -199,6 +200,8 @@ model UserProfile {
   spiceLevel    String   @default("medium") // mild, medium, hot
   plannedSlots  String[] // breakfast/lunch/dinner/snacks — per-member plan lanes
   healthGoal    String   @default("") // balanced / high-protein / …
+  noveltyPreference String   @default("balanced") // familiar | balanced | adventurous
+  cuisineAffinities String[] // ["punjabi", "south-indian"]
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -217,6 +220,8 @@ model DietPreference {
   dislikedItems String[] // ["okra", "bitter-gourd"]
   spiceLevel    String   @default("medium") // mild, medium, hot
   healthGoal    String   @default("") // balanced / high-protein / ...
+  noveltyPreference String   @default("balanced") // familiar | balanced | adventurous
+  cuisineAffinities String[] // ["punjabi", "south-indian"] — real cuisine tags
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -340,6 +345,25 @@ model MealLog {
   @@unique([userId, dishId, mealSlot, eatenAt])
   @@index([userId, eatenAt])
   @@index([userId])
+}
+
+/// Persisted per-user LEARNING record (taste personalization). One row per
+/// user action on one dish — like ❤️ / dislike 👎 / replacedTo 🔄 / added 🆕 —
+/// written from the REAL feedback surfaces (never guessed, never invented).
+/// The scorer consumes a pure, bounded read model built from these rows.
+model TasteLedger {
+  id             String   @id @default(uuid())
+  userId         String
+  dishId         String
+  action         String // like | dislike | replacedTo | added
+  replacedWithId String? // for replacedTo: the dish the user replaced TO
+  at             DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([dishId])
 }
 
 /// Per-member CURRENT generated plan (Gap 3 closure) — upserted on every

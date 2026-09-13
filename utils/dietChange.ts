@@ -133,6 +133,10 @@ export async function changeDiet(
     plannedSlots?: string[];
     cookContact?: string;
     onboardingComplete?: boolean;
+    /** Taste personalization — the ONE canonical shape (utils/tasteProfile). */
+    allergies?: string[];
+    noveltyPreference?: string;
+    cuisineAffinities?: string[];
   }
 ): Promise<ChangeDietResult> {
   const store = useStore.getState();
@@ -163,6 +167,9 @@ export async function changeDiet(
   if (params.plannedSlots !== undefined) nonDietFields.plannedSlots = params.plannedSlots;
   if (params.cookContact !== undefined) nonDietFields.cookContact = params.cookContact;
   if (params.onboardingComplete !== undefined) nonDietFields.onboardingComplete = params.onboardingComplete;
+  if (params.allergies !== undefined) nonDietFields.allergies = params.allergies;
+  if (params.noveltyPreference !== undefined) nonDietFields.noveltyPreference = params.noveltyPreference;
+  if (params.cuisineAffinities !== undefined) nonDietFields.cuisineAffinities = params.cuisineAffinities;
 
   // Apply non-diet fields first (they don't affect the diet lifecycle).
   if (Object.keys(nonDietFields).length > 0) {

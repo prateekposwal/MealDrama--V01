@@ -180,6 +180,12 @@ export function proteinIngredientCount(d: Dish): number {
 }
 
 import { estimateDishMacros } from './macroEstimator';
+import type { TasteProfile } from './tasteProfile';
+import { normalizeCuisineAffinityKey } from './tasteProfile';
+import { dishCuisineKeys, dishAllergenMatch } from './dishTaste';
+import { noveltyScore } from './variety';
+import type { LedgerSignals } from './tasteLedger';
+import { ledgerScore } from './tasteLedger';
 
 /** Extract the per-focus signals — derived macros first, tags as tie-breakers. */
 export function dishFocusSignals(d: Dish): FocusSignals {
@@ -255,6 +261,11 @@ export interface PreferenceFields {
   spiceLevel?: string | null;
   preferredRegions?: string[];
   dislikedItems?: string[];
+  /** HARD exclusions — an allergen match reliably drops the dish (the
+   *  recommendation gate is the primary guardian; this is the scorer floor). */
+  allergies?: string[];
+  /** Cuisine keys the user loves (matched against REAL dish cuisine tags). */
+  cuisineAffinities?: string[];
 }
 
 const _norm = (s: string): string => (s ?? '').toLowerCase().trim();
@@ -305,6 +316,21 @@ export function preferenceScore(d: Dish, prefs?: PreferenceFields | null): numbe
     if (!it) continue;
     if (dName === it || dName.includes(it) || it.includes(dName)) { score -= 2.0; break; }
     if (ingNames.has(it)) { score -= 1.6; break; }
+  }
+
+  // Allergies — HARD exclusion floor (the gate is primary; this guarantees the
+  // scorer can never float an allergen above a safe dish).
+  for (const allergy of prefs.allergies ?? []) {
+    if (dishAllergenMatch(d, [allergy])) { score -= 100; break; }
+  }
+
+  // Cuisine affinity — reward dishes whose REAL cuisine tags the user loves.
+  const aff = prefs.cuisineAffinities;
+  if (aff?.length) {
+    const cs = new Set(dishCuisineKeys(d));
+    let boost = 0;
+    for (const a of aff) if (cs.has(normalizeCuisineAffinityKey(a))) boost += 0.8;
+    score += Math.min(2.0, boost);
   }
   return score;
 }
@@ -361,6 +387,12 @@ export interface PersonalizationContext {
   recentlyEaten?: HistoryItem[] | null;
   /** Household diversity — other members' shared-plan dishes. */
   householdDishes?: HouseholdDish[] | null;
+  /** THE canonical taste profile (utils/tasteProfile) — novelty + cuisines +
+   *  allergies. Absent → the legacy score is byte-identical. */
+  tasteProfile?: TasteProfile | null;
+  /** Pure read model of the persisted learning ledger — deterministic boosts/
+   *  penalties for liked/disliked/replaced dishes. Absent → no ledger term. */
+  ledgerSignals?: LedgerSignals | null;
   /** Jitter scale (default 1.5): reorders the top band between same-profile
    *  users. The focus weights and history/household penalties still dominate
    *  (focus spread ≳ 8, penalties 2–3), so a focus change re-ranks and a
@@ -422,5 +454,9 @@ export function personalizationScore(d: Dish, ctx: PersonalizationContext | null
     + preferenceScore(d, ctx.preferences)
     + historyPenalty(d, ctx.recentlyEaten)
     + householdPenalty(d, ctx.householdDishes)
+    + (ctx.tasteProfile
+        ? noveltyScore(d, ctx.tasteProfile.noveltyPreference, ctx.tasteProfile.cuisineAffinities)
+        : 0)
+    + (ctx.ledgerSignals ? ledgerScore(d, ctx.ledgerSignals) : 0)
     + dishRotationJitter(d.id, seed) * scale;
 }

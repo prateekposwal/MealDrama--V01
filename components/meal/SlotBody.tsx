@@ -77,6 +77,11 @@ export interface SlotBodyProps {
   /** When true, extra items beyond the first are shown as compact chips inside the card */
   mergeExtraItems?: boolean;
 
+  /** Taste personalization: reason line per item (recommendationReason). */
+  reasonForItem?: (item: TrayItem) => string | null | undefined;
+  /** Taste personalization: ❤️/👎 feedback per item. */
+  onTasteAction?: (dishId: string, action: 'like' | 'dislike') => void;
+
   /** Max dishes to show in a merged slot (default: no cap). First is a card, rest are chips. */
   maxVisible?: number;
 
@@ -179,6 +184,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
   preferences,
   onShareSlot,
   hideSlotLabel,
+  reasonForItem,
+  onTasteAction,
 }) => {
   const slotMeals = maxVisible != null ? meals.slice(0, maxVisible) : meals;
   const { isLocked, isMissed, editable, showSuggestions, cardClass } = useMemo(
@@ -476,6 +483,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   isMissed={isMissed}
                   editable={editable}
                   guestExtra={computeEffectiveServings(slotMeals[slotMeals.length - 1]!.quantity || 1, date, guestMode).extra}
+                  reason={reasonForItem?.(slotMeals[slotMeals.length - 1]!)}
+                  onTasteAction={onTasteAction}
                   onUpdateInline={onUpdateInline(date, mealType, slotMeals[slotMeals.length - 1]!.id)}
                   onRemove={onRemove(date, mealType, slotMeals[slotMeals.length - 1]!.id)}
                   swapCustomizeOpen={swapCustomizeOpenKey === slotMeals[slotMeals.length - 1]!.id}
@@ -576,6 +585,8 @@ export const SlotBody: React.FC<SlotBodyProps> = React.memo(({
                   isMissed={isMissed}
                   editable={editable}
                   guestExtra={computeEffectiveServings(item.quantity || 1, date, guestMode).extra}
+                  reason={reasonForItem?.(item)}
+                  onTasteAction={onTasteAction}
                   onUpdateInline={onUpdateInline(date, mealType, item.id)}
                   onRemove={onRemove(date, mealType, item.id)}
                   swapCustomizeOpen={swapCustomizeOpenKey === item.id}

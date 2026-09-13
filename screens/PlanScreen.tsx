@@ -28,6 +28,11 @@ import { VirtualList } from '../components/new/VirtualList';
 import LoopAutoFillSlot from '../components/meal/LoopAutoFillSlot';
 import { Hint } from '../components/new/Hint';
 import PersonalizationHint from '../components/new/PersonalizationHint';
+import { recommendationReason } from '../utils/recommendation';
+import { tasteProfileFromUser } from '../utils/tasteProfile';
+import { buildLedgerSignals } from '../utils/tasteLedger';
+import { getCachedTasteLedger, isTasteLedgerLoaded, refreshTasteLedger, recordTasteEvent } from '../app/lib/tasteLedger';
+import { DISH_LIBRARY } from '../meal/constants/dishLibrary';
 import TrayScreen from '../components/new/TrayScreen';
 import { useSwapCustomize } from '../components/meal/SwapCustomizeModalContext';
 import PullToRefresh from '../components/new/PullToRefresh';
@@ -583,6 +588,42 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
 
     const setToast = useStore(s => s.setToast);
 
+    // ─── Taste personalization: reason lines + ❤️/👎 feedback ──────────────
+    const tasteUser = user ?? useStore.getState().user ?? undefined;
+    const tasteCtx = useMemo(() => {
+      const t = tasteProfileFromUser(tasteUser);
+      void refreshTasteLedger(tasteUser?.id ?? '');
+      const events = isTasteLedgerLoaded(tasteUser?.id ?? '') ? getCachedTasteLedger(tasteUser?.id ?? '') : null;
+      const idx = new Map(DISH_LIBRARY.map(d => [d.id, d]));
+      return {
+        taste: t,
+        ledgerSignals: events ? buildLedgerSignals(events, idx) : null,
+        healthFocus: tasteUser?.healthGoals?.[0] ?? null,
+      };
+    }, [tasteUser?.id, tasteUser?.spiceLevel, tasteUser?.allergies, tasteUser?.dislikedItems, tasteUser?.noveltyPreference, tasteUser?.cuisineAffinities, tasteUser?.healthGoals?.[0]]);
+
+    const dishById = useMemo(() => new Map(DISH_LIBRARY.map(d => [d.id, d])), []);
+    const reasonForItem = useCallback((item: TrayItem): string | null => {
+      if (!item.meal_id) return null;
+      const d = dishById.get(item.meal_id);
+      if (!d) return null;
+      return recommendationReason(d, {
+        taste: tasteCtx.taste,
+        healthFocus: tasteCtx.healthFocus,
+        ledgerSignals: tasteCtx.ledgerSignals,
+      }) || null;
+    }, [dishById, tasteCtx]);
+
+    const onTasteAction = useCallback((dishId: string, action: 'like' | 'dislike') => {
+      const uid = useStore.getState().user?.id;
+      if (!uid || !dishId) return;
+      void recordTasteEvent(uid, dishId, action);
+      setToast({
+        message: action === 'like' ? 'Got it — more like this ❤️' : "Got it — we'll offer this less 👎",
+        type: 'success',
+      });
+    }, [setToast]);
+
     const handleSuggestionAdd = useCallback((date: string, mealType: MealType) => {
         return (suggestion: SuggestionMeal) => {
             const meal = suggestionToMeal(suggestion);
@@ -1098,6 +1139,8 @@ export const PlanScreen: React.FC<PlanScreenProps> = ({ user }) => {
                                                     tomorrowMeals={tomorrowMeals}
                                                     styleWarnings={styleWarnings}
                                                     preferences={stablePreferences}
+                                                    reasonForItem={reasonForItem}
+                                                    onTasteAction={onTasteAction}
                                                 onOpenSearchAction={openSearchAction}
                                                 onCompleteAction={handleCompleteSlot}
                                                 onUndoCompleteAction={handleUndoComplete}
