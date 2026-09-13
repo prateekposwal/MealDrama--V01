@@ -58,48 +58,60 @@ router.post('/slot', async (req: Request, res: Response) => {
 
     const parsedDate = parseISODate(payload.date);
 
-    const result = await prisma.$transaction(async (tx) => {
-      const traySlot = await tx.traySlot.upsert({
-        where: { userId_date_slot: { userId, date: parsedDate, slot: payload.slot } },
-        update: {
-          totalServings: payload.totalServings,
-          version: { increment: 1 },
-        },
-        create: {
-          userId,
-          date: parsedDate,
-          slot: payload.slot,
-          totalServings: payload.totalServings,
-        },
-      });
-
-      await tx.trayItem.deleteMany({ where: { traySlotId: traySlot.id } });
-
-      const createdItems = await Promise.all(
-        payload.items.map((item, idx) =>
-          tx.trayItem.create({
-            data: {
-              traySlotId: traySlot.id,
-              mealId: item.mealId || null,
-              customDishId: item.customDishId || null,
-              quantity: item.quantity,
-              gravyStyle: item.gravyStyle,
-              rotiType: item.rotiType,
-              riceType: item.riceType,
-              sides: item.sides,
-              beverages: item.beverages,
-              sortOrder: item.sortOrder ?? idx,
-            },
-            include: {
-              meal: { select: { id: true, name: true, icon: true, category: true, type: true } },
-              customDish: { select: { id: true, name: true, category: true, dietType: true } },
-            },
-          })
-        )
-      );
-
-      return { ...traySlot, items: createdItems };
+    // P2028 fix (2026-09-13): the interactive async-callback transaction API
+    // held a 5s budget across FIVE awaited round-trips (upsert → deleteMany →
+    // up to 5 creates). On cold Neon compute (~1s/query) the whole-slot save
+    // blew the budget → P2028 → HTTP 500 (the QA-logged "POST /slot 500
+    // 5913ms" at old tray.ts:80). Converted to the SAME proven non-interactive
+    // shape as POST /slot/:date/:slot/items:
+    //   • traySlot UPSERT alone — ONE round-trip, atomic create-if-missing,
+    //     idempotent (an intermediate failure absorbed by the retry's upsert),
+    //     version-increment semantics unchanged (update bumps, create starts at
+    //     the schema default).
+    //   • $transaction([deleteMany, ...creates]) — ARRAY form: the item
+    //     REPLACE (delete old + create new) commits atomically in ONE submit —
+    //     deleteMany has NO inter-statement dependency on the creates, so the
+    //     whole replace fits one batch. No interactive 5s timer: each statement
+    //     carries its own latency, never a cumulative cross-query budget.
+    const traySlot = await prisma.traySlot.upsert({
+      where: { userId_date_slot: { userId, date: parsedDate, slot: payload.slot } },
+      update: {
+        totalServings: payload.totalServings,
+        version: { increment: 1 },
+      },
+      create: {
+        userId,
+        date: parsedDate,
+        slot: payload.slot,
+        totalServings: payload.totalServings,
+      },
     });
+
+    const batch = await prisma.$transaction([
+      prisma.trayItem.deleteMany({ where: { traySlotId: traySlot.id } }),
+      ...payload.items.map((item, idx) =>
+        prisma.trayItem.create({
+          data: {
+            traySlotId: traySlot.id,
+            mealId: item.mealId || null,
+            customDishId: item.customDishId || null,
+            quantity: item.quantity,
+            gravyStyle: item.gravyStyle,
+            rotiType: item.rotiType,
+            riceType: item.riceType,
+            sides: item.sides,
+            beverages: item.beverages,
+            sortOrder: item.sortOrder ?? idx,
+          },
+          include: {
+            meal: { select: { id: true, name: true, icon: true, category: true, type: true } },
+            customDish: { select: { id: true, name: true, category: true, dietType: true } },
+          },
+        })
+      ),
+    ]);
+
+    const result = { ...traySlot, items: batch.slice(1) };
 
     res.json(result);
   } catch (error: any) {
@@ -383,32 +395,42 @@ router.patch('/item/:itemId', async (req: Request, res: Response) => {
       beverages: z.array(z.string()).optional(),
     }).parse(req.body);
 
-    const result = await prisma.$transaction(async (tx) => {
-      const item = await tx.trayItem.findUnique({
-        where: { id: itemId },
-        include: { traySlot: true },
-      });
+    // P2028 fix (2026-09-13): the interactive form held a 5s budget across
+    // three awaited round-trips (findUnique → update → slot.update) — on cold
+    // Neon the update path could blow it the same way POST /slot did.
+    // Converted to the SAME proven non-interactive shape as the items path:
+    //   • trayItem.findUnique STANDALONE — the ownership check runs before the
+    //     batch (traySlotId is immutable — no TOCTOU: nothing in the schema
+    //     moves an item between slots after creation).
+    //   • $transaction([update, slot.update]) — ARRAY form: the item write +
+    //     version bump commit atomically in ONE submit. slot.update depends
+    //     only on the READ result (item.traySlotId), which is known before the
+    //     batch — no inter-statement dependency inside the batch.
+    const item = await prisma.trayItem.findUnique({
+      where: { id: itemId },
+      include: { traySlot: true },
+    });
 
-      if (!item || item.traySlot.userId !== userId) {
-        throw new APIError('NOT_FOUND', 'Tray item not found', 404);
-      }
+    if (!item || item.traySlot.userId !== userId) {
+      throw new APIError('NOT_FOUND', 'Tray item not found', 404);
+    }
 
-      const updated = await tx.trayItem.update({
+    const [updated] = await prisma.$transaction([
+      prisma.trayItem.update({
         where: { id: itemId },
         data: updateData,
         include: {
           meal: { select: { id: true, name: true, icon: true } },
           customDish: { select: { id: true, name: true } },
         },
-      });
-
-      await tx.traySlot.update({
+      }),
+      prisma.traySlot.update({
         where: { id: item.traySlotId },
         data: { version: { increment: 1 } },
-      });
+      }),
+    ]);
 
-      return updated;
-    });
+    const result = updated;
 
     res.json(result);
   } catch (error: any) {
@@ -430,22 +452,29 @@ router.delete('/item/:itemId', async (req: Request, res: Response) => {
     const itemId = Array.isArray(req.params.itemId) ? req.params.itemId[0] : req.params.itemId;
     if (!itemId) throw new APIError('INVALID_INPUT', 'Missing itemId', 400);
 
-    await prisma.$transaction(async (tx) => {
-      const item = await tx.trayItem.findUnique({
-        where: { id: itemId },
-        include: { traySlot: true },
-      });
+    // P2028 fix (2026-09-13): same conversion as PATCH /item — ownership read
+    // STANDALONE, then $transaction([delete, slot.update]) ARRAY form: the
+    // delete + version bump commit atomically in ONE submit (no interactive
+    // 5s budget). traySlotId is immutable, so the read-then-batch ownership
+    // check has no TOCTOU window; a concurrent delete fails the batch's
+    // trayItem.delete (P2025) and rolls the version bump back — identical to
+    // the old interactive failure mode.
+    const item = await prisma.trayItem.findUnique({
+      where: { id: itemId },
+      include: { traySlot: true },
+    });
 
-      if (!item || item.traySlot.userId !== userId) {
-        throw new APIError('NOT_FOUND', 'Tray item not found', 404);
-      }
+    if (!item || item.traySlot.userId !== userId) {
+      throw new APIError('NOT_FOUND', 'Tray item not found', 404);
+    }
 
-      await tx.trayItem.delete({ where: { id: itemId } });
-      await tx.traySlot.update({
+    await prisma.$transaction([
+      prisma.trayItem.delete({ where: { id: itemId } }),
+      prisma.traySlot.update({
         where: { id: item.traySlotId },
         data: { version: { increment: 1 } },
-      });
-    });
+      }),
+    ]);
 
     res.json({ ok: true });
   } catch (error: any) {
@@ -498,45 +527,49 @@ router.patch('/slot/:date/:slot/customize', async (req: Request, res: Response) 
     const parsedDate = parseISODate(rawDate);
     const payload = CustomizeSlotSchema.parse(req.body);
 
-    const result = await prisma.$transaction(async (tx) => {
-      let traySlot = await tx.traySlot.findUnique({
-        where: { userId_date_slot: { userId, date: parsedDate, slot: slotResult.data } },
-      });
-
-      if (!traySlot) {
-        traySlot = await tx.traySlot.create({
-          data: { userId, date: parsedDate, slot: slotResult.data },
-        });
-      }
-
-      // Replace all items in the slot
-      await tx.trayItem.deleteMany({ where: { traySlotId: traySlot.id } });
-
-      const createdItems = await Promise.all(
-        payload.items.map((item, idx) =>
-          tx.trayItem.create({
-            data: {
-              traySlotId: traySlot.id,
-              mealId: item.mealId || null,
-              customDishId: item.customDishId || null,
-              quantity: item.quantity,
-              gravyStyle: item.gravyStyle || 'Default',
-              rotiType: item.rotiType || 'Phulka',
-              riceType: item.riceType || 'Plain',
-              sides: item.sides,
-              beverages: item.beverages,
-              sortOrder: item.sortOrder ?? idx,
-            },
-            include: {
-              meal: { select: { id: true, name: true, icon: true, category: true, type: true } },
-              customDish: { select: { id: true, name: true, category: true, dietType: true } },
-            },
-          })
-        )
-      );
-
-      return { ...traySlot, items: createdItems };
+    // P2028 fix (2026-09-13): the interactive form held a 5s budget across
+    // 4-6 awaited round-trips (findUnique → create-if-missing → deleteMany →
+    // up to 5 creates) — cold Neon blew it. Converted to the proven shape:
+    //   • traySlot UPSERT alone (findUnique + create-if-missing collapsed into
+    //     ONE atomic idempotent round-trip; update: {} is a no-op on an
+    //     existing row and — exactly like the old findUnique-or-create — does
+    //     NOT bump version: customize replaces items but never incremented).
+    //   • $transaction([deleteMany, ...creates]) — ARRAY form: the item
+    //     REPLACE commits atomically in ONE submit (deleteMany has no
+    //     inter-statement dependency on the creates). Same all-or-nothing
+    //     replace as the old interactive body, no cumulative 5s budget.
+    const traySlot = await prisma.traySlot.upsert({
+      where: { userId_date_slot: { userId, date: parsedDate, slot: slotResult.data } },
+      update: {},
+      create: { userId, date: parsedDate, slot: slotResult.data },
     });
+
+    // Replace all items in the slot (atomic batch — delete + creates).
+    const batch = await prisma.$transaction([
+      prisma.trayItem.deleteMany({ where: { traySlotId: traySlot.id } }),
+      ...payload.items.map((item, idx) =>
+        prisma.trayItem.create({
+          data: {
+            traySlotId: traySlot.id,
+            mealId: item.mealId || null,
+            customDishId: item.customDishId || null,
+            quantity: item.quantity,
+            gravyStyle: item.gravyStyle || 'Default',
+            rotiType: item.rotiType || 'Phulka',
+            riceType: item.riceType || 'Plain',
+            sides: item.sides,
+            beverages: item.beverages,
+            sortOrder: item.sortOrder ?? idx,
+          },
+          include: {
+            meal: { select: { id: true, name: true, icon: true, category: true, type: true } },
+            customDish: { select: { id: true, name: true, category: true, dietType: true } },
+          },
+        })
+      ),
+    ]);
+
+    const result = { ...traySlot, items: batch.slice(1) };
 
     res.json({ success: true, slot: result });
   } catch (error: any) {

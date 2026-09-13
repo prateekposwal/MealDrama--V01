@@ -35,33 +35,45 @@ router.post('/', async (req: Request, res: Response) => {
     const { date, slot, mealId, variantId, qty } = payload;
     const parsedDate = parseISODate(date);
 
-    const plan = await prisma.$transaction(async (tx) => {
-      const existing = await tx.userPlan.findUnique({
-        where: { userId_date_slot: { userId, date: parsedDate, slot } },
-      }) as { version: number } | null;
+    // P2028 fix (2026-09-13): the old interactive $transaction(async tx => …)
+    // held a 5s cumulative budget across 3-5 awaited round-trips. On cold Neon
+    // compute (~1s/query) the plan write could blow the budget → P2028 500.
+    // CONVERTED to sequential non-transactional statements — the optimistic
+    // lock is the `updateMany` WHERE version = X clause, which is ALREADY an
+    // atomic conditional UPDATE at the DB level (READ COMMITTED, Neon
+    // default). The interactive wrapper added no cross-statement isolation the
+    // CAS gate does not already provide: a concurrent writer either matches
+    // the old version (count 1) or fails the WHERE (count 0 → conflict re-read
+    // → 409), exactly as before. Business behavior is byte-identical:
+    //   read → CAS updateMany → count===0 conflict re-read → create
+    // (each statement carries its own latency; there is NO cumulative 5s
+    // budget — the P2028 class is structurally gone from this path).
+    const existing = await prisma.userPlan.findUnique({
+      where: { userId_date_slot: { userId, date: parsedDate, slot } },
+    }) as { version: number } | null;
 
-      if (existing) {
-        const updated = await tx.userPlan.updateMany({
-          where: { userId, date: parsedDate, slot, version: existing.version } as any,
-          data: { mealId, variantId: variantId ?? null, qty: qty ?? 1, status: 'planned' } as any,
-        });
+    let plan: Awaited<ReturnType<typeof prisma.userPlan.findUnique>> | null = null;
+    if (existing) {
+      const updated = await prisma.userPlan.updateMany({
+        where: { userId, date: parsedDate, slot, version: existing.version } as any,
+        data: { mealId, variantId: variantId ?? null, qty: qty ?? 1, status: 'planned' } as any,
+      });
 
-        if (updated.count === 0) {
-          const conflict = await tx.userPlan.findUnique({
-            where: { userId_date_slot: { userId, date: parsedDate, slot } },
-          }) as { version: number } | null;
-          if (conflict && conflict.version !== existing.version) {
-            throw Object.assign(new Error('CONFLICT'), { status: 409 });
-          }
+      if (updated.count === 0) {
+        const conflict = await prisma.userPlan.findUnique({
+          where: { userId_date_slot: { userId, date: parsedDate, slot } },
+        }) as { version: number } | null;
+        if (conflict && conflict.version !== existing.version) {
+          throw Object.assign(new Error('CONFLICT'), { status: 409 });
         }
-
-        return tx.userPlan.findUnique({ where: { userId_date_slot: { userId, date: parsedDate, slot } } });
-      } else {
-        return tx.userPlan.create({
-          data: { userId, date: parsedDate, slot, mealId, variantId: variantId ?? null, qty: qty ?? 1, status: 'planned', version: 0 } as any,
-        });
       }
-    });
+
+      plan = await prisma.userPlan.findUnique({ where: { userId_date_slot: { userId, date: parsedDate, slot } } });
+    } else {
+      plan = await prisma.userPlan.create({
+        data: { userId, date: parsedDate, slot, mealId, variantId: variantId ?? null, qty: qty ?? 1, status: 'planned', version: 0 } as any,
+      });
+    }
 
     if (!plan) {
       return res.status(500).json({ error: 'Failed to resolve plan after write' });
@@ -153,16 +165,17 @@ router.delete('/:date/:slot', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.userPlan.delete({
-        where: {
-          userId_date_slot: {
-            userId,
-            date: parseISODate(rawDate),
-            slot: slotResult.data,
-          },
+    // P2028 fix (2026-09-13): the interactive wrapper held a 5s budget for a
+    // SINGLE statement — the wrapper added nothing (no multi-statement
+    // atomicity, no cross-read). Plain delete: one round trip, no budget.
+    await prisma.userPlan.delete({
+      where: {
+        userId_date_slot: {
+          userId,
+          date: parseISODate(rawDate),
+          slot: slotResult.data,
         },
-      });
+      },
     });
 
     res.json({ ok: true });
