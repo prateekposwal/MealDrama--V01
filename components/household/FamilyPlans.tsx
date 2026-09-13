@@ -45,6 +45,7 @@ export function resolveHouseholdPlanDishName(dishId: string | undefined): string
 export const FamilyPlans: React.FC<{ household: Household }> = ({ household }) => {
   const selfId = useStore(s => s.user?.id);
   const updateHouseholdMember = useStore(s => s.updateHouseholdMember);
+  const removeHouseholdMember = useStore(s => s.removeHouseholdMember);
   const isAdmin = household.members.find(m => m.id === selfId)?.role === 'admin'
     || household.members.find(m => m.userId === selfId)?.role === 'admin';
 
@@ -95,6 +96,16 @@ export const FamilyPlans: React.FC<{ household: Household }> = ({ household }) =
     void updateHouseholdMember(member.id, patch);
   };
 
+  const makeAdmin = (member: HouseholdMember) => {
+    void updateHouseholdMember(member.id, { role: 'admin' });
+  };
+
+  const removeMember = (member: HouseholdMember) => {
+    // window.confirm is fine here — a single blocking decision before removal.
+    if (!window.confirm(`Remove ${member.name} from this household? Their meal lanes and buy assumptions will be deleted.`)) return;
+    void removeHouseholdMember(member.id);
+  };
+
   return (
     <div className="mt-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -118,6 +129,24 @@ export const FamilyPlans: React.FC<{ household: Household }> = ({ household }) =
             </div>
             {isAdmin && member.id !== selfId && (
               <div className="flex items-center gap-1.5">
+                {member.role !== 'admin' && (
+                <button
+                  onClick={() => makeAdmin(member)}
+                  title="Transfer adminship: this member becomes admin, you demote to member"
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold active:scale-95 transition-all bg-indigo-50 text-indigo-600 hover:bg-indigo-100"
+                >
+                  Make admin
+                </button>
+              )}
+              {member.role !== 'admin' && (
+                <button
+                  onClick={() => removeMember(member)}
+                  title="Remove this member from the household"
+                  className="px-2 py-1 rounded-lg text-[10px] font-bold active:scale-95 transition-all bg-red-50 text-red-600 hover:bg-red-100"
+                >
+                  Remove
+                </button>
+              )}
                 <button
                   onClick={() => toggle(member, { autoPlanEnabled: !member.autoPlanEnabled })}
                   className={`px-2 py-1 rounded-lg text-[10px] font-bold active:scale-95 transition-all ${member.autoPlanEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}

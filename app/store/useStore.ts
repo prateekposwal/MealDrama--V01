@@ -445,6 +445,7 @@ interface StoreState {
   leaveHousehold: () => Promise<void>;
   refreshHousehold: () => Promise<void>;
   updateHouseholdMember: (memberId: string, patch: { role?: string; canEditPlan?: boolean; autoPlanEnabled?: boolean; plannedSlots?: string[] }) => Promise<void>;
+  removeHouseholdMember: (memberId: string) => Promise<void>;
 }
 
 export const useStore = create<StoreState>()(
@@ -1214,6 +1215,23 @@ export const useStore = create<StoreState>()(
           );
         } catch (e: any) {
           get().setToast({ message: `Failed to update member: ${e?.message ?? 'unknown'}`, type: 'error' });
+        }
+      },
+
+      removeHouseholdMember: async (memberId) => {
+        const hhId = get().householdId;
+        if (!hhId) return;
+        const name = get().household?.members.find(m => m.id === memberId)?.name ?? 'member';
+        try {
+          await householdApi.removeMember(hhId, memberId);
+          await get().refreshHousehold();
+          if (typeof window !== 'undefined') window.dispatchEvent(new Event('household:refresh'));
+          get().setToast({ message: `Removed ${name}`, type: 'success' });
+          void import('../../plan/store/householdFeedStore').then(m =>
+            m.useHouseholdFeedStore.getState().postActivity(hhId, 'removed', `${name} removed from household`),
+          );
+        } catch (e: any) {
+          get().setToast({ message: `Failed to remove ${name}: ${e?.message ?? 'unknown'}`, type: 'error' });
         }
       },
 

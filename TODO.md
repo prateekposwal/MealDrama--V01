@@ -2,21 +2,22 @@
 
 Always-current plan of record. Every agent session MUST: (1) append a RUN HISTORY
 entry, (2) state the local-server running state (ports 3000/3001/3101), (3) commit + push.
-No hidden state. Last updated: 2026-09-16.
+No hidden state. Last updated: 2026-09-14.
 
 ## NOW (current focus)
 - [ ] **User: clear stale browser state on http://localhost:3001 and https://mealdrama.onrender.com**
       (Cmd+Shift+R hard-refresh; also purge site data for `localhost:3000` if that tab is still open).
       This is the fix for "UI distorted / can't create household" — the servers are verified healthy
       (see RUN HISTORY); the distortion was a stale-cache class (old SW served text/html for .js).
-- [ ] Agent: port-supervision fix (task 1) — highest-value structural item.
+- [x] Agent: port-supervision fix (task 1) — **DONE 2026-09-14** (see task 1).
 
 ## OPEN TASKS
-1. [ ] **Port supervision one-liner** (owner=agent) — `telos/scripts/com.mealdrama.server.plist` uses
-      `KeepAlive SuccessfulExit=false`: a *clean* stop leaves 3001 down forever. Change to
-      `<key>KeepAlive</key><true/>` (or add `<key>StartInterval</key><integer>60</integer>`), then
-      `launchctl unload/load ~/Library/LaunchAgents/com.mealdrama.server.plist`. Blocked-by: none.
-      Evidence: plist contents; 2026-09-11 handoff item.
+1. [x] **Port-supervision one-liner** (owner=agent) — **DONE 2026-09-14**.
+      `telos/scripts/com.mealdrama.server.plist` now has `<key>KeepAlive</key><true/>`
+      (was `SuccessfulExit=false` — a clean stop left 3001 down forever). Reinstalled
+      to `~/Library/LaunchAgents`, reloaded, and PROVEN: `kill -9` the 3001 listener →
+      launchd relaunched it (PID 11644→11835, `/health` 200, uptime reset). Evidence:
+      plist diff; `/tmp/mealdrama_watchdog.log` "supervisor start (foreground)".
 2. [ ] **Move vite dev off port 3000** (owner=agent) — `vite.config.ts` pins `server.port: 3000`;
       a stray `npm run dev` squats the exact port the user wants empty. Pin 5173/5175. Blocked-by: none.
       Evidence: user "something coming on 3000… don't keep it"; shell history has `npm run dev` +
@@ -24,10 +25,13 @@ No hidden state. Last updated: 2026-09-16.
 3. [ ] **Durable tunnel OR phone-via-Render** (owner=user) — quick-tunnel slugs die with the process;
       for phone testing prefer https://mealdrama.onrender.com or a named tunnel. Blocked-by: none.
       Evidence: `telos/scripts/watchtunnel.sh` header note; 2026-09-11 "tunnel plist missing" item.
-4. [ ] **Prune prod-DB throwaway test users** (owner=agent) — `probe-*`/`flake-*` users + households
-      accumulate from verification probes. NO delete route in the prod API by design; prune via one-off
-      script / admin psql only. Blocked-by: main-DB credentials. Evidence: this session created
-      probe-1789175387 / probe-1789175450 / flake-* (local) + probe-1789175450 (live).
+4. [x] **Prune throwaway test users** (owner=agent) — **DONE 2026-09-14 (dev DB)**.
+      One-off script (run via tsx against server/.env `DATABASE_URL`, NOT committed)
+      deleted 6 `probe-*`/`flake-*` users + 7 `probe-*`/`flake-*`/`Smoke Cook` households
+      (all household deps cascade: cook share, stock, lanes, assumptions, activity).
+      Re-scan clean. Live/prod DB prune still needs main-DB access.
+      Note: the prod API intentionally has NO delete route — prune stays one-off/psql.
+      Evidence: this session's run output (users deleted: 6, households deleted: 7).
 5. [ ] **CI build-then-test one-liner** (owner=agent) — gate deploys on `npm run build && npm test`
       (vitest, 847+ tests). Currently the gate is manual. Blocked-by: none. Evidence: package.json scripts.
 6. [ ] **Monitor stale-token 401s** (owner=agent) — server log shows `POST / 401 1ms` at
@@ -80,6 +84,47 @@ Answering "what is your problem / better approach" — a no-churn standard:
    explicit monitor; `SuccessfulExit=false` is a supervision gap, not a policy.
 
 ## RUN HISTORY
+- **2026-09-14 — Known-prod-bug sweep: pantry 500 fixed, household admin transfer/removal, port-supervision + DB prune**
+  - **PANTRY 500 ROOT-CAUSED + FIXED.** `GET /:householdId/pantry` `require()`d
+    root-only client TS (`../../../utils/ingredientUtils`, `dishLibrary`) that never
+    compiles into `server/dist` → `MODULE_NOT_FOUND` on every member read in prod.
+    - New server-owned leaf: `server/src/lib/ingredientResolver.ts` + generated
+      `server/src/data/pantrySnapshot.ts` (per-dish + per-category ingredients from
+      the REAL client engine, precomputed; regenerate via
+      `WRITE_PANTRY_SNAPSHOT=1 npx vitest run tests/pantrySnapshot.generate.test.ts`).
+      `server/dist/routes/pantry.js` now has ZERO client `require`s.
+    - Guard rail: `tests/pantrySnapshot.generate.test.ts` (engine drift guard) +
+      `tests/pantryResolver.parity.test.ts` (byte-parity vs client buildPantryGroups)
+      + `tests/pantryRoute.test.ts` (route contract, 401/403 gates, legacy-id skip).
+    - PROVEN on compiled dist: booted `node dist/index.js` on :3101 (same dev DB),
+      added a `rajma-chawal ×2` tray item for a real member, `GET /pantry` → **200**
+      with correctly grouped Fresh Stuff / Staples (Basmati Rice 370g, Rajma 240g) /
+      Spices / Pantry. (Probe row + server removed after; nothing left behind.)
+    - NOTE (client engine, pre-existing): fixing this surfaced a latent client
+      engine fragility — some dish resolution is order/cache-state dependent (a
+      full-library sweep can leave sparse variants degraded). Snapshot pins the
+      faithful first-resolution content; engine root-cause is a clean follow-up.
+  - **HOUSEHOLD ADMIN (server + UI).**
+    - `PATCH /households/:id/members/:mid {role:"admin"}` now TRANSFERS adminship:
+      demote incumbents + promote target in ONE `$transaction`; demoting the ONLY
+      admin → 400. `households.ts` now imports `APIError` from `../lib/apiError`
+      (leaf), not `../index` — the old import broke any harness test.
+    - NEW `DELETE /households/:id/members/:mid` (admin only): guards (self → use
+      /leave; last-admin → 400), cascades ExpenseSplit, deletes MemberLane +
+      HouseholdAssumption, NULLS shared-plan member pointers (no dangling id).
+    - Client: `removeMember` in householdApi + `removeHouseholdMember` in useStore
+      + FamilyPlans admin buttons **Make admin** / **Remove** (hidden on admin rows).
+    - Tests: `tests/householdMembers.admin.test.ts` (7) via new
+      `buildHouseholdsApp` harness.
+  - **PORT SUPERVISION (task 1) DONE.** Plist `KeepAlive <true/>`; reinstalled +
+      reloaded; proven with `kill -9` → launchd re-armed (PID 11644→11835, health 200).
+  - **DEV-DB PRUNE (task 4) DONE.** One-off tsx script (not committed) deleted
+      6 probe/flake users + 7 probe/flake/Smoke-Cook households; re-scan clean.
+  - **Suite: 90 files / 1275 tests green** (+ the 18 new). Root client build green.
+    Local state: **3001 RUNNING** (launchd, KeepAlive=true after reload).
+  - Carry-forward: WhatsApp Phase-2 flip (`WHATSAPP_*` env), pantry inbound-"done"
+    can now REUSE the same server ingredient engine to draw the ledger down, and a
+    fresh look at the client engine's order-dependence (follow-up).
 - **2026-09-16 — Cook WhatsApp channel Phase 1 SHIPPED (dry-run, code+DB+docs)**
   - **The cook's ONLY channel is now built end-to-end for WhatsApp Business API.**
     Runs in DRY-RUN until `WHATSAPP_*` env lands; then it sends for real.

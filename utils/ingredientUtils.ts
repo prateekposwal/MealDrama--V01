@@ -33,7 +33,7 @@ export function canonicalName(name: string): string {
 const ing = (name: string, qty: number, unit: string, category: IngredientCategory): Ingredient =>
   ({ name, quantity: qty, unit, category, inStock: false });
 
-const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
+export const CATEGORY_INGREDIENTS: Record<string, Ingredient[]> = {
   // ─── Gravies ──────────────────────────────────────────────
   'brown-gravy-onion-tomato': [ing('Onions', 2, 'pc', 'produce'), ing('Tomatoes', 3, 'pc', 'produce'), ing('Ginger-Garlic Paste', 1, 'tbsp', 'pantry'), ing('Spices', 1, 'packet', 'spices')],
   'red-gravy-tomato-butter': [ing('Tomatoes', 4, 'pc', 'produce'), ing('Butter', 50, 'g', 'dairy'), ing('Cream', 30, 'ml', 'dairy'), ing('Spices', 1, 'packet', 'spices')],

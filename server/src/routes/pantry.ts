@@ -10,6 +10,7 @@ import { authMiddleware } from '../lib/auth';
 import { APIError } from '../lib/apiError';
 import { canonicalName } from '../lib/canonicalName';
 import { z } from 'zod';
+import { buildPantryGroups, categoryMeta, resolveCategoryIngredients, resolveMealIngredients, type ServerIngredient } from '../lib/ingredientResolver';
 
 const router = Router();
 router.use(authMiddleware);
@@ -90,20 +91,14 @@ router.get('/:householdId/pantry', async (req: Request, res: Response) => {
       }));
     });
 
-    // Resolve ingredients using the same engine as frontend
-    // Import the dish library (static data, safe for server)
-    const { DISH_LIBRARY } = require('../../../meal/constants/dishLibrary');
-    const { getIngredientsForMealOption, buildPantryGroups, CATEGORY_META } = require('../../../utils/ingredientUtils');
-
-    const allIngredients: { ing: { name: string; quantity: number; unit: string; category: string; inStock?: boolean }; source: string }[] = [];
+    // Resolve ingredients server-side from PANTRY_SNAPSHOT (the compiled
+    // server NEVER require()s client TS modules — that was the prod 500 —
+    // see server/src/lib/ingredientResolver.ts + tests/pantrySnapshot.*).
+    const allIngredients: { ing: ServerIngredient; source: string }[] = [];
 
     for (const meal of meals) {
-      // Look up the dish in the library
-      const dish = DISH_LIBRARY.find((d: any) => d.id === meal.meal_id);
-      if (!dish) continue;
-
-      // Get ingredients for the meal
-      const ings = getIngredientsForMealOption(meal.meal_id, '', DISH_LIBRARY);
+      if (!meal.meal_id) continue; // no canned recipe (custom dish implied)
+      const ings = resolveMealIngredients(meal.meal_id);
       const memberPrefix = meal.requestedBy ? `${meal.requestedBy} — ` : '';
 
       for (const ing of ings) {
@@ -114,10 +109,8 @@ router.get('/:householdId/pantry', async (req: Request, res: Response) => {
         });
       }
 
-      // Resolve sides
       for (const side of [...(meal.sides || []), ...(meal.beverages || [])]) {
-        const { getIngredientsForCategoryOption } = require('../../../utils/ingredientUtils');
-        for (const ing of getIngredientsForCategoryOption(side)) {
+        for (const ing of resolveCategoryIngredients(side)) {
           allIngredients.push({
             ing,
             source: `${memberPrefix}${meal.name} · ${side}`,
@@ -126,7 +119,6 @@ router.get('/:householdId/pantry', async (req: Request, res: Response) => {
       }
     }
 
-    // Build pantry groups
     const groups = buildPantryGroups(allIngredients);
 
     res.json({
@@ -134,8 +126,8 @@ router.get('/:householdId/pantry', async (req: Request, res: Response) => {
       members: members.map(m => ({ id: m.id, name: m.name })),
       ingredients: groups.map((g: any) => ({
         category: g.category,
-        label: CATEGORY_META[g.category]?.label || g.category,
-        emoji: CATEGORY_META[g.category]?.emoji || '📦',
+        label: categoryMeta(g.category).label || g.category,
+        emoji: categoryMeta(g.category).emoji || '📦',
         items: g.items.map((i: any) => ({
           name: i.name,
           quantity: i.totalQuantity,

@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authMiddleware } from '../lib/auth';
-import { APIError } from '../index';
+import { APIError } from '../lib/apiError';
 import { memberToJson } from '../lib/householdMemberJson';
 import { z } from 'zod';
 
@@ -283,14 +283,41 @@ router.patch('/:householdId/members/:memberId', async (req: Request, res: Respon
     const target = household.members.find(m => m.id === memberId);
     if (!target) throw new APIError('NOT_FOUND', 'Member not found', 404);
 
-    const updated = await prisma.householdMember.update({
-      where: { id: memberId },
-      data: {
-        role: payload.role ?? target.role,
-        canEditPlan: payload.canEditPlan ?? ((target as any).canEditPlan ?? true),
-        autoPlanEnabled: payload.autoPlanEnabled ?? ((target as any).autoPlanEnabled ?? true),
-      },
-    });
+    const adminCount = household.members.filter(m => m.role === 'admin').length;
+    const roleChanged = payload.role !== undefined && payload.role !== target.role;
+
+    // Role guards — a household always keeps exactly ≥1 admin.
+    //   1. Demoting/demoting-self the ONLY admin is illegal.
+    //   2. Promoting a member to admin TRANSFERS adminship: every incumbent
+    //      admin (including the caller) demotes to member — no two-captains.
+    if (roleChanged && payload.role === 'member' && target.role === 'admin' && adminCount <= 1) {
+      throw new APIError('FORBIDDEN', 'A household needs at least one admin', 400);
+    }
+
+    const updated = await (async () => {
+      if (roleChanged && payload.role === 'admin') {
+        // Atomic transfer: demote incumbents, then promote the target.
+        const [, promoted] = await prisma.$transaction([
+          prisma.householdMember.updateMany({
+            where: { householdId, role: 'admin' },
+            data: { role: 'member' },
+          }),
+          prisma.householdMember.update({
+            where: { id: memberId },
+            data: { role: 'admin', canEditPlan: payload.canEditPlan ?? ((target as any).canEditPlan ?? true) },
+          }),
+        ]);
+        return promoted as any;
+      }
+      return prisma.householdMember.update({
+        where: { id: memberId },
+        data: {
+          role: payload.role ?? target.role,
+          canEditPlan: payload.canEditPlan ?? ((target as any).canEditPlan ?? true),
+          autoPlanEnabled: payload.autoPlanEnabled ?? ((target as any).autoPlanEnabled ?? true),
+        },
+      });
+    })();
 
     // Sync the member's plan-lane slots to their profile when supplied.
     if (payload.plannedSlots && target.userId) {
@@ -306,8 +333,10 @@ router.patch('/:householdId/members/:memberId', async (req: Request, res: Respon
       data: {
         householdId,
         memberName: me?.name ?? 'Admin',
-        action: 'permission',
-        detail: `${(updated as any).canEditPlan ? 'can edit' : 'view-only'} plan · toggler ${target.name}`,
+        action: payload.role === 'admin' ? 'admin' : 'permission',
+        detail: payload.role === 'admin'
+          ? `${target.name} is now admin (${me?.name ?? 'Admin'} demoted)`
+          : `${(updated as any).canEditPlan ? 'can edit' : 'view-only'} plan · toggler ${target.name}`,
       },
     });
 
@@ -317,6 +346,59 @@ router.patch('/:householdId/members/:memberId', async (req: Request, res: Respon
     if (error instanceof z.ZodError) return res.status(400).json({ error: 'Invalid payload' });
     console.error('[API] Household member update error:', error);
     res.status(500).json({ error: 'Failed to update member' });
+  }
+});
+
+/**
+ * DELETE /api/v1/households/:householdId/members/:memberId
+ * Admin removes another member from the household. Guards:
+ *   - only an admin may remove; members remove THEMSELVES via /leave
+ *   - you cannot remove yourself (use /leave)
+ *   - you cannot remove the last admin
+ * Cleanup kept honest: ExpenseSplit cascades (FK). Member-lane strings
+ * (HouseholdAssumption, MemberLane) are deleted; shared-plan member pointers
+ * (requestedBy/requestedFor) are NULLED so no dangling member-id survives.
+ */
+router.delete('/:householdId/members/:memberId', async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) throw new APIError('UNAUTHORIZED', 'Unauthorized', 401);
+    const householdId = String(req.params.householdId || '');
+    const memberId = String(req.params.memberId || '');
+
+    const household = await prisma.household.findUnique({
+      where: { id: householdId },
+      include: { members: true },
+    });
+    if (!household) throw new APIError('NOT_FOUND', 'Household not found', 404);
+    const me = household.members.find(m => m.userId === userId);
+    if (me?.role !== 'admin') throw new APIError('FORBIDDEN', 'Only an admin can remove members', 403);
+
+    const target = household.members.find(m => m.id === memberId);
+    if (!target) throw new APIError('NOT_FOUND', 'Member not found', 404);
+    if (target.id === me.id) throw new APIError('FORBIDDEN', 'Admins leave via /leave, not removal', 400);
+
+    const adminCount = household.members.filter(m => m.role === 'admin').length;
+    if (target.role === 'admin' && adminCount <= 1) {
+      throw new APIError('FORBIDDEN', 'Cannot remove the last admin', 400);
+    }
+
+    await prisma.$transaction([
+      prisma.householdAssumption.deleteMany({ where: { householdId, memberId } }),
+      prisma.memberLane.deleteMany({ where: { householdId, memberId } }),
+      prisma.sharedPlanItem.updateMany({ where: { householdId, requestedFor: memberId }, data: { requestedFor: null } }),
+      prisma.sharedPlanItem.updateMany({ where: { householdId, requestedBy: memberId }, data: { requestedBy: null } }),
+      prisma.activityFeed.create({
+        data: { householdId, memberName: me?.name ?? 'Admin', action: 'removed', detail: `${target.name} removed from household` },
+      }),
+      prisma.householdMember.delete({ where: { id: memberId } }),
+    ]);
+
+    res.json({ ok: true, removed: target.name });
+  } catch (error: any) {
+    if (error instanceof APIError) throw error;
+    console.error('[API] Household member remove error:', error);
+    res.status(500).json({ error: 'Failed to remove member' });
   }
 });
 

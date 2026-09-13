@@ -233,3 +233,26 @@ export function buildWhatsAppWebhookApp(): Express {
   app.use('/api/v1', whatsappWebhookRouter);
   return app;
 }
+
+/**
+ * Test-only express harness for the household membership routes
+ * (households.ts) — admin transfer (PATCH members/:memberId role) and member
+ * removal (DELETE members/:memberId), plus the existing create/join/leave/
+ * regenerate-code surface. Same contract as buildDietApp: real routes + real
+ * authMiddleware + JSON parsing + error handler; prisma stays mocked.
+ */
+import householdsRouter from '../routes/households';
+
+export function buildHouseholdsApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/households', householdsRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}

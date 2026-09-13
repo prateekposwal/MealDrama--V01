@@ -167,13 +167,13 @@ artifact) and gives the inbound flow a stable reference.
 - [ ] onboarding number ≤> CookShare echo + honest "daily on WhatsApp" copy once Phase 2 is real *(modal now carries the toggle + opt-in copy; onboarding echo still pending)*
 - [ ] cook page localization (Hindi) so the embedded link matches the message
 - [ ] **Phase 2 flip:** set `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_ID` / `WHATSAPP_APP_SECRET` / `WHATSAPP_VERIFY_TOKEN`, wire the webhook URL at Meta, point the daily template at the real `cook_daily_plan`. Do one soft-launch household, then measure (conversations/day, done-rate).
-- [ ] Inbound consumption ledger: the cook's WhatsApp "done" marks meals done but does NOT yet draw down pantry the way the in-app complete does (client-side `stockConsume`). Server-side ingredient resolution for the inbound path is the latent-pantry-bug follow-up.
+- [ ] Inbound consumption ledger: the cook's WhatsApp "done" marks meals done but does NOT yet draw down pantry the way the in-app complete does (client-side `stockConsume`). **SERVER-SIDE INGREDIENT ENGINE NOW EXISTS** (`server/src/lib/ingredientResolver.ts`) — resolve the completed shared-plan dishes → `POST /stock/consume`. Small scope rip.
 
-**Standing backlog (unchanged, from readiness report §4/§6 + office-hours)**
+**Standing backlog (updated 2026-09-14 — pantry bug + household admin DONE)**
 - [x] Deploy the 2026-09-15 + 2026-09-16 build — **DONE 2026-09-16**: commit `9128308` pushed (Render redeployed, new routes live) + launchd `3001` restarted launchd-owned.
-- [ ] Pantry `GET /:householdId/pantry` resolver prod-500 (root-only TS `require()`)
+- [x] Pantry `GET /:householdId/pantry` resolver prod-500 — **DONE 2026-09-14**: server-owned catalog + resolver leaf (`ingredientResolver.ts` + generated `pantrySnapshot.ts`), parity-pinned, verified on compiled dist (200 + grouped ingredients).
 - [ ] OTP-first phone auth (Pairs with WhatsApp Phase 3 — one platform: WhatsApp OTN)
-- [ ] Admin transfer / member removal / regenerate-code UI; client-side `canEditPlan`
+- [x] Admin transfer / member removal — **DONE 2026-09-14**: atomic transfer `$transaction` + `DELETE members/:mid` + FamilyPlans **Make admin** / **Remove**; `regenerate-code` UI caller still pending (API-only).
 - [ ] Server-side repeat-expansion engine (weekly/bi-weekly/monthly survive reinstalls)
 - [ ] Consumption ledger wired into the forecast baseline (consume now exists)
 - [ ] Expenses zod; dish-existence checks on mealLog/tasteLedger; meals pagination

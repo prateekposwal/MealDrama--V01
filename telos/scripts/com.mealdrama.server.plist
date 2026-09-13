@@ -15,14 +15,15 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <!-- launchd IS the supervisor: restart the process once it exits.
-         The script execs the server in the foreground, so launchd tracks the
-         real server pid; no background child teardown, no StartInterval races. -->
+    <!-- launchd IS the supervisor: restart the process whenever it exits,
+         cleanly OR by crash. The script execs the server in the foreground,
+         so launchd tracks the real server pid; a clean stop previously left
+         3001 down forever (KeepAlive SuccessfulExit=false was a supervision
+         gap — it only re-armed on a NON-zero exit). KeepAlive <true/> closes
+         that: any exit re-arms, and watchdrama.sh skips the start if the port
+         is already healthy, so a double-start never squats the port. -->
     <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-    </dict>
+    <true/>
 
     <key>StandardOutPath</key>
     <string>/tmp/mealdrama_watchdog.out.log</string>

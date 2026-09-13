@@ -57,6 +57,9 @@ export const householdApi = {
       patch,
     ),
 
+  removeMember: (householdId: string, memberId: string) =>
+    api.delete<{ ok: boolean; removed: string }>(`/households/${householdId}/members/${memberId}`),
+
   getMembers: (id: string) =>
     api.get<Household>(`/households/${id}`).then(normalizeHousehold).then(h => h.members),
 };

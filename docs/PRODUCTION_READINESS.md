@@ -162,17 +162,21 @@ tray), but the "cook's phone" + lost-device flows need an OTP channel
   compiles into dist) — byte-for-byte the same alias table as the client util.
 
 **Verified:** 4 regression tests (non-member 403; decrement + clamp-at-zero;
-unit-mismatch skip). Note a **latent production bug found en route**: the
-*preexisting* `GET /:householdId/pantry` resolver `require()`s a root-only
-client TS module and 500s in the compiled `server/dist` — the member read path
-has never actually worked in production. The consume endpoint deliberately
-avoids that pattern; the pantry resolver itself needs the same treatment
-(see § section 4).
+unit-mismatch skip). The **latent pantry production bug found en route is now
+FIXED (2026-09-14)**: the `GET /:householdId/pantry` resolver used to
+`require()` root-only client TS modules never compiled into `server/dist`
+→ `MODULE_NOT_FOUND` on every member read in prod. It now resolves from a
+server-owned ingredient catalog (`server/src/lib/ingredientResolver.ts` +
+generated `server/src/data/pantrySnapshot.ts`), byte-parity-pinned against the
+client engine (`tests/pantryResolver.parity.test.ts`) and proven on compiled
+dist (200 with correct groups; see § 4). `server/dist/routes/pantry.js` has
+ZERO client `require`s. The server now ALSO has the ingredient engine the
+WhatsApp inbound "done" path needs to draw the ledger down server-side.
 
 ### MEDIUM-HIGH gaps (product decisions)
 
 - **Repeat scheduling ("weekly / bi-weekly / monthly") is not implemented server-side.** `loop-config` was an in-memory no-op (now persisted, but the **repeat-expansion engine** — turning a config into dated plan rows outside the client — still does not exist). Everything live is client-local Zustand.
-- **No admin transfer, no member removal, no invite-code regeneration in the UI.** `role` patches and `regenerate-code` exist in the API but have no callers; the only way out is self-leave. If the sole admin leaves, the household keeps an admin slot computed by "first member with role admin" fallback (`households.ts:42,175`) — i.e. it can become orphaned or auto-hand the keys.
+- **Admin transfer + member removal — DONE 2026-09-14.** `PATCH members/:id {role:'admin'}` now transfers adminship atomically (incumbents demote, sole-admin demote → 400) and NEW `DELETE members/:id` removes a member admin-side with full cleanup (lanes, assumptions, shared-plan pointers NULLED, ExpenseSplit cascades). UI: FamilyPlans **Make admin** / **Remove**. `regenerate-code` also has UI-free callers only (`householdApi.regenerateCode` unused in components) — a wink of polish left.
 - **`canEditPlan` / view-only is enforced server-side only.** View-only members get the same editing UI and only discover the 403 on submit (`planStatus.ts` helper exists but has no production caller).
 - **Member privacy:** `GET /households/:id` returns every member's `UserProfile` + `DietPreference` (allergies, dislikes) to any member. Acceptable for a household, but it should be an explicit decision (and FamilyDiets deliberately restricts the *diet policy* view server-side — inconsistent).
 
@@ -186,8 +190,14 @@ avoids that pattern; the pantry resolver itself needs the same treatment
 - `custom-dishes.ts`: rename collisions → P2002 → 500; `ingredients` cannot be PATCHed.
 - `tray.ts`: free-form `gravyStyle/rotiType/riceType/sides` unbounded; `guestCount` guard is dead (schema caps 11, runtime checks `> 12`).
 - `householdFeed.ts`/`sharedPlan` day-range params: negative/invalid `days` → NaN → 500.
-- **Latent prod bug found en route (2026-09-15):** `GET /:householdId/pantry`'s member path `require()`s a root-only client TS module (`../../../utils/ingredientUtils`) that is never compiled into `server/dist` → `MODULE_NOT_FOUND` in a built server. The 403/401 gates masked it in live probes. Needs a server-side ingredient resolver (the new consume endpoint uses a server leaf instead).
-- **WhatsApp inbound "done" does not draw the pantry down (2026-09-16):** the in-app complete triggers the consumption ledger client-side; the cook's WhatsApp "done" marks meals complete server-side only. Wiring the server-side ingredient resolution into the inbound path is the tasty follow-up to the latent-pantry fix above.
+- **Latent prod bug FIXED (2026-09-14):** `GET /:householdId/pantry` member path
+  used to `require()` a root-only client TS module never compiled into
+  `server/dist` → `MODULE_NOT_FOUND` in a built server. Now served by a
+  server-owned catalog + resolver leaf (`server/src/lib/ingredientResolver.ts`)
+  with engine-parity tests; **verified on compiled dist** (`node dist/index.js`,
+  real member + `rajma-chawal ×2` → HTTP 200 with grouped ingredients). The
+  server-side engine is also the one the WhatsApp inbound "done" path needs.
+- **WhatsApp inbound "done" does not draw the pantry down (2026-09-16):** the in-app complete triggers the consumption ledger client-side; the cook's WhatsApp "done" marks meals complete server-side only. The server ingredient engine now exists (`ingredientResolver.ts`) — wiring it into the inbound path is a small, well-scoped follow-up (resolve the completed shared-plans' dishes → `POST /stock/consume`).
 - `isRoommateHousehold` hardcoded `true` in Profile (`Profile.tsx:1063`) — expense UI shows for families too.
 - `requestForMemberId` (the "request this dish for a member" flow) is dead — no call site passes it.
 - Test-infra typecheck noise remains (`tests/analytics.test.ts`, `tests/api503CrashRegression.test.ts`, `tests/staticServing.test.ts`, `server/tmp/scratch_*.mts`) — app + server code are clean, vitest is unaffected.
@@ -212,8 +222,9 @@ avoids that pattern; the pantry resolver itself needs the same treatment
 |---|---|
 | **Done 2026-09-15** | Four launch blockers closed: device-bound auth (register/login/users), `dayIndex` real days, `version` CAS on the week, member-pointer integrity, cook-share link + public page, pantry consumption ledger. 18 new regressions (1219 tests green, 84 files). |
 | **Done 2026-09-16** | Cook WhatsApp channel **Phase 1 shipped** (dry-run): `lib/whatsapp.ts` client + dry-run sender + idempotency, the "all plan + left to do" work-order composer, inbound `cookReply` intents (done/shortage/fallback), day-aligned idempotent `cookScheduler`, webhook route with raw-body HMAC, `CookShare` messaging fields + consent capture, and the modal "Daily on WhatsApp" toggle. +38 regressions → **86 files / 1257 tests green**. |
-| **Block launch** | ~~Deploy~~ **DONE 2026-09-16** — launchd `3001` restarted launchd-owned, Render redeployed (webhook 200, cook-share 401 live). Remaining: decide OTP/password for cross-device recovery + cook-on-phone flow; add the `WHATSAPP_*` env on Render + approve `cook_daily_plan` (Phase 2 flip — everything already runs dry-run); fix the latent pantry resolver `require()` prod-500. |
-| **Before scale** | One authoritative family-week model (reconcile `UserPlan`/`SharedPlanItem`/`HouseholdPlanItem`/`MemberLane`); stable `memberKey` everywhere + FKs; repeat-expansion engine server-side; admin transfer/removal UI; food-consumption ledger across ALL completion paths — incl. the cook's WhatsApp "done" (needs the server-side ingredient resolver). |
+| **Done 2026-09-14** | Known-prod-bug sweep: **pantry `GET /:householdId/pantry` prod-500 FIXED** (server-owned catalog + resolver leaf, engine-parity pinned, proven on compiled dist); **household admin transfer + member removal** (atomic `$transaction` transfer, `DELETE members/:mid` w/ cleanup, FamilyPlans **Make admin / Remove**); **port-supervision** `KeepAlive=true` (kill-proofed); **dev-DB prune** (6 probe users + 7 throwaway households). +18 → **90 files / 1275 tests green**. |
+| **Block launch** | ~~Deploy~~ **DONE 2026-09-16** — launchd `3001` restarted launchd-owned, Render redeployed (webhook 200, cook-share 401 live). Remaining: decide OTP/password for cross-device recovery + cook-on-phone flow; add the `WHATSAPP_*` env on Render + approve `cook_daily_plan` (Phase 2 flip — everything already runs dry-run); wire the server ingredient engine into the WhatsApp inbound "done" path. |
+| **Before scale** | One authoritative family-week model (reconcile `UserPlan`/`SharedPlanItem`/`HouseholdPlanItem`/`MemberLane`); stable `memberKey` everywhere + FKs; repeat-expansion engine server-side; food-consumption ledger across ALL completion paths — incl. the cook's WhatsApp "done" (the server-side ingredient resolver now exists — the path is unblocked). |
 | **This quarter** | `expenses` zod; dish-existence checks on `mealLog`/`tasteLedger`; client-side `canEditPlan` gating; cook page Hindi localization; onboarding number ≤> CookShare echo; WhatsApp Phase 3 (OTN — the same WABA becomes the OTP/identity channel). |
 | **Nice-to-have** | `meals` pagination, `customDish` PATCH completeness, tray string enums, `isRoommateHousehold` decision, test-file type hygiene, tame the flaky trayP2028 round-trip assertions. |
 
