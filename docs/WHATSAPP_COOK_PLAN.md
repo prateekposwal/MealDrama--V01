@@ -170,7 +170,7 @@ artifact) and gives the inbound flow a stable reference.
 - [ ] Inbound consumption ledger: the cook's WhatsApp "done" marks meals done but does NOT yet draw down pantry the way the in-app complete does (client-side `stockConsume`). Server-side ingredient resolution for the inbound path is the latent-pantry-bug follow-up.
 
 **Standing backlog (unchanged, from readiness report §4/§6 + office-hours)**
-- [ ] Deploy the 2026-09-15 + 2026-09-16 build (launchd 3001 + Render still pre-fix)
+- [x] Deploy the 2026-09-15 + 2026-09-16 build — **DONE 2026-09-16**: commit `9128308` pushed (Render redeployed, new routes live) + launchd `3001` restarted launchd-owned.
 - [ ] Pantry `GET /:householdId/pantry` resolver prod-500 (root-only TS `require()`)
 - [ ] OTP-first phone auth (Pairs with WhatsApp Phase 3 — one platform: WhatsApp OTN)
 - [ ] Admin transfer / member removal / regenerate-code UI; client-side `canEditPlan`
