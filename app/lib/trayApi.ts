@@ -80,6 +80,31 @@ export interface GuestModeResponse {
   success: boolean;
 }
 
+// ─── First-load seed serialization (P2028 fix, 2026-09-13) ────────────────
+// The onboarding seed calls addMealToSlot once per planned slot; each schedules
+// its OWN 1s debounce timer (plan/utils/trayDebounce.ts) → 4 addSlotItem POSTs
+// can hit the server in the SAME millisecond. On cold Neon compute that
+// simultaneous storm of multi-round-trip writes blew the 5s interactive
+// transaction budget server-side (P2028 → HTTP 500 on first landing; reload
+// clean because the seed skips on a hydrated store). The server write path is
+// now non-interactive (bounded round-trips); this chain additionally
+// SERIALIZES client slot-item POSTs so cold compute is never hit with
+// concurrent writes — the first-load seed drains one slot at a time
+// (single-flight within the existing _seedInFlight/_seedRan mount discipline),
+// and user edits queue behind atomically. Serialization also makes the
+// server's SLOT_CROWDED count gate deterministic (concurrent parallel adds can
+// no longer race past the 5-item cap). Genuine failures still PROPAGATE from
+// the caller-visible promise (honest saveStatus 'error' + retry) — the chain
+// only advances past them, it never swallows or fakes success.
+let slotPostChain: Promise<unknown> = Promise.resolve();
+function serializeSlotPost<T>(fn: () => Promise<T>): Promise<T> {
+  const run = slotPostChain.then(fn, fn);
+  // `run` is the caller-visible promise (carries the REAL rejection); the
+  // chain itself advances on settle so one failure never wedges later posts.
+  slotPostChain = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 // ─── Offline Queue ──────────────────────────────────────────────────────────
 
 const OFFLINE_QUEUE_KEY = 'mealdrama_offline_v2';
@@ -359,7 +384,9 @@ export const trayApi = {
     // (terminal) and the offline drain retries at most 3× then drops. The old
     // catch returned success:true + a fabricated id — the seed/pantry effects
     // had no honest terminal signal, which re-armed the #185 churn.
-    const result = await api.post<Record<string, unknown>>(`/tray/slot/${date}/${mealType}/items`, serverPayload, { signal });
+    const result = await serializeSlotPost(() =>
+      api.post<Record<string, unknown>>(`/tray/slot/${date}/${mealType}/items`, serverPayload, { signal })
+    );
     return {
       item_id: (result.id as string) ?? `item_${Date.now()}`,
       success: true,

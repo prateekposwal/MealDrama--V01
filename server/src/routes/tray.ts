@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { authMiddleware } from '../lib/auth';
-import { APIError } from '../index';
+import { APIError } from '../lib/apiError'; // canonical location — ../index only re-exports it (avoids pulling the full server bootstrap into route/module graphs)
 import { z } from 'zod';
 import { ISO_DATE, Slot, isValidDate, parseISODate } from '../lib/validation';
 
@@ -302,29 +302,42 @@ router.post('/slot/:date/:slot/items', async (req: Request, res: Response) => {
     const parsedDate = parseISODate(rawDate);
     const itemData = TrayItemSchema.parse(req.body);
 
-    const result = await prisma.$transaction(async (tx) => {
-      let traySlot = await tx.traySlot.findUnique({
-        where: { userId_date_slot: { userId, date: parsedDate, slot: slotResult.data } },
-      });
+    // P2028 fix (2026-09-13): the interactive async-callback transaction API held
+    // a 5s budget across SIX awaited round-trips (findUnique → create-if-missing
+    // → count → findFirst → item.create → slot.update). On cold Neon compute
+    // each round-trip is ~1s; the first-load seed's 4 parallel POSTs each blew
+    // the budget → P2028 "Transaction already closed" → HTTP 500 on first
+    // landing (reload clean: seed skipped, no POSTs). Structural fix with NO
+    // constraint weakening and NO error-masking:
+    //   • traySlot UPSERT — ONE round-trip, atomic create-if-missing, and
+    //     IDEMPOTENT: an intermediate failure that left a slot behind is
+    //     absorbed by the retry's upsert (update: {} is a no-op on the
+    //     existing row). FK/constraints unchanged.
+    //   • trayItem.count + findFirst — SLOT_CROWDED gate and sortOrder
+    //     computation unchanged (each one round-trip).
+    //   • $transaction([create, update]) — Prisma's ARRAY form: the item write
+    //     + version increment commit as ONE atomic batch in a single submit.
+    //     No interactive 5s timer — the P2028 class is structurally gone; each
+    //     query carries its own latency, never a cumulative cross-query budget.
+    const traySlot = await prisma.traySlot.upsert({
+      where: { userId_date_slot: { userId, date: parsedDate, slot: slotResult.data } },
+      update: {},
+      create: { userId, date: parsedDate, slot: slotResult.data },
+    });
 
-      if (!traySlot) {
-        traySlot = await tx.traySlot.create({
-          data: { userId, date: parsedDate, slot: slotResult.data },
-        });
-      }
+    const itemCount = await prisma.trayItem.count({ where: { traySlotId: traySlot.id } });
+    if (itemCount >= 5) {
+      throw new APIError('SLOT_CROWDED', 'Slot crowded: max 5 items per slot. Consider splitting.', 400);
+    }
 
-      const itemCount = await tx.trayItem.count({ where: { traySlotId: traySlot.id } });
-      if (itemCount >= 5) {
-        throw new APIError('SLOT_CROWDED', 'Slot crowded: max 5 items per slot. Consider splitting.', 400);
-      }
+    const maxSort = await prisma.trayItem.findFirst({
+      where: { traySlotId: traySlot.id },
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true },
+    });
 
-      const maxSort = await tx.trayItem.findFirst({
-        where: { traySlotId: traySlot.id },
-        orderBy: { sortOrder: 'desc' },
-        select: { sortOrder: true },
-      });
-
-      const newItem = await tx.trayItem.create({
+    const [newItem] = await prisma.$transaction([
+      prisma.trayItem.create({
         data: {
           traySlotId: traySlot.id,
           ...itemData,
@@ -334,17 +347,14 @@ router.post('/slot/:date/:slot/items', async (req: Request, res: Response) => {
           meal: { select: { id: true, name: true, icon: true } },
           customDish: { select: { id: true, name: true } },
         },
-      });
-
-      await tx.traySlot.update({
+      }),
+      prisma.traySlot.update({
         where: { id: traySlot.id },
         data: { version: { increment: 1 } },
-      });
+      }),
+    ]);
 
-      return newItem;
-    });
-
-    res.json(result);
+    res.json(newItem);
   } catch (error: any) {
     if (error instanceof APIError) throw error;
     if (error instanceof z.ZodError) {

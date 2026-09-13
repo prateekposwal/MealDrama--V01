@@ -50,3 +50,27 @@ export function buildPersonalizationApp(): Express {
   });
   return app;
 }
+
+/**
+ * Test-only express harness for the tray route suite (P2028 fix). Same
+ * contract as buildDietApp: REAL routes + real authMiddleware + JSON parsing
+ * + error handler; prisma stays mocked in the test file. The tray router
+ * applies authMiddleware internally (router.use), so mounted routes demand a
+ * Bearer token like production.
+ */
+import trayRouter from '../routes/tray';
+
+export function buildTrayApp(): Express {
+  const app = express();
+  app.use(express.json({ limit: '100kb' }));
+  app.use('/api/v1/tray', trayRouter);
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err instanceof APIError) {
+      return res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
+    }
+    console.error('[Harness] unhandled error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
+  return app;
+}
+

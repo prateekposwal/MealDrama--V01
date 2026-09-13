@@ -39,7 +39,7 @@
 // REAL-store mutation-bound simulation (fresh boot → 4-slot seed → 400s →
 // mutations settle; no re-arm).
 // ─────────────────────────────────────────────────────────────────────────────
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { getISODate } from '../utils/dateUTC';
 
@@ -312,5 +312,287 @@ describe('offline queue drain — failed adds are bounded, never "synced" lies',
       .map(c => String(c[0])).filter(u => u.includes('/tray/slot/'));
     expect(addCalls).toHaveLength(4);
     for (const u of addCalls) expect(u).toBe('/api/v1/tray/slot/2026-09-13/lunch/items');
+  });
+});
+
+// ─── Part E — server POST /items: P2028 interactive-tx structurally GONE ──
+// 2026-09-13 log evidence (this report's discriminant):
+//   prisma:error Invalid `tx.trayItem.create()` invocation in
+//     /Users/prateekposwal/MD-App/server/src/routes/tray.ts:327:41
+//   Transaction API error: Transaction already closed: … timeout for this
+//     transaction was 5000 ms, however 5408 ms passed … code: 'P2028'
+//   POST /slot/2026-09-13/breakfast/items 500 5930ms
+// The OLD POST path held SIX awaited round-trips inside an interactive
+// $transaction(async tx => …) — on cold Neon compute the first-load seed's 4
+// parallel POSTs each blew the 5s interactive budget → P2028 → HTTP 500
+// (reload clean: seed skipped, no POSTs). The NEW path must be: traySlot
+// UPSERT (idempotent, one round-trip) + count + findFirst + $transaction([…])
+// ARRAY form (atomic create+version batch, ONE submit, no interactive timer).
+// Constraints/FK unchanged — never weakened; failures still propagate.
+// ─────────────────────────────────────────────────────────────────────────────
+import type { Server } from 'http';
+import type { AddressInfo } from 'net';
+import { buildTrayApp } from '../server/src/lib/routerHarness';
+import { generateAccessToken } from '../server/src/lib/auth';
+
+const trayDb = vi.hoisted(() => {
+  const slots: any[] = [];
+  const slotByKey = new Map<string, any>();
+  const items: any[] = [];
+  const interactiveTxCalls: number[] = [];
+  let slotSeq = 0;
+  let itemSeq = 0;
+  let latencyMs = 0;
+
+  const delay = () => (latencyMs ? new Promise(r => setTimeout(r, latencyMs)) : Promise.resolve());
+
+  const prismaMock = {
+    reset() {
+      slots.length = 0; slotByKey.clear(); items.length = 0;
+      interactiveTxCalls.length = 0; slotSeq = 0; itemSeq = 0; latencyMs = 0;
+    },
+    setLatency(ms: number) { latencyMs = ms; },
+    slotCount: () => slots.length,
+    itemCount: () => items.length,
+    slotVersion: () => slots[0]?.version ?? 0,
+    interactiveTxCalls,
+    traySlot: {
+      upsert: async ({ where, update, create }: any) => {
+        await delay();
+        const k = `${where.userId_date_slot.userId}|${where.userId_date_slot.date}|${where.userId_date_slot.slot}`;
+        const existing = slotByKey.get(k);
+        if (existing) return { ...existing, ...update }; // idempotent retry absorption
+        const row = { id: `slot-${++slotSeq}`, userId: create.userId, date: create.date, slot: create.slot, version: 1, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        slots.push(row); slotByKey.set(k, row);
+        return row;
+      },
+      update: async ({ where, data }: any) => {
+        await delay();
+        const row = slots.find(s => s.id === where.id);
+        if (!row) throw new Error('TraySlot not found');
+        row.version += (data.version?.increment ?? 0);
+        row.updatedAt = new Date().toISOString();
+        return { ...row };
+      },
+      findUnique: async () => null,
+      create: async ({ data }: any) => { await delay(); const row = { id: `slot-${++slotSeq}`, ...data, version: 1 }; slots.push(row); return row; },
+      deleteMany: async () => 0,
+    },
+    trayItem: {
+      count: async ({ where }: any) => { await delay(); return items.filter(i => i.traySlotId === where.traySlotId).length; },
+      findFirst: async ({ where }: any) => {
+        await delay();
+        const list = items.filter(i => i.traySlotId === where.traySlotId);
+        if (!list.length) return null;
+        return [...list].sort((a, b) => (b.sortOrder ?? -1) - (a.sortOrder ?? -1))[0];
+      },
+      create: async ({ data, include }: any) => {
+        await delay();
+        const row: any = {
+          id: `item-${++itemSeq}`, traySlotId: data.traySlotId, mealId: data.mealId ?? null,
+          customDishId: data.customDishId ?? null, quantity: data.quantity, gravyStyle: data.gravyStyle,
+          rotiType: data.rotiType, riceType: data.riceType, sides: data.sides ?? [], beverages: data.beverages ?? [],
+          requestedBy: data.requestedBy ?? null, sortOrder: data.sortOrder,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        };
+        if (include?.meal) row.meal = { id: data.mealId, name: 'Poha', icon: '🍚' };
+        if (include?.customDish && data.customDishId) row.customDish = { id: data.customDishId, name: 'Custom' };
+        items.push(row);
+        return row;
+      },
+      findUnique: async () => null,
+      update: async () => null,
+      delete: async () => null,
+      deleteMany: async () => 0,
+    },
+    $transaction: async (queriesOrFn: any) => {
+      if (Array.isArray(queriesOrFn)) {
+        // ARRAY form — Prisma executes the batch in a single submit with NO
+        // interactive 5s budget. Executed here sequentially (same semantics).
+        const results = [];
+        for (const q of queriesOrFn) results.push(await q);
+        return results;
+      }
+      // Interactive form = the P2028 class. ANY call = the fix regressed.
+      interactiveTxCalls.push(1);
+      throw new Error('interactive $transaction used — P2028 class (fix regressed)');
+    },
+  };
+  return { prismaMock };
+});
+
+vi.mock('../server/src/lib/prisma', () => ({ prisma: trayDb.prismaMock }));
+
+const trayApp = buildTrayApp();
+let trayServer: Server;
+let trayBase = '';
+
+beforeAll(async () => {
+  await new Promise<void>(resolve => {
+    trayServer = trayApp.listen(0, '127.0.0.1', () => {
+      trayBase = `http://127.0.0.1:${(trayServer.address() as AddressInfo).port}`;
+      resolve();
+    });
+  });
+});
+
+afterAll(async () => {
+  await new Promise<void>(resolve => trayServer.close(() => resolve()));
+});
+
+const trayToken = (userId: string) =>
+  generateAccessToken({ userId, email: `${userId}@test.local`, phone: null, name: 'User' });
+
+async function trayReq(method: string, path: string, opts: { token?: string; body?: unknown } = {}) {
+  const res = await fetch(`${trayBase}${path}`, {
+    method,
+    headers: {
+      ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
+      ...(opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+  });
+  return { status: res.status, body: await res.json() as any };
+}
+
+const itemBody = (mealId: string) => ({ mealId, quantity: 1 });
+
+describe('POST /api/v1/tray/slot/:date/:slot/items — P2028 structural pins', () => {
+  it('static: the create path has NO interactive $transaction(async; upsert + ARRAY form in place', () => {
+    const srv = readSource('server/src/routes/tray.ts');
+    const itemsHandler = srv.slice(
+      srv.indexOf("router.post('/slot/:date/:slot/items'"),
+      srv.indexOf('// Update tray item'),
+    );
+    expect(itemsHandler.match(/\$transaction\(async/g) ?? []).toHaveLength(0);
+    expect(itemsHandler).toContain('traySlot.upsert(');
+    expect(itemsHandler).toContain('update: {}'); // idempotent create-if-missing no-op
+    expect(itemsHandler).toContain('prisma.$transaction([');
+    expect(itemsHandler).toContain('trayItem.create({');
+    expect(itemsHandler).toContain('version: { increment: 1 }');
+  });
+
+  it('runtime: the interactive $transaction mock is NEVER invoked; array form carries create+version atomically', async () => {
+    trayDb.prismaMock.reset();
+    const t = trayToken('u-p2028');
+    const r = await trayReq('POST', '/api/v1/tray/slot/2026-09-13/breakfast/items', { token: t, body: itemBody('poha-mp') });
+    expect(r.status).toBe(200);
+    expect(r.body.id).toMatch(/^item-/);
+    expect(r.body.meal?.name).toBe('Poha');
+    expect(trayDb.prismaMock.interactiveTxCalls).toHaveLength(0); // P2028 class dead
+    expect(trayDb.prismaMock.slotCount()).toBe(1);
+    expect(trayDb.prismaMock.itemCount()).toBe(1);
+    expect(trayDb.prismaMock.slotVersion()).toBe(2); // 1 → 2: bump commits ATOMICALLY with the item
+  });
+
+  it('second POST to the SAME slot: upsert absorbs (still ONE slot), sortOrder advances, version bumps', async () => {
+    trayDb.prismaMock.reset();
+    const t = trayToken('u-p2028b');
+    await trayReq('POST', '/api/v1/tray/slot/2026-09-13/lunch/items', { token: t, body: itemBody('rajma-chawal') });
+    const r2 = await trayReq('POST', '/api/v1/tray/slot/2026-09-13/lunch/items', { token: t, body: itemBody('dal-makhani') });
+    expect(r2.status).toBe(200);
+    expect(r2.body.sortOrder).toBe(1);
+    expect(trayDb.prismaMock.slotCount()).toBe(1); // idempotent upsert — no duplicate slot
+    expect(trayDb.prismaMock.itemCount()).toBe(2);
+    expect(trayDb.prismaMock.slotVersion()).toBe(3); // second POST bumps 2 → 3
+  });
+
+  it('SLOT_CROWDED gate is PRESERVED: a 6th item 400s and nothing is written', async () => {
+    trayDb.prismaMock.reset();
+    const t = trayToken('u-crowd');
+    await trayReq('POST', '/api/v1/tray/slot/2026-09-13/dinner/items', { token: t, body: itemBody('daal') });
+    // Fill to 5 directly in the (mocked) store — the gate reads the count.
+    const slotId = 'slot-1';
+    const itemsArr = trayDb.prismaMock as unknown as { trayItem: { create: (a: any) => Promise<any> } };
+    for (let i = 0; i < 4; i++) {
+      await itemsArr.trayItem.create({ data: { traySlotId: slotId, mealId: `filled-${i}`, quantity: 1, sortOrder: i + 1 } });
+    }
+    const r = await trayReq('POST', '/api/v1/tray/slot/2026-09-13/dinner/items', { token: t, body: itemBody('sixth') });
+    expect(r.status).toBe(400);
+    expect(r.body.error?.code).toBe('SLOT_CROWDED');
+    expect(trayDb.prismaMock.itemCount()).toBe(5); // nothing extra written
+    expect(trayDb.prismaMock.slotVersion()).toBe(2); // blocked write: NO bump past the first POST's 2
+  });
+
+  it('slow-prisma proof: with ~1.4s/query, one item write completes PAST the old 5s interactive budget — 200, not P2028', async () => {
+    trayDb.prismaMock.reset();
+    trayDb.prismaMock.setLatency(1400);
+    const t = trayToken('u-slow');
+    const start = Date.now();
+    const r = await trayReq('POST', '/api/v1/tray/slot/2026-09-13/breakfast/items', { token: t, body: itemBody('slow-dish') });
+    const elapsed = Date.now() - start;
+    // 4 round-trips × 1.4s = 5.6s (the array-form batch is ONE submit) — the
+    // OLD interactive tx would have died
+    // at 5.0s (P2028, the logged 500). The new non-interactive path simply
+    // finishes: each query has its own latency, no cumulative budget.
+    expect(r.status).toBe(200);
+    expect(elapsed).toBeGreaterThanOrEqual(5000);
+    expect(elapsed).toBeLessThan(8000);
+    expect(trayDb.prismaMock.interactiveTxCalls).toHaveLength(0);
+    expect(trayDb.prismaMock.itemCount()).toBe(1);
+  }, 15000);
+});
+
+// ─── Part F — client first-load seed: addSlotItem POSTs are SERIALIZED ─────
+describe('addSlotItem serialization — cold-compute first-load single-flight', () => {
+  it('static: addSlotItem wraps the POST in serializeSlotPost (module-level chain)', () => {
+    const tray = readSource('app/lib/trayApi.ts');
+    const add = tray.slice(tray.indexOf('async addSlotItem'), tray.indexOf('async updateItem'));
+    expect(add).toContain('serializeSlotPost(');
+    const header = tray.slice(0, tray.indexOf('// ─── Offline Queue'));
+    expect(header).toContain('let slotPostChain: Promise<unknown> = Promise.resolve();');
+    expect(header).toContain('slotPostChain = run.then(() => undefined, () => undefined)');
+  });
+
+  it('two concurrent addSlotItem calls: at most ONE POST in flight; first caller drains first', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const order: string[] = [];
+    globalThis.fetch = vi.fn(async (u: string) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      order.push(String(u));
+      await new Promise(r => setTimeout(r, 20));
+      active--;
+      return okJson({ id: `item-${order.length}` });
+    }) as unknown as typeof fetch;
+    const { setAuthReady } = await import('../lib/api');
+    setAuthReady(true);
+    const { trayApi } = await import('../app/lib/trayApi');
+
+    await Promise.all([
+      trayApi.addSlotItem('2026-09-13::breakfast', { meal_id: 'b-poha', quantity: 1 }),
+      trayApi.addSlotItem('2026-09-13::lunch', { meal_id: 'l-rajma', quantity: 1 }),
+    ]);
+    expect(maxActive).toBe(1);                       // never two slot POSTs in flight
+    expect(order[0]).toContain('/breakfast/items');  // deterministic first-caller-first
+    expect(order[1]).toContain('/lunch/items');
+  });
+
+  it('a failing POST does NOT wedge the chain — the next POST fires and succeeds (nothing swallowed)', async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async (u: string) => {
+      calls++;
+      if (calls === 1) return serverErr(400, 'Invalid payload: Either mealId or customDishId is required');
+      return okJson({ id: 'item-2' });
+    }) as unknown as typeof fetch;
+    const { setAuthReady } = await import('../lib/api');
+    setAuthReady(true);
+    const { trayApi } = await import('../app/lib/trayApi');
+
+    // BOTH fired concurrently — the chain serializes them; the first call's
+    // rejection must NOT wedge the queued second call.
+    const outcomes = await Promise.all([
+      trayApi.addSlotItem('2026-09-13::breakfast', { meal_id: 'b', quantity: 1 })
+        .then(v => ({ status: 'ok' as const, v }), (e: Error) => ({ status: 'err' as const, e })),
+      trayApi.addSlotItem('2026-09-13::lunch', { meal_id: 'l', quantity: 1 })
+        .then(v => ({ status: 'ok' as const, v }), (e: Error) => ({ status: 'err' as const, e })),
+    ]);
+
+    expect(outcomes[0]!.status).toBe('err');             // honest propagation of the 400 — NOT faked
+    expect((outcomes[0] as { e: Error }).e).toBeInstanceOf(Error);
+    expect(outcomes[1]!.status).toBe('ok');              // chain advanced past the failure
+    expect((outcomes[1] as { v: { item_id: string } }).v.item_id).toBe('item-2');
+    expect(calls).toBe(2);
   });
 });
