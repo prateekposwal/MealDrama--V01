@@ -96,7 +96,7 @@ describe('debt fix #2 — audit state', () => {
   it('auditPriorityBacklog is EMPTY', () => {
     expect(auditPriorityBacklog()).toEqual([]);
   });
-  it('RAW dropped by exactly 13 from the 405 baseline (12 class-b + eggless-brownies F3 recipe)', () => {
-    expect(auditRawVariants()).toHaveLength(392);
+  it('RAW dropped to 380 after the 2026-09-14 fill pass (405 baseline − 13 − 12 more placeholder lists repaired)', () => {
+    expect(auditRawVariants()).toHaveLength(380);
   });
 });
