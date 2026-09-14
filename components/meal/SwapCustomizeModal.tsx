@@ -223,7 +223,7 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
               )}
             </div>
           </div>
-          <button onClick={onClose} className="w-9 h-9 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90 transition-all shrink-0"><X size={16} /></button>
+          <button onClick={onClose} aria-label="Close customize" className="w-9 h-9 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90 transition-all shrink-0"><X size={16} /></button>
         </div>
 
         <Hint id="meal-card-tap" trigger="first-visit" anchorRef={headerAnchorRef} placement="bottom" text="Tap any meal on your plan to customize pairings here — the ↻ button swaps the whole dish for another from your tray." />

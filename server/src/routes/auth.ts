@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { APIError } from '../lib/apiError';
 import { prisma } from '../lib/prisma';
-import { generateAccessToken, verifyToken, revokeToken, authMiddleware } from '../lib/auth';
+import { generateAccessToken, verifyToken, revokeToken, authMiddleware, type TokenPayload } from '../lib/auth';
 
 const router = Router();
 
@@ -147,7 +147,16 @@ router.post('/refresh', (req: Request, res: Response, next: NextFunction) => {
     const payload = verifyToken(token);
     if (!payload) throw new APIError('INVALID_TOKEN', 'Invalid or expired token', 401);
 
-    const newToken = generateAccessToken(payload);
+    // The decoded payload carries exp/iat — re-signing it verbatim makes
+    // jwt.sign throw ("payload already has an exp property"). Rebuild the
+    // exact claim set so the rotated token gets a fresh, valid expiry.
+    const claims: TokenPayload = {
+      userId: payload.userId,
+      email: payload.email,
+      phone: payload.phone,
+      name: payload.name,
+    };
+    const newToken = generateAccessToken(claims);
     res.json({ success: true, data: { token: newToken }, metadata: { timestamp: new Date().toISOString() } });
   } catch (error) {
     next(error);

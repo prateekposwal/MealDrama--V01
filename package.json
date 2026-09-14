@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/generate-sw-assets.mjs",
     "preview": "vite preview",
     "server": "cd server && npm run dev",
     "test": "npm run validate:data && vitest run",
+    "test:e2e": "npm run build && node scripts/run-e2e.mjs",
     "validate-env": "npx tsx scripts/validate-env.ts",
     "validate:data": "node scripts/validateDataIntegrity.mjs",
     "prebuild": "npm run validate:data"
@@ -32,11 +33,15 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^5.16.0",
     "@testing-library/react": "^14.0.0",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^5.0.0",
+    "bcryptjs": "^3.0.3",
+    "express": "^5.2.1",
     "nodemon": "^3.1.11",
+    "playwright-core": "^1.62.1",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vite-plugin-compression": "^0.5.1",

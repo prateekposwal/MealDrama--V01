@@ -3,16 +3,12 @@ import path from 'path';
 
 export default defineConfig({
   test: {
-    setupFiles: ['./tests/setup.ts'],
     environment: 'node',
-    exclude: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/cypress/**',
-      '**/.{idea,git,cache,output,temp}/**',
-      'tests/e2e/**',
-      'server/**',
-    ],
+    include: ['tests/e2e/**/*.test.ts'],
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
+    pool: 'forks',
+    poolOptions: { forks: { singleFork: true } },
   },
   resolve: {
     alias: {

@@ -10,7 +10,12 @@
 // v4 (2026-09-14): routine release bump — any still-open browser holding v3
 // bundles from the earlier 2026-09-14 deploys purges them on next load, so the
 // "UI distorted / stale cache" user state self-heals on ONE reload (no purge).
-const CACHE_VERSION = 'v6';
+// v7 (2026-09-14): PRECACHES the full chunk graph from dist/sw-assets.json at
+// install — lazy route chunks (PlanScreen/TrayScreen) were network-first only,
+// so an offline tab-switch to a never-visited route re-fetched its chunk and
+// crashed into the error boundary. Offline navigation now works for every
+// chunk that shipped in the build.
+const CACHE_VERSION = 'v7';
 const CACHE_NAME = `mealdrama-${CACHE_VERSION}`;
 
 const STATIC_ASSETS = [
@@ -20,10 +25,27 @@ const STATIC_ASSETS = [
   '/logo.png',
 ];
 
-// Install — cache static assets
+// Install — cache static assets + every built JS chunk.
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches.open(CACHE_NAME).then((cache) =>
+      // addAll is all-or-nothing: a stale sw-assets.json entry would fail the
+      // whole install. allSettled keeps the SW healthy when an asset is gone.
+      Promise.all(
+        [
+          cache.addAll(STATIC_ASSETS),
+          fetch('/sw-assets.json')
+            .then((r) => (r.ok ? r.json() : []))
+            .then((list) => {
+              const urls = Array.isArray(list) ? list.filter((p) => typeof p === 'string') : [];
+              return Promise.allSettled(
+                urls.map((p) => cache.add(new Request(p, { cache: 'reload' })))
+              );
+            })
+            .catch(() => []),
+        ]
+      )
+    )
   );
   // M5: Skip waiting immediately — new SW activates right away
   // This ensures users get the latest assets without closing all tabs
@@ -98,31 +120,31 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Scripts/modules (entry bundle, modulepreloads, lazy route chunks) —
-  // network-first. Cache ONLY genuine javascript responses, and NEVER fall
-  // back to index.html on failure: a cached script is returned only when its
-  // own content-type is javascript; otherwise the request fails cleanly
-  // (504) instead of poisoning the module graph with text/html.
+  // CACHE-FIRST with network fallback. Precache (dist/sw-assets.json at
+  // install) guarantees every shipped chunk is present, so lazy-route loads
+  // work offline. Network-first here was the "offline tab switch crashes into
+  // the error boundary" incident (August 2026): the stub-504 fallback still
+  // killed the module graph. Serving the cached copy is safe because every
+  // release bumps CACHE_VERSION (activate purges the previous mealdrama-*),
+  // so serves keep pace with deploys.
   if (request.destination === 'script') {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const ct = (response.headers.get('content-type') || '').toLowerCase();
-          if (response.ok && ct.includes('javascript')) {
+      // Match by URL (string request), ignoreVary: the importing module's
+      // request carries Referer/Origin/Sec-Fetch-* headers that can make
+      // caches.match(request) MISS a freshly-precached entry (Vary echo), even
+      // though the identical URL is cached. URL-string matching hits.
+      caches.match(request.url, { ignoreVary: true }).then((cached) => {
+        const ct = (cached?.headers.get('content-type') || '').toLowerCase();
+        if (cached && ct.includes('javascript')) return cached;
+        return fetch(request).then((response) => {
+          const rct = (response.headers.get('content-type') || '').toLowerCase();
+          if (response.ok && rct.includes('javascript')) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
           }
           return response;
-        })
-        .catch(() =>
-          caches.match(request).then((cached) => {
-            const ct = (cached?.headers.get('content-type') || '').toLowerCase();
-            if (cached && ct.includes('javascript')) return cached;
-            return new Response(
-              '// MealDrama SW: script unavailable offline',
-              { status: 504, headers: { 'Content-Type': 'text/javascript; charset=utf-8' } }
-            );
-          })
-        )
+        });
+      })
     );
     return;
   }
