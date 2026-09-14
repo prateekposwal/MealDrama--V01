@@ -36,6 +36,12 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      # The workflow bakes VITE_API_URL for the build (ci.yml top-level env);
+      # the unit suite instead asserts the SAME-ORIGIN default (lib/api.ts:
+      # `import.meta.env.VITE_API_URL` → '/api/v1') when the override is unset.
+      # Null it here so those assertions see a clean resolution environment.
+      VITE_API_URL: ''
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
