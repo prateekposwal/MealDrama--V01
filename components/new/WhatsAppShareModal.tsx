@@ -6,6 +6,7 @@ import type { ShareLanguage } from '../../utils/shareMessages';
 import { useStore } from '../../app/store/useStore';
 import { cookShareApi, cookShareUrl } from '../../app/utils/cookShareApi';
 import { getApiBase, getApiToken } from '../../lib/api';
+import { speakText as speakWithTts, stopSpeaking as stopTts } from '../../lib/tts';
 import { useBackButtonClose } from '../../hooks/useBackButtonClose';
 
 interface Props {
@@ -174,21 +175,21 @@ export default function WhatsAppShareModal({
     return preview.replace(/[*_#`]/g, '').replace(/\n{2,}/g, '\n').trim();
   }, [preview]);
 
-  // Browser SpeechSynthesis — works cross-platform, supports Indian languages
+  // Cross-platform voice: native Capacitor TTS on the APK (the Android
+  // System WebView does NOT expose speechSynthesis reliably), browser Web
+  // Speech API on the web PWA.
   const speak = useCallback(() => {
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(speakText);
-    u.lang = LANG_MAP[language] || 'en-US';
-    u.rate = 0.85;
-    u.onstart = () => setSpeaking(true);
-    u.onend = () => setSpeaking(false);
-    u.onerror = () => setSpeaking(false);
-    window.speechSynthesis.speak(u);
+    setSpeaking(true);
+    speakWithTts({ text: speakText, lang: LANG_MAP[language] || 'en-US' })
+      .catch(() => false)
+      .then((ok) => {
+        if (!ok) useStore.getState().setToast?.({ message: 'Voice playback failed on this device', type: 'error' });
+        setSpeaking(false);
+      });
   }, [speakText, language]);
 
   const stopSpeaking = useCallback(() => {
-    window.speechSynthesis.cancel();
-    setSpeaking(false);
+    stopTts().then(() => setSpeaking(false));
   }, []);
 
   // Download voice via TTS endpoint (macOS `say` command)
