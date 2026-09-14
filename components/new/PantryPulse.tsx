@@ -158,6 +158,24 @@ const PantryPulse: React.FC = () => {
         const dinner = SLOT_TIME_DEFAULTS.dinner;
         return isAfterEnd(dinner.start, dinner.end);
     };
+
+    // Once-a-day "buy before the cook" pantry_buy push — must never write the
+    // notification store during render (React setState-during-render would bump
+    // NotificationCenter mid-render). Idempotent via the localStorage key.
+    useEffect(() => {
+        if (buyData.summary.itemsToBuy <= 0) return;
+        const notifKey = `buy-before-cook:${getISODate()}`;
+        try {
+            if (!window.localStorage.getItem(notifKey)) {
+                window.localStorage.setItem(notifKey, '1');
+                useNotificationStore.getState().addNotification({
+                    type: 'pantry_buy',
+                    title: `🛒 Buy ${buyData.summary.itemsToBuy} item${buyData.summary.itemsToBuy > 1 ? 's' : ''} before the cook starts`,
+                    message: buyListFor((buyData.groups as any).flatMap((g: any) => g.items), new Map(), []).slice(0, 4).map((m: any) => `${m.name} ${m.quantity}${m.unit ?? ''}`).join(', '),
+                });
+            }
+        } catch { /* storage unavailable */ }
+    }, [buyData.summary.itemsToBuy]);
     
     const [viewMode, setViewMode] = useState<'meals' | 'household'>('meals');
     const [subView, setSubView] = useState<'tomorrow' | 'week'>('tomorrow');
@@ -627,17 +645,6 @@ const PantryPulse: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                         {buyData.summary.itemsToBuy > 0 && (() => {
-                            const notifKey = `buy-before-cook:${getISODate()}`;
-                            try {
-                                if (!window.localStorage.getItem(notifKey)) {
-                                    window.localStorage.setItem(notifKey, '1');
-                                    useNotificationStore.getState().addNotification({
-                                        type: 'pantry_buy',
-                                        title: `🛒 Buy ${buyData.summary.itemsToBuy} item${buyData.summary.itemsToBuy > 1 ? 's' : ''} before the cook starts`,
-                                        message: buyListFor((buyData.groups as any).flatMap((g: any) => g.items), new Map(), []).slice(0, 4).map((m: any) => `${m.name} ${m.quantity}${m.unit ?? ''}`).join(', '),
-                                    });
-                                }
-                            } catch { /* storage unavailable */ }
                             return (
                                 <>
                                 <button

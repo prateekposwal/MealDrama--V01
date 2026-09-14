@@ -604,6 +604,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
       return { groups, summary: buySummary(groups), radar: radarUses(groups, expiring), stock, staples };
     })();
 
+    // Once-a-day "buy before the cook" + evening push notifications. These
+    // WRITE to the notification store and must never run during render (React
+    // #19 setState-during-render warning would bump NotificationCenter mid-
+    // Dashboard-render). Both adds are idempotent via localStorage keys, so a
+    // fresh run per itemsToBuy change is harmless.
+    useEffect(() => {
+      try {
+        const slotsToday = ACTIVE_SLOTS.some(s => getMealsCapped(today, s.mealType).length > 0);
+        if (!slotsToday || buyData.summary.itemsToBuy === 0) return;
+        const notifKey = `buy-before-cook:${today}`;
+        const evPush = maybeBuyNotif(buyData.summary.itemsToBuy, today);
+        if (!window.localStorage.getItem(notifKey)) {
+          window.localStorage.setItem(notifKey, '1');
+          useNotificationStore.getState().addNotification({
+            type: 'pantry_buy',
+            title: `🛒 Buy ${buyData.summary.itemsToBuy} item${buyData.summary.itemsToBuy > 1 ? 's' : ''} before the cook starts`,
+            message: buyListFor((buyData.groups as any).flatMap((g: any) => g.items), buyData.stock, buyData.staples).slice(0, 4).map((m: any) => `${m.name} ${m.quantity}${m.unit ?? ''}`).join(', '),
+          });
+        }
+        if (evPush) useNotificationStore.getState().addNotification({ type: 'pantry_buy', ...evPush });
+      } catch { /* storage unavailable */ }
+    }, [today, ACTIVE_SLOTS, buyData.summary.itemsToBuy]);
+
 
     // ── Fetch AI-powered slot-organized suggestions ──
     useEffect(() => {
@@ -1151,20 +1174,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
                         try {
                             const slotsToday = ACTIVE_SLOTS.some(s => getMealsCapped(today, s.mealType).length > 0);
                             if (!slotsToday || buyData.summary.itemsToBuy === 0) return null;
-                            // Once-a-day bell notification (no spam).
-                            const notifKey = `buy-before-cook:${today}`;
-                            const evPush = maybeBuyNotif(buyData.summary.itemsToBuy, today);
-                            try {
-                                if (!window.localStorage.getItem(notifKey)) {
-                                    window.localStorage.setItem(notifKey, '1');
-                                    useNotificationStore.getState().addNotification({
-                                        type: 'pantry_buy',
-                                        title: `🛒 Buy ${buyData.summary.itemsToBuy} item${buyData.summary.itemsToBuy > 1 ? 's' : ''} before the cook starts`,
-                                        message: buyListFor((buyData.groups as any).flatMap((g: any) => g.items), buyData.stock, buyData.staples).slice(0, 4).map((m: any) => `${m.name} ${m.quantity}${m.unit ?? ''}`).join(', '),
-                                    });
-                                }
-                                if (evPush) useNotificationStore.getState().addNotification({ type: 'pantry_buy', ...evPush });
-                            } catch { /* storage unavailable */ }
                             return (
                                 <>
                                 <button
