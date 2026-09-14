@@ -104,7 +104,13 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
         run: |
           npx prisma generate
-          npx prisma migrate deploy
+          # CI spins a THROWAWAY postgres, so schema-in → schema-out (db push) is
+          # the truth source, NOT prisma migrate deploy: the repo's migration
+          # chain predates the postgres provider (sqlite-era DATETIME DDL) and
+          # early models (Household family) were added via db push, so the
+          # migrations were never postgres-replayable. db push syncs the schema
+          # exactly like prod Render did and matches prisma/schema.prisma.
+          npx prisma db push --skip-generate --accept-data-loss
       - name: Install Playwright chromium
         run: npx playwright-core install --with-deps chromium
       # API + app + browser suite run in ONE step: GH Actions kills background
