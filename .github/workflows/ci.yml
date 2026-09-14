@@ -143,15 +143,21 @@ jobs:
           done
           curl -sf http://localhost:3001/health || {
             echo 'API failed to boot:'
-            echo "::error title=API failed to boot::$(tail -c 3000 /tmp/api.log | python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.stdin.read()))')"
             cat /tmp/api.log
             exit 1
           }
-          # Surface the real vitest failure through check-run annotations (log
-          # download is admin-gated; annotations are publicly readable).
-          if ! npm run test:e2e > /tmp/e2e.log 2>&1; then
-            echo "::error title=E2E failed (tail)::$(tail -c 3000 /tmp/e2e.log | python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.stdin.read()))')"
-            echo '--- API log ---'
-            cat /tmp/api.log
+          npm run test:e2e > /tmp/e2e.log 2>&1 || {
+            echo 'test:e2e failed. Writing failure to step summary for inspection.'
+            {
+              echo '### E2E failure — /tmp/e2e.log (tail)'
+              echo '```'
+              tail -c 4000 /tmp/e2e.log
+              echo '```'
+              echo
+              echo '### API log (tail)'
+              echo '```'
+              tail -c 4000 /tmp/api.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
             exit 1
-          fi
+          }
