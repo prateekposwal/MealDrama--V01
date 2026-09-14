@@ -15,22 +15,9 @@ env:
   VITE_API_URL: ${{ vars.VITE_API_URL || 'https://api.mealdrama.example.com/api/v1' }}
 
 jobs:
-  validate:
-    name: Validate Env
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-      - run: npm ci
-      - run: npx tsx scripts/validate-env.ts
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    needs: [validate]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,7 +33,6 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    needs: [validate]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

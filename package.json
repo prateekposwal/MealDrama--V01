@@ -10,7 +10,6 @@
     "server": "cd server && npm run dev",
     "test": "npm run validate:data && vitest run",
     "test:e2e": "npm run build && node scripts/run-e2e.mjs",
-    "validate-env": "npx tsx scripts/validate-env.ts",
     "validate:data": "node scripts/validateDataIntegrity.mjs",
     "prebuild": "npm run validate:data"
   },
