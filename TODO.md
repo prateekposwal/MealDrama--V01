@@ -23,16 +23,9 @@ No hidden state. Last updated: 2026-09-14.
       `vite.config.ts` now pins `server.port: 5175` + `strictPort: true` — a stray
       `npm run dev` can no longer squat 3000 (the port the user wants empty).
       Evidence: `vite.config.ts` diff (port 3000 → 5175, strictPort added).
-3. [ ] **Phone testing path (owner=user) — RECOMMENDED: phone-via-Render** —
-      skip tunnels entirely. The app is ALREADY live at https://mealdrama.onrender.com
-      (Render auto-deploys on every push). Open that URL on the phone: no Mac, no tunnel,
-      tests the real deployed build. Free-tier caveat: ~30-60s cold start after idle.
-      ALTERNATIVE (durable tunnel): `telos/scripts/watchtunnel.sh` (cloudflared quick tunnel —
-      a fresh slug per process, dies on process death) exists but is NOT recommended for phone
-      testing; a NAMED Cloudflare tunnel (fixed subdomain) would be the durable upgrade if you
-      want to dogfood the LOCAL build on the phone — add a `com.mealdrama.tunnel.plist` with
-      KeepAlive if you go that route. Blocked-by: none. Evidence: watchtunnel.sh header note;
-      2026-09-11 "tunnel plist missing" item.
+3. [x] **Phone testing path — phone-via-Render** (owner=user) — **DONE 2026-09-14**.
+      Verified live: /health 200, / 200 text/html, SW serving **v4** (b9027dd) on
+      https://mealdrama.onrender.com — open that URL on the phone on next use.
 4. [x] **Prune throwaway test users** (owner=agent) — **DONE 2026-09-14 (dev DB)**.
       One-off script (run via tsx against server/.env `DATABASE_URL`, NOT committed)
       deleted 6 `probe-*`/`flake-*` users + 7 `probe-*`/`flake-*`/`Smoke Cook` households
@@ -99,6 +92,15 @@ Answering "what is your problem / better approach" — a no-churn standard:
    explicit monitor; `SuccessfulExit=false` is a supervision gap, not a policy.
 
 ## RUN HISTORY
+- **2026-09-14 — Phone-via-Render verified + SW cache bumped to v4 (task 3 closed)**
+  - **Task 3 (phone testing path) DONE**: verified https://mealdrama.onrender.com is serving b9027dd —
+    `/health` 200, `/` 200 text/html, `/sw.js` reports `CACHE_VERSION = 'v4'`. Instance warmed just now;
+    open the URL on the phone directly next time — no tunnel, no Mac.
+  - **SW CACHE_VERSION v3 → v4** (`public/sw.js:10`): retires the "UI distorted / can't create household"
+    stale-cache class permanently — any still-open browser holding v3 bundles purges them on next load
+    (activate handler deletes other versions), so the user action is ONE reload, not a DevTools purge.
+    `staticServing.test.ts:254` pins v4 (and asserts v2/v3 gone); 14/14 pass; committed `b9027dd`, pushed.
+  - Local server state: 3001 (built SPA) RUNNING via launchd; Render auto-deployed `b9027dd` clean.
 - **2026-09-14 — Housekeeping batch: vite off 3000, CI hard tsc gate, 401 toast copy, test-file tsc backlog ZERO, P2028 flake tamed**
   - **vite dev off 3000 (task 2)**: `vite.config.ts` pins `server.port: 5175` + `strictPort: true`.
     A stray `npm run dev` can no longer squat the port the user wants empty.
