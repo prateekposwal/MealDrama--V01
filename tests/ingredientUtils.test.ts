@@ -11,6 +11,7 @@ import {
   getWeekEndISO,
   type PantryGroup,
 } from '../utils/ingredientUtils';
+import { getISODate } from '../utils/dateUTC';
 import type { Dish, Ingredient, DishVariant } from '../meal/constants/dishLibrary';
 import type { CategorySelection } from '../app/store/useStore';
 
@@ -438,20 +439,18 @@ describe('getTomorrowISO', () => {
   });
 
   it('returns tomorrows date', () => {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-    const expected = tomorrow.toLocaleDateString('en-CA');
+    // getTomorrowISO() is IST-based (getISODate in utils/dateUTC) — the
+    // expected value MUST be computed in IST too, never the device/UTC clock
+    // (between 18:30–24:00 UTC the UTC date is one day behind IST and a
+    // local-clock expectation fails daily in CI).
+    const expected = getISODate(new Date(Date.now() + 86400000));
     expect(getTomorrowISO()).toBe(expected);
   });
 });
 
 describe('getWeekEndISO', () => {
   it('returns a date 6 days from now', () => {
-    const today = new Date();
-    const weekEnd = new Date(today);
-    weekEnd.setDate(today.getDate() + 6);
-    const expected = weekEnd.toLocaleDateString('en-CA');
+    const expected = getISODate(new Date(Date.now() + 6 * 86400000));
     expect(getWeekEndISO()).toBe(expected);
   });
 });
