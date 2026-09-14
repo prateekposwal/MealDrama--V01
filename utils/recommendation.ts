@@ -29,6 +29,8 @@ import {
   healthFocusFor,
   dishFocusSignals,
   personalizationScore,
+  affinityTierLift,
+  noveltyTierLift,
   type PersonalizationContext,
   type HistoryItem,
   type HouseholdDish,
@@ -240,6 +242,18 @@ function regionTier(d: Dish, regionKey: string): number {
   return 2;
 }
 
+/** The affinity + novelty-aware appropriateness tier (MIRROR of the pipeline's
+ *  tierOf — Goal-2 affinity, Goal-novelty 2026-09-16): a mild/low-spice user's
+ *  EXPLICIT cuisine affinity lifts a matching dish ahead of the home region,
+ *  and an ADVENTUROUS user's genuinely novel dishes get the same reach. Without
+ *  these a region-first sort would bury a loved far-region cuisine / a "show
+ *  me something new" pick the way score-before-region once hid it. */
+function affinityAwareTier(d: Dish, regionKey: string, taste: TasteProfile, pctx: PersonalizationContext): number {
+  return regionTier(d, regionKey)
+    + affinityTierLift(d, pctx.preferences, taste)
+    + noveltyTierLift(d, taste);
+}
+
 /**
  * Build a complete plan through the 6 gates. Deterministic for the same
  * (user, inputs). Records EVERY gate relaxation honestly (Λ2.3).
@@ -287,9 +301,16 @@ export function buildGatedPlan(input: BuildGatedPlanInput): GatedPlanResult {
         !usedIds.has(d.id) &&
         !usedNames.has(norm(d.name)))
       .sort((a, b) => {
+        // Region/diet appropriateness LEADS (the region determines what is
+        // appropriate — same semantics as the pipeline fill); the score orders
+        // WITHIN the appropriate band (the user determines what is personal).
+        // Score-before-region let a hot user wander into far-region hot dishes,
+        // blurring "A favours Punjabi" vs "B favours South" (2026-09-16).
+        const tierDiff = affinityAwareTier(a, regionKey, taste, pctx) - affinityAwareTier(b, regionKey, taste, pctx);
+        if (tierDiff !== 0) return tierDiff;
         const scoreDiff = personalizationScore(b, pctx) - personalizationScore(a, pctx);
         if (scoreDiff !== 0) return scoreDiff;
-        return regionTier(a, regionKey) - regionTier(b, regionKey) || a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name);
       });
 
     // Progressive relaxation: start strict, then allow RELAX_ORDER gates.

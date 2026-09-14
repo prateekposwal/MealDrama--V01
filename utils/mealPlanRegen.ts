@@ -40,7 +40,7 @@ import { dishDietType, isMealDietCompatible } from './dietCompat';
 import { getRegionKey } from './dishSearch';
 import { isPureSweetDish } from '../meal/constants/pairingCatalog';
 import { upsertMealToSlot } from './trayUpsert';
-import { personalizationScore, householdPenalty, rotateBandForUser, affinityTierLift } from './mealPersonalization';
+import { personalizationScore, householdPenalty, rotateBandForUser, affinityTierLift, noveltyTierLift } from './mealPersonalization';
 import type { PersonalizationContext } from './mealPersonalization';
 
 export const MEAL_SLOTS: readonly MealType[] = ['breakfast', 'lunch', 'snacks', 'dinner'];
@@ -263,10 +263,14 @@ export function fillCandidatesForSlot(
   // lifts a matching dish's effective region tier (affinityTierLift) — the
   // affinity becomes an appropriateness signal FOR THAT USER. Non-mild users,
   // users with no affinities, and non-matching dishes keep the legacy tier
-  // (byte-identical). All gates (diet, category, pure-sweet, used-set) still
-  // run BEFORE this sort; the lift only re-orders candidates.
+  // (byte-identical). Goal-novelty (2026-09-16): an ADVENTUROUS user's novel
+  // dishes get the same treatment (noveltyTierLift), so far-region novel
+  // cuisine competes with the home band. All gates (diet, category, pure-sweet,
+  // used-set) still run BEFORE this sort; the lift only re-orders candidates.
   const tierOf = (d: Dish): number =>
-    regionTier(d, regionKey) + affinityTierLift(d, personalization?.preferences, personalization?.tasteProfile);
+    regionTier(d, regionKey)
+    + affinityTierLift(d, personalization?.preferences, personalization?.tasteProfile)
+    + noveltyTierLift(d, personalization?.tasteProfile);
   const sorted = library
     .filter(d =>
       isMealDietCompatible(d, diet) &&
@@ -283,6 +287,55 @@ export function fillCandidatesForSlot(
   // still leads the SORT — the rotation only re-windows equally-personal
   // candidates). Absent personalization → returned as sorted, byte-identical.
   return personalization ? rotateBandForUser(sorted, slot, personalization) : sorted;
+}
+
+/**
+ * Small-pool overlap candidates (row-15 policy — gate-safe, recorded): when a
+ * slot's strictly-unused pool genuinely runs short of the target, serve the
+ * BEST-scoring ALREADY-ACCEPTED dish this user has elsewhere in the plan
+ * (diet-compatible, slot-matched, region/diet-appropriateness first — the
+ * exact same ordering as the normal fill; never an unrelated dish). A repeat
+ * the user already accepted beats a hole OR a bad recommendation. Deterministic
+ * (no band rotation on the reuse ordering — pure score order).
+ */
+export function reuseCandidatesForSlot(
+  tray: TrayLibrary,
+  library: Dish[],
+  diet: string | null | undefined,
+  region: string | null | undefined,
+  slot: MealType,
+  opts?: { healthGoal?: string; personalization?: PersonalizationContext | null },
+): Dish[] {
+  const seen = new Set<string>();
+  const used: Dish[] = [];
+  for (const s of MEAL_SLOTS) {
+    for (const m of tray[s] ?? []) {
+      const d = resolveLibraryDish(library, m);
+      if (!d || seen.has(d.id)) continue;
+      seen.add(d.id);
+      used.push(d);
+    }
+  }
+  const regionKey = getRegionKey(region ?? undefined) || 'north';
+  const priorityMap = dietPriorityFor(diet);
+  const hs = healthMatchFor(opts?.healthGoal);
+  const cmp = personalizationComparator(opts?.personalization, (a, b) => hs(b) - hs(a) || a.name.localeCompare(b.name));
+  const distType = distinctiveTypeFor(diet);
+  const distBonus = (d: Dish): number => (distType && dishDietType(d) === distType) ? 0 : 1;
+  const tierOf = (d: Dish): number =>
+    regionTier(d, regionKey)
+    + affinityTierLift(d, opts?.personalization?.preferences, opts?.personalization?.tasteProfile)
+    + noveltyTierLift(d, opts?.personalization?.tasteProfile);
+  return used
+    .filter(d =>
+      isMealDietCompatible(d, diet) &&
+      (d.category ?? []).includes(slot) &&
+      !isPureSweetDish(d))
+    .sort((a, b) =>
+      distBonus(a) - distBonus(b) ||
+      tierOf(a) - tierOf(b) ||
+      (priorityMap[dishDietType(a)] ?? 99) - (priorityMap[dishDietType(b)] ?? 99) ||
+      cmp(a, b));
 }
 
 /** The personalization axis — inserted AFTER diet-priority/region-tier when a
@@ -364,6 +417,21 @@ export function fillTrayToTarget(
       const r = upsertMealToSlot(list, meal);
       if (r.added) { added++; list = r.tray; }
     }
+    // Small-pool overlap (Λ2.3 — recorded): when the strictly-unused pool runs
+    // genuinely short of the slot target, serve the best-scoring ALREADY-
+    // ACCEPTED dish from the rest of the plan (same gates, same region/diet
+    // ordering — never an unrelated dish) instead of leaving the slot short.
+    if (list.length < target) {
+      const reuse = reuseCandidatesForSlot(out, library, diet, region, slot, opts);
+      let reused = 0;
+      for (const d of reuse) {
+        if (list.length >= target) break;
+        const meal: MealOption = { id: d.id, dishId: d.id, name: d.name, icon: d.icon, sourceRegion: d.region };
+        const r = upsertMealToSlot(list, meal);
+        if (r.added) { added++; reused++; list = r.tray; }
+      }
+      if (reused > 0) reasons.push(`small_pool_overlap:${slot}:reused_${reused}`);
+    }
     out[slot] = list;
     if (list.length < target) {
       shortSlots.push(slot);
@@ -425,11 +493,14 @@ export function dedupeWholePlan(
   const distType = distinctiveTypeFor(diet);
   const distBonus = (d: Dish): number => (distType && dishDietType(d) === distType) ? 0 : 1;
   const candidateSub = (slot: MealType): Dish | undefined => {
-    // Same Goal-2 tier lift as the fill step — dedupe substitutions must see
-    // the SAME ordering as the fill (a mild-affinity user's substitutions
-    // prefer their loved cuisines; everyone else stays byte-identical).
+    // Same Goal-2/novelty tier lifts as the fill step — dedupe substitutions
+    // must see the SAME ordering as the fill (a mild-affinity user's
+    // substitutions prefer their loved cuisines, an adventurous user's novel
+    // dishes; everyone else stays byte-identical).
     const tierOf = (d: Dish): number =>
-      regionTier(d, regionKey) + affinityTierLift(d, opts?.personalization?.preferences, opts?.personalization?.tasteProfile);
+      regionTier(d, regionKey)
+      + affinityTierLift(d, opts?.personalization?.preferences, opts?.personalization?.tasteProfile)
+      + noveltyTierLift(d, opts?.personalization?.tasteProfile);
     const sorted = library
       .filter(d =>
         isMealDietCompatible(d, diet) &&
@@ -477,9 +548,11 @@ export function dedupeWholePlan(
         substitutions.push({ slot, removedId: idKey, removedName: m.name || d.name, addedName: sub.name });
         replaced++;
       } else {
-        // No valid substitute — remove the duplicate and record WHY (Λ2.3).
-        reasons.push(`duplicate_removed_no_substitute:${slot}:${m.name || idKey}`);
-        replaced++;
+        // No valid FULL-library substitute — keep the overlap RECORDED (row-15
+        // policy: a repeat the user already accepted beats leaving the slot
+        // short; never a fabricated dish — it is the SAME real dish, same slot).
+        reasons.push(`small_pool_overlap_kept:${slot}:${m.name || idKey}`);
+        kept.push(m);
       }
     }
     out[slot] = kept;

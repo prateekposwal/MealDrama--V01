@@ -84,6 +84,54 @@ Answering "what is your problem / better approach" — a no-churn standard:
    explicit monitor; `SuccessfulExit=false` is a supervision gap, not a policy.
 
 ## RUN HISTORY
+- **2026-09-14 — Recommendation-quality bundle: 15-row use-case matrix, real spice + novelty signals, Recommendation Score decomposition, small-DB overlap policy**
+  - **THE MATRIX**: `tests/recommendationUseCases.test.ts` (22 tests) locks ALL 15 spec
+    rows on the real 679-dish library through the live pipeline: (1) 4 same-profile
+    roommates → different/valid/deterministic plans; (2) same diet different taste →
+    ≤8/20 shared + per-plan taste signatures; (3/9) same taste different focus →
+    nutrition changes, taste retained; (4/11) same everything → CONTROLLED variety
+    (byte-identical determinism, bounded overlap); (5) dislike paneer → 0 paneer in
+    plan + `− Dislikes` driver; (6) South love → south share 0→10+/20 + Taste Fit up;
+    (7) spicy → ingredient-hot share strictly hot > medium > mild; (8) Veg→Eggitarian
+    (eggs appear, taste tilt survives); (10) Veg→Vegan (zero non-vegan rendered);
+    (12) skip/dislike → sibling dishes drop (ledger); (13) like → similar later
+    (ledger boost); (14) Try-Something-New → adventurous > familiar novelty on BOTH
+    surfaces; (15) small DB → 20/20 via RECORDED gate-safe overlap, never fabricated.
+  - **KEY TEST (spec p.1 "don't confuse variety with randomization")**: mean pairwise
+    sharing of DIFFERENT-taste roommates < same-profile sharing; determinism byte-identical;
+    max different-taste pair ≤11/20; min same-profile pair ≥7/20 — difference is REASONING
+    (taste signal), identity-stable, not dice. **RECOMMENDATION-SCORE (spec p.2)**:
+    `recommendationScoreParts` (dietGate/healthFit/tasteFit/dislikes/variety/repetition/
+    jitter; total === personalizationScore) + `recommendationScore`. Part map:
+    Diet a gate never a weight; Health=healthFocusScore; Taste=preference+ledger;
+    Variety=noveltyScore; History≡−Repetition=historyPenalty (never double-counted);
+    Dislikes=dislikePenalty (label extracted).
+  - **ENGINE FIXES (measured no-ops → real signals)**:
+    - SPICE (row 7): `preferenceScore` now scores ingredient-derived spice
+      (`dishSpiceLevel` — chili evidence; 55–117 hot fillable/slot) instead of the
+      rare 'spicy' tag; the old tag axis measured plan-identical (hot plan == baseline).
+      Hot user plans now measure 87 vs 73 (medium) vs 40 (mild) ingredient-hot dishes
+      across 8 seeds.
+    - NOVELTY (row 14): `noveltyTierLift` (new) — adventurous users get a region-tier
+      lift for genuinely novel dishes, wired into the pipeline fill+dedupe AND the
+      gated builder; previously measured adventurous avg novelty 0.4465 < familiar
+      0.4675 (the "Try Something New" preference changed nothing).
+    - GATED SURFACE (recommendation.ts): candidates now order REGION/appropriateness
+      FIRST (mirrors the pipeline), then score — score-before-region let a hot user
+      wander into far-region hot dishes, blurring A-favours-Punjabi vs B-favours-South;
+      plus the affinity/novelty tier lifts so a loved far-region cuisine ("B loves
+      South") still reaches the plan.
+    - SMALL-DB OVERLAP (row 15): `reuseCandidatesForSlot` + `small_pool_overlap`
+      fill-branch + dedupe keeps a recorded overlap when no substitute exists
+      (`small_pool_overlap_kept`) — a repeat the user already accepted beats a hole
+      OR a bad dish; EMPTY library still records honest `fill_short`.
+  - **Re-pins (deliberate, documented in-test)**: goal-2 pairwise overlaps 11/9/8 →
+    8/6/3 (spice fix changed hot-user ranking; novelty lift changed adventurous user).
+  - Suite: **91 files / 1297 passed (+22 matrix)**, root build green. Local servers
+    unchanged: 3001 RUNNING (launchd).
+  - Carry-forward unchanged: WhatsApp Phase-2 flip, pantry inbound-"done" draw-down
+    (server engine exists), OTP auth, cook Hindi.
+
 - **2026-09-14 — Known-prod-bug sweep: pantry 500 fixed, household admin transfer/removal, port-supervision + DB prune**
   - **PANTRY 500 ROOT-CAUSED + FIXED.** `GET /:householdId/pantry` `require()`d
     root-only client TS (`../../../utils/ingredientUtils`, `dishLibrary`) that never

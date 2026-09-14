@@ -181,9 +181,10 @@ export function proteinIngredientCount(d: Dish): number {
 
 import { estimateDishMacros } from './macroEstimator';
 import type { TasteProfile } from './tasteProfile';
-import { normalizeCuisineAffinityKey } from './tasteProfile';
-import { dishCuisineKeys, dishAllergenMatch } from './dishTaste';
-import { noveltyScore } from './variety';
+import { normalizeCuisineAffinityKey, normalizeSpiceLevel } from './tasteProfile';
+import { dishCuisineKeys, dishAllergenMatch, dishSpiceLevel, dishIsSpicy } from './dishTaste';
+import { isMealDietCompatible } from './dietCompat';
+import { noveltyScore, dishNoveltyForUser } from './variety';
 import type { LedgerSignals } from './tasteLedger';
 import { ledgerScore } from './tasteLedger';
 
@@ -345,20 +346,59 @@ export function affinityTierLift(
   return affin.some(a => cs.has(a)) ? -3 : 0;
 }
 
+/**
+ * Novelty tier lift — the "Try Something New" driver, MIRROR of the affinity
+ * lift (2026-09-16). An ADVENTUROUS user's novelty preference is an
+ * appropriateness signal: genuinely novel dishes (no overlap with their
+ * affinities, low familiarity) get a −2 region-tier lift, so far-region novel
+ * cuisine competes with the home-region band (the onboarding promise "show me
+ * cuisines I have not tried"). Without it the novelty score only reordered
+ * WITHIN the home region — measured a near-zero plan difference (adventurous
+ * avg novelty 0.4465 < familiar 0.4675 on the real library). Non-adventurous
+ * users → 0, byte-identical.
+ */
+export function noveltyTierLift(d: Dish, tasteProfile?: TasteProfile | null): number {
+  if (!tasteProfile || tasteProfile.noveltyPreference !== 'adventurous') return 0;
+  return dishNoveltyForUser(d, tasteProfile.cuisineAffinities) >= 0.6 ? -2 : 0;
+}
+
+/** The explicit disliked-item penalty — a labeled driver (the user's
+ *  "− Dislikes" term) so the recommendation score can be decomposed. Exact
+ *  dish-name hit → −2.0; ingredient-name hit → −1.6. */
+export function dislikePenalty(d: Dish, prefs?: PreferenceFields | null): number {
+  if (!prefs?.dislikedItems?.length) return 0;
+  let p = 0;
+  const dName = _norm(d.name);
+  const ingNames = new Set<string>();
+  for (const v of d.variants ?? []) {
+    for (const i of (v as DishVariant).ingredients ?? []) ingNames.add(_norm(i.name));
+  }
+  for (const item of prefs.dislikedItems) {
+    const it = _norm(item);
+    if (!it) continue;
+    if (dName === it || dName.includes(it) || it.includes(dName)) { p -= 2.0; break; }
+    if (ingNames.has(it)) { p -= 1.6; break; }
+  }
+  return p;
+}
+
 /** Preference proximity score — spice alignment + disliked penalty + region
  *  boost. Higher = better. Disliked penalties dominate jitter so an explicit
  *  dislike reliably drops a dish below its peers. */
 export function preferenceScore(d: Dish, prefs?: PreferenceFields | null): number {
   if (!prefs) return 0;
   let score = 0;
-  const tags = (d.tags ?? []).map(t => _norm(t));
 
-  // Spice alignment (tag-based — the honest surface; 68/679 carry 'spicy').
-  const spice = _norm(prefs.spiceLevel ?? '');
-  const isSpicy = tags.includes('spicy') || tags.includes('hot');
-  const isMild = tags.includes('mild');
-  if (spice === 'hot') score += isSpicy ? 0.7 : 0;
-  else if (spice === 'mild') score += isSpicy ? -0.9 : (isMild ? 0.3 : 0);
+  // Spice alignment — REAL ingredient-derived spice (utils/dishTaste reads the
+  // chili ingredient evidence; 55–117 hot fillable dishes per lunch/snack/
+  // dinner slot vs 3–21 carrying the 'spicy' tag — measured 2026-09-16). The
+  // legacy tag-only axis was a plan-level NO-OP (a hot user's plan was
+  // identical to the medium baseline); the derived axis makes the preference
+  // real. Magnitudes: hot +0.9 per hot dish; mild −1.0 per hot dish, +0.4 for
+  // a mild dish; medium = legacy 0.
+  const level = normalizeSpiceLevel(prefs.spiceLevel);
+  if (level === 'hot') score += dishIsSpicy(d) ? 0.9 : 0;
+  else if (level === 'mild') score += dishIsSpicy(d) ? -1.0 : (dishSpiceLevel(d) === 'mild' ? 0.4 : 0);
 
   // Region boost.
   for (const pref of prefs.preferredRegions ?? []) {
@@ -366,20 +406,8 @@ export function preferenceScore(d: Dish, prefs?: PreferenceFields | null): numbe
     if (prox > 0) { score += 0.5 * prox; break; }
   }
 
-  // Disliked items — name-level exact match (dish name against the item)
-  // plus ingredient-level containment (an item listed by a user the way the
-  // dish library names it, e.g. 'Paneer', 'Egg').
-  const dName = _norm(d.name);
-  const ingNames = new Set<string>();
-  for (const v of d.variants ?? []) {
-    for (const i of (v as DishVariant).ingredients ?? []) ingNames.add(_norm(i.name));
-  }
-  for (const item of prefs.dislikedItems ?? []) {
-    const it = _norm(item);
-    if (!it) continue;
-    if (dName === it || dName.includes(it) || it.includes(dName)) { score -= 2.0; break; }
-    if (ingNames.has(it)) { score -= 1.6; break; }
-  }
+  // Disliked items — the labeled driver (see dislikePenalty).
+  score += dislikePenalty(d, prefs);
 
   // Allergies — HARD exclusion floor (the gate is primary; this guarantees the
   // scorer can never float an allergen above a safe dish).
@@ -447,6 +475,9 @@ export interface PersonalizationContext {
   rotation?: string | number;
   /** Health focus string — normalized via healthFocusFor. */
   healthFocus?: string | null;
+  /** The user's diet — used ONLY by the recommendationScore dietGate term
+   *  (the pipeline gates separately; it is not a scoring weight). */
+  diet?: string | null;
   /** User preference fields from updateProfile. */
   preferences?: PreferenceFields | null;
   /** Meal-history proxy — recently eaten/swapped dish ids/names. */
@@ -525,4 +556,75 @@ export function personalizationScore(d: Dish, ctx: PersonalizationContext | null
         : 0)
     + (ctx.ledgerSignals ? ledgerScore(d, ctx.ledgerSignals) : 0)
     + dishRotationJitter(d.id, seed) * scale;
+}
+
+// ─── 8 · The Recommendation Score — one number, honestly decomposed ─────────
+// The user-facing scoring contract: every dish gets ONE internal score, and
+// each driver is a NAMED term so a recommendation can say WHY.
+//   Recommendation Score = Diet Fit + Health Fit + Taste Fit + Variety
+//                        + History − Repetition − Dislikes  (per spec)
+// Mapping onto this engine (each term = a real, measured component):
+//   dietGate   0/1 hard gate  — never scored away (isMealDietCompatible)
+//   healthFit  healthFocusScore          — the "Health Fit" driver
+//   tasteFit   preferenceScore − dislikes + ledgerScore — profile taste AND
+//              learned like/skip/replace behavior ("Taste Fit")
+//   dislikes   dislikePenalty            — the "− Dislikes" driver
+//   variety    noveltyScore              — the "Variety" driver
+//   repetition historyPenalty            — the "History / − Repetition" driver
+//              (recently eaten/swapped is negative; History and Repetition are
+//              the SAME observed signal — never double-counted)
+//   jitter     the deterministic per-user tiebreak (labeled, small — the ONLY
+//              bit that differs between two byte-identical profiles)
+//   total      personalizationScore(d, ctx) — EXACTLY equal; one score, one
+//              decomposition, zero drift between the two symbols.
+export interface RecommendationScoreParts {
+  dietGate: boolean;
+  healthFit: number;
+  tasteFit: number;
+  dislikes: number;
+  variety: number;
+  repetition: number;
+  jitter: number;
+  total: number;
+}
+
+export function recommendationScoreParts(
+  d: Dish,
+  ctx: PersonalizationContext | null | undefined,
+): RecommendationScoreParts {
+  if (!ctx) {
+    return { dietGate: true, healthFit: 0, tasteFit: 0, dislikes: 0, variety: 0, repetition: 0, jitter: 0, total: 0 };
+  }
+  const focus = healthFocusFor(ctx.healthFocus);
+  const seed = personalizationSeed({ userId: ctx.userId, deviceId: ctx.deviceId, rotation: ctx.rotation });
+  const scale = ctx.jitterScale ?? 1.5;
+  const prefs = ctx.preferences;
+  const dislikes = dislikePenalty(d, prefs);
+  const tasteFit = (prefs ? preferenceScore(d, prefs) - dislikes : 0)
+    + (ctx.ledgerSignals ? ledgerScore(d, ctx.ledgerSignals) : 0);
+  const repetition = historyPenalty(d, ctx.recentlyEaten);
+  const jitter = dishRotationJitter(d.id, seed) * scale;
+  return {
+    dietGate: isMealDietCompatible(d, ctx.diet),
+    healthFit: healthFocusScore(d, focus),
+    tasteFit,
+    dislikes,
+    variety: ctx.tasteProfile
+      ? noveltyScore(d, ctx.tasteProfile.noveltyPreference, ctx.tasteProfile.cuisineAffinities)
+      : 0,
+    repetition,
+    jitter,
+    total: healthFocusScore(d, focus) + tasteFit + dislikes + repetition
+      + (ctx.tasteProfile
+        ? noveltyScore(d, ctx.tasteProfile.noveltyPreference, ctx.tasteProfile.cuisineAffinities)
+        : 0)
+      + jitter
+      + householdPenalty(d, ctx.householdDishes),
+  };
+}
+
+/** The single ranked score — the decomposition ACROSS the parts always sums to
+ *  this (asserted by the matrix test). Callers may use either symbol. */
+export function recommendationScore(d: Dish, ctx: PersonalizationContext | null | undefined): number {
+  return personalizationScore(d, ctx);
 }

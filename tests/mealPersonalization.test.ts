@@ -682,17 +682,21 @@ describe('goal-2: mild users get a REAL cuisine-affinity signal (South+mild vs s
     expect(southCount).toBeGreaterThanOrEqual(6);
   });
 
-  it('the strongly-flavored profiles KEEP their existing overlaps EXACTLY (non-mild users are byte-identical)', () => {
-    // punjabi-spicy (hot) and allergic-novelty (medium) are NOT mild → no
-    // tier-lift, no boost change → their plans and pairwise overlaps cannot
-    // move. simple-home is mild but has NO affinities → also untouched.
+  it('the strongly-flavored profiles hold MEASURED pairwise overlaps (re-pinned 2026-09-16 after the deliberate spice-realism + novelty-lift tuning)', () => {
+    // The 2026-09-16 tuning deliberately changed ranking for spicy/hot users
+    // (spice is now ingredient-derived — the real chili evidence) and for
+    // adventurous users (novel dishes get a region-tier lift). That re-pinned
+    // the previously-byte-identical overlap numbers 11/9/8 → 8/6/3 (measured
+    // on the real library, rm-* fixture ids). Determinism per profile is
+    // UNCHANGED (locked by the determinism test above); these exact values now
+    // guard future drift.
     const sh = plans.get('simple-home')!;
     const pj = plans.get('punjabi-spicy')!;
     const al = plans.get('allergic-novelty')!;
     const shared = (x: string[], y: string[]) => x.filter(v => y.includes(v)).length;
-    expect(shared(sh, pj)).toBe(11); // measured BEFORE == AFTER for non-lifted pairs
-    expect(shared(sh, al)).toBe(9);
-    expect(shared(pj, al)).toBe(8);
+    expect(shared(sh, pj)).toBe(8); // measured 2026-09-16 (was 11 before the spice fix)
+    expect(shared(sh, al)).toBe(6); // measured 2026-09-16 (was 9 before the novelty lift)
+    expect(shared(pj, al)).toBe(3); // measured 2026-09-16 (was 8 before the novelty lift)
   });
 
   it('determinism holds for the new tuned paths: same inputs → byte-identical plans (seeded PRNG untouched)', () => {
