@@ -159,7 +159,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                         {onShareSlot && (
                             <button
                                 onClick={(e) => { e.stopPropagation(); onShareSlot(); }}
-                                className="w-8 h-8 rounded-xl flex items-center justify-center active:scale-90 transition-all bg-green-50 text-green-600 border border-green-200 hover:ring-2 hover:ring-green-300 hover:ring-offset-1"
+                                className="w-9 h-9 rounded-xl flex items-center justify-center active:scale-90 transition-all bg-green-50 text-green-600 border border-green-200 hover:ring-2 hover:ring-green-300 hover:ring-offset-1"
                                 aria-label={`Share ${item.name}`}
                             >
                                 <MessageCircle size={14} />
@@ -167,7 +167,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                         )}
                         <button
                             onClick={onRemove}
-                            className="w-8 h-8 rounded-xl border flex items-center justify-center active:scale-90 transition-all bg-gray-50 border-gray-200 text-gray-500 hover:ring-2 hover:ring-red-300 hover:ring-offset-1"
+                            className="w-9 h-9 rounded-xl border flex items-center justify-center active:scale-90 transition-all bg-gray-50 border-gray-200 text-gray-500 hover:ring-2 hover:ring-red-300 hover:ring-offset-1"
                             aria-label={`Remove ${item.name}`}
                         >
                             <X size={14} />
@@ -258,13 +258,13 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                                     {item.quantity > 1 && (
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity - 1 }); }}
-                                            className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-xs font-bold leading-none"
+                                            className="w-9 h-9 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-xs font-bold leading-none"
                                         >−</button>
                                     )}
                                     <span className="text-xs font-bold text-gray-700 tabular-nums min-w-[12px] text-center">{item.quantity}</span>
                                     <button
                                         onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity + 1 }); }}
-                                        className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-xs font-bold leading-none"
+                                        className="w-9 h-9 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-xs font-bold leading-none"
                                     >+</button>
                                 </div>
                             )}
@@ -273,13 +273,13 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                             <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                                 <button
                                     onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'like'); }}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-50 border border-rose-200 text-rose-500 active:scale-90 transition-all"
+                                    className="w-9 h-9 rounded-full flex items-center justify-center bg-rose-50 border border-rose-200 text-rose-500 active:scale-90 transition-all"
                                     aria-label={`Like ${item.name}`}
                                     title="I like this dish"
                                 >❤️</button>
                                 <button
                                     onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'dislike'); }}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all"
+                                    className="w-9 h-9 rounded-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all"
                                     aria-label={`Dislike ${item.name}`}
                                     title="I don't like this dish"
                                 >👎</button>

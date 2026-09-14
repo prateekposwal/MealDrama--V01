@@ -260,7 +260,8 @@ const DashboardSlotSection = React.memo<DashboardSlotSectionProps>(({
   handleAddAnother, preferences, today, dishes, user, pantryStaples, stableGuestMode,
   completions, skipped, undoSlot, handleCompleteSlot, handleUndoComplete, handleSkipSlot, handleUndoSkip,
 }) => {
-  const slotMeals = useTrayStore(state => state.plan.days[date]?.[mealType] || []) as TrayItem[];
+  const slotMealsRaw = useTrayStore(state => state.plan.days[date]?.[mealType]);
+  const slotMeals = (slotMealsRaw || []) as TrayItem[];
   const prefs = preferences;
   const completionKey = slotKey(today, mealType);
   const isUserCompleted = completions[completionKey] != null;
@@ -578,7 +579,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onManage
     const ACTIVE_SLOTS = useMemo(() => SLOTS.filter(s => plannedSlots.includes(s.key)), [plannedSlots]);
 
     // ONE reactive buy-list — re-computes on every pantry/purchase change.
-    const pantryEntries = usePantryInventoryStore(s => s.entries ?? []);
+    const pantryEntriesRaw = usePantryInventoryStore(s => s.entries);
+    const pantryEntries = pantryEntriesRaw ?? [];
     const buyData = (() => {
       const todayISO = getTodayISO();
       const familyItems = useHouseholdFeedStore.getState().sharedPlan.filter(f => f.date === todayISO);

@@ -475,7 +475,7 @@ const QuickAddModal: React.FC<QuickAddModalProps> = ({
                                                 {customImageDataUrl ? (
                                                     <div className="relative">
                                                         <img src={customImageDataUrl} alt="Dish" className="w-16 h-16 rounded-xl object-cover border border-gray-200" />
-                                                        <button onClick={() => setCustomImageDataUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center" title="Remove picture"><X size={10} /></button>
+                                                        <button onClick={() => setCustomImageDataUrl('')} className="absolute -top-1.5 -right-1.5 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center" title="Remove picture"><X size={10} /></button>
                                                     </div>
                                                 ) : (
                                                     <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center text-2xl">🍽️</div>

@@ -251,10 +251,11 @@ describe('service worker must never answer a non-document request with index.htm
     expect(fb).toBeGreaterThan(nav); // fallback exists, but ONLY after the document branch
   });
 
-  it('cache version was bumped off v2 so poisoned entries are purged on activate (v5 since 2026-09-14)', () => {
+  it('cache version was bumped off v2 so poisoned entries are purged on activate (v6 since 2026-09-14)', () => {
     expect(sw).not.toContain("CACHE_VERSION = 'v2'");
     expect(sw).not.toContain("CACHE_VERSION = 'v3'");
     expect(sw).not.toContain("CACHE_VERSION = 'v4'");
-    expect(sw).toMatch(/CACHE_VERSION = 'v5'/);
+    expect(sw).not.toContain("CACHE_VERSION = 'v5'");
+    expect(sw).toMatch(/CACHE_VERSION = 'v6'/);
   });
 });

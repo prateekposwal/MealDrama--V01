@@ -218,12 +218,12 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
               <p className="text-lg sm:text-xl font-bold text-gray-900 leading-tight line-clamp-2">{item.name}</p>
               {onSwapDish && (
                 <button onClick={() => { onSwapDish(); onClose(); }}
-                  className="shrink-0 w-7 h-7 rounded-full bg-[#FF385C]/10 text-[#FF385C] flex items-center justify-center active:scale-90 transition-all hover:bg-[#FF385C]/20 text-sm font-bold"
+                  className="shrink-0 w-9 h-9 rounded-full bg-[#FF385C]/10 text-[#FF385C] flex items-center justify-center active:scale-90 transition-all hover:bg-[#FF385C]/20 text-sm font-bold"
                   aria-label="Swap this dish">↻</button>
               )}
             </div>
           </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90 transition-all shrink-0"><X size={14} /></button>
+          <button onClick={onClose} className="w-9 h-9 rounded-xl flex items-center justify-center bg-gray-100 active:scale-90 transition-all shrink-0"><X size={16} /></button>
         </div>
 
         <Hint id="meal-card-tap" trigger="first-visit" anchorRef={headerAnchorRef} placement="bottom" text="Tap any meal on your plan to customize pairings here — the ↻ button swaps the whole dish for another from your tray." />
@@ -261,15 +261,15 @@ const SwapCustomizeModal: React.FC<Props> = ({ isOpen, item, dishes, onClose, on
                 <div key={`${cat.key}-${name}`} className="flex-shrink-0 flex flex-col items-center gap-1.5 w-[88px] group">
                   <div className="relative w-[72px] h-[72px] rounded-2xl overflow-hidden border-2 border-emerald-200 bg-emerald-50/50 shadow-sm">
                     <DishImage name={name} size="full" className="w-full h-full object-cover" />
-                    <button onClick={() => toggle(cat.key, name)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm opacity-0 group-hover:opacity-100 transition-opacity active:scale-90 hover:bg-red-50" title="Remove">
-                      <X size={9} className="text-gray-400" />
+                    <button onClick={() => toggle(cat.key, name)} className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm active:scale-90 hover:bg-red-50" title="Remove">
+                      <X size={10} className="text-gray-400" />
                     </button>
                   </div>
                   <span className="text-sm font-bold text-gray-700 truncate max-w-[80px] text-center leading-tight">{name}</span>
                   <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-1.5 py-0.5">
-                    <button onClick={(e) => { e.stopPropagation(); adjQty(name, -1); }} className="w-5 h-5 rounded flex items-center justify-center text-gray-500 active:scale-90 hover:bg-gray-200"><Minus size={8} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); adjQty(name, -1); }} className="w-7 h-7 rounded flex items-center justify-center text-gray-500 active:scale-90 hover:bg-gray-200"><Minus size={12} /></button>
                     <span className="text-xs font-bold text-gray-700 min-w-[16px] text-center tabular-nums">{qty[name] || 1}</span>
-                    <button onClick={(e) => { e.stopPropagation(); adjQty(name, 1); }} className="w-5 h-5 rounded flex items-center justify-center text-gray-500 active:scale-90 hover:bg-gray-200"><Plus size={8} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); adjQty(name, 1); }} className="w-7 h-7 rounded flex items-center justify-center text-gray-500 active:scale-90 hover:bg-gray-200"><Plus size={12} /></button>
                   </div>
                 </div>
               ))}
