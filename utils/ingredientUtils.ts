@@ -1355,6 +1355,29 @@ function inferIngredientsFromDishId(dishId: string, dishName?: string, dishType?
 
 const INGREDIENT_CACHE = new Map<string, Ingredient[]>();
 
+// Defensive copy for every cached return (root-caused 2026-09-14). The cache
+// stores ONE canonical array per key; callers must never receive it by
+// reference — a mutating caller (push/splice, or in-place unit/quantity
+// rewrite on an ingredient) silently corrupts every future resolution for that
+// key. Measured: pushing one caller's pollutant leaked into later resolutions
+// AND the resolved list changed just by having been resolved earlier.
+function defensiveIngredients(ings: Ingredient[]): Ingredient[] {
+  return ings.map(i => ({ ...i }));
+}
+
+// Stable fingerprint of a CategorySelection so the resolution cache is keyed on
+// it too. Previously the key was dishId::variant::diet ONLY — an order-dependent
+// first-call-wins bug: a dish resolved once with gravy/sides then resolved
+// without (or with different selections) returned the FIRST caller's list
+// (probe 2026-09-14: withGravy and withNone returned identical items).
+function selectionsKey(cs?: CategorySelection): string {
+  if (!cs) return 'n';
+  const id = (x?: { id?: string } | null): string => x?.id ?? '';
+  const ids = (xs?: { id?: string }[] | null): string =>
+    (xs ?? []).map(x => x.id ?? '').filter(Boolean).join('+');
+  return [id(cs.gravy), id(cs.roti), id(cs.rice), ids(cs.sides), ids(cs.beverages), ids(cs.dessert)].join('|');
+}
+
 export function isDishVeganCompatible(dish: Dish): boolean {
   return dish.type === 'vegan' || dish.type === 'veg';
 }
@@ -1717,8 +1740,10 @@ export function getIngredientsForMealOption(
     diet?: string | null
 ): Ingredient[] {
     // Diet-aware cache key: the same card resolves different ingredients per diet.
-    const cacheKey = `${dishId}::${variantId}::${diet ?? ''}`;
-    if (INGREDIENT_CACHE.has(cacheKey)) return INGREDIENT_CACHE.get(cacheKey)!;
+    // categorySelections are part of the key too (see selectionsKey) — otherwise
+    // the FIRST resolution of a dish wins and later callers get its selections.
+    const cacheKey = `${dishId}::${variantId}::${diet ?? ''}::${selectionsKey(categorySelections)}`;
+    if (INGREDIENT_CACHE.has(cacheKey)) return defensiveIngredients(INGREDIENT_CACHE.get(cacheKey)!);
 
     const dish = dishes.find(d => d.id === dishId);
     let variant: DishVariant | undefined;
@@ -1756,7 +1781,7 @@ export function getIngredientsForMealOption(
                 // variant). Infer the name-implied mains and append any missing.
                 r = ensureNameMains(r, dishId, resolveDisplayName(dish.name, variant), dish.type);
                 INGREDIENT_CACHE.set(cacheKey, r);
-                return r;
+                return defensiveIngredients(r);
             }
 
             const variantInclusiveName = variant && (variantId || diet)
@@ -1800,14 +1825,14 @@ export function getIngredientsForMealOption(
             const filtered = isLightCategory(dish) ? lightFilterWithFallback(r, dish, variantInclusiveName) : r;
             const finalVariant = ensureNameMains(filtered, dishId, variantInclusiveName, dish.type);
             INGREDIENT_CACHE.set(cacheKey, finalVariant);
-            return finalVariant;
+            return defensiveIngredients(finalVariant);
         }
     }
     const result: Ingredient[] = inferIngredientsFromDishId(dishId);
     if (categorySelections) result.push(...getIngredientsFromCategorySelections(categorySelections));
     const finalResult = dish && isLightCategory(dish) ? lightFilterWithFallback(result, dish) : result;
     INGREDIENT_CACHE.set(cacheKey, finalResult);
-    return finalResult;
+    return defensiveIngredients(finalResult);
 }
 
 // ─── Accompaniment alias maps (module-level — created once, not per call) ───────

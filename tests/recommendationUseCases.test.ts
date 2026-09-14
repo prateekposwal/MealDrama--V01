@@ -39,6 +39,7 @@ import {
   recommendationScoreParts,
   dislikePenalty,
   dishFocusSignals,
+  noveltyTierLift,
   type PersonalizationContext,
 } from '../utils/mealPersonalization';
 import { dishNoveltyForUser, isNearDuplicate } from '../utils/variety';
@@ -131,6 +132,12 @@ const avgNovelty = (tray: TrayLibrary, aff: readonly string[] = []): number => {
   const ids = planIds(tray);
   return ids.reduce((s, id) => s + dishNoveltyForUser(DISH_LIBRARY.find(d => d.id === id)!, aff), 0) / ids.length;
 };
+/** Dishes from a region OUTSIDE the user's home regionKey (cross-region reach). */
+const farDishCount = (tray: TrayLibrary, homeRegion: string): number =>
+  planIds(tray).filter(id => {
+    const r = (DISH_LIBRARY.find(d => d.id === id)!.region ?? '').toLowerCase();
+    return r && r !== homeRegion && r !== 'all';
+  }).length;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ROW 1 — "4 roommates, same diet + health focus → different meal plans"
@@ -389,15 +396,39 @@ describe('row 12/13 · the learning ledger turns skips and likes into taste', ()
 // ─────────────────────────────────────────────────────────────────────────────
 // ROW 14 — "User chooses Try Something New → higher novelty"
 // ─────────────────────────────────────────────────────────────────────────────
-describe('row 14 · Try Something New → higher novelty (adventurous ≠ familiar, 2026-09-16 novelty tier-lift)', () => {
+describe('row 14 · Try Something New → higher novelty (adventurous ≠ familiar, 2026-09-16 lift + 2026-09-14 gradation)', () => {
   it('both surfaces: the adventurous plan is measurably more novel than the familiar plan', () => {
     const advC: PersonalizationContext = { userId: 'mx-adv', deviceId: 'mx-adv', healthFocus: 'Balanced', preferences: { spiceLevel: 'medium', preferredRegions: ['North India'] }, tasteProfile: tp({ noveltyPreference: 'adventurous' }) };
     const famC: PersonalizationContext = cloneCtx(advC, { userId: 'mx-fam', deviceId: 'mx-fam', preferences: { spiceLevel: 'medium', preferredRegions: ['North India'] }, tasteProfile: tp({ noveltyPreference: 'familiar' }) });
     const adv = gen(advC);
     const fam = gen(famC);
     expect(adv.complete && fam.complete).toBe(true);
+    // The gap must be REAL and deepen (measured 0.132 vs the 0.083 binary —
+    // the 0.5–0.6 band now opens the full lift AND far-region novel dishes
+    // keep a distance-aware edge).
+    const delta = avgNovelty(adv.tray) - avgNovelty(fam.tray);
+    expect(delta).toBeGreaterThan(0.10);
     expect(avgNovelty(adv.tray)).toBeGreaterThan(avgNovelty(fam.tray));
+    // AND the "show me cuisines I've not tried" reach survives the widening:
+    // the adventurous plan must still cross into a far region (measured 7/20
+    // south for a north user) — a widened home lift that greedily displaced
+    // ALL far reach measured 0 and broke the onboarding promise.
+    expect(farDishCount(adv.tray, 'north')).toBeGreaterThanOrEqual(2);
     expect(shared(planIds(adv.tray), planIds(fam.tray)), 'plans still differ').toBeLessThan(16);
+  });
+
+  it('noveltyTierLift gradation: mid-novel 0.5–0.6 opens the full −2; max-novel 0.8 gets the −2.4 edge (2026-09-14)', () => {
+    const advTaste = tp({ noveltyPreference: 'adventurous' });
+    const mid = DISH_LIBRARY.find(d => { const n = dishNoveltyForUser(d, []); return n >= 0.5 && n < 0.6; })!;
+    const maxN = DISH_LIBRARY.find(d => dishNoveltyForUser(d, []) >= 0.7)!;
+    expect(noveltyTierLift(mid, advTaste)).toBe(-2);
+    expect(noveltyTierLift(maxN, advTaste)).toBeLessThan(-2);
+    expect(noveltyTierLift(maxN, advTaste)).toBeGreaterThan(-2.5);
+    // Region distance keeps the far-region strong-novel dish ahead of a home
+    // mid-novel dish (tier math: far 2 − 2.4 − 2 = −2.4 < home-mid −2).
+    const farDistance = DISH_LIBRARY.find(d => d.region === 'south' && dishNoveltyForUser(d, []) >= 0.6)!;
+    expect(noveltyTierLift(mid, advTaste, 0)).toBe(-2);
+    expect(noveltyTierLift(farDistance, advTaste, 2)).toBeLessThan(noveltyTierLift(mid, advTaste, 0));
   });
 
   it('scorer: the Variety driver is higher for an adventurous than a familiar user', () => {

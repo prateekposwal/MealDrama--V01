@@ -84,6 +84,55 @@ Answering "what is your problem / better approach" — a no-churn standard:
    explicit monitor; `SuccessfulExit=false` is a supervision gap, not a policy.
 
 ## RUN HISTORY
+- **2026-09-14 — Recommendation-quality tuning pass (pass 2): hot-affinity amplification, novelty gradation + reach, ingredient-cache root-cause**
+  - **ITEM 1 — "loves Punjabi" beats "loves spicy" cleanly (hot users)**:
+    - Engine: new `isHotSpiceUser` + `cuisineAffinityBoostForSpice` — hot users now get the
+      STRONGEST cuisine-affinity unit (2.0/key, cap 3.0; mild 1.6, medium EXACT legacy 0.8).
+      Rationale: the +0.9/hot-dish global term rewards every hot dish, so the loved-cuisine
+      marker must out-scale it — the OLD 0.8 left a hot Punjabi lover at 2/20 plan dishes
+      and a scored gap of 2.75 vs the 3.0 max-jitter span; amplified = gap 3.95, always
+      ranked ahead. `preferenceScore` now uses the spice-aware tuple.
+    - DATA (the binding constraint, surfaced by probing): the library had only THREE
+      'punjabi'-tagged dishes (Sarson, Amritsari Chole, egg-only Anda Paratha) — no weight
+      can make a veg Punjabi lover's plan read Punjabi. Tagged the genuine classics
+      (Dal Makhani, Paneer Bhurji + Sandwich, Kadai Mushroom, Baingan Bharta, Aloo Matar,
+      Methi Malai Matar, Paneer Pulao, Paneer Pakora, Rajma Chawal, Chana Masala) with the
+      'punjabi' cuisine tag → the hot-Punjabi plan now carries **9/20 Punjabi dishes**
+      (up from 2), measured and pinned.
+  - **ITEM 2 — deeper within-region novelty, reach preserved**: `noveltyTierLift` GRADED
+    (2026-09-14). The 0.5–0.6 band (the p75–p90 home pool) now opens the full −2
+    (within-region deepener) and ≥0.6 gets a fractional −2.4 edge; NEW regionDistance
+    param keeps far-region strong-novel dishes AHEAD of home mid-novel ones (far
+    2−2.4−2=−2.4 < home-mid −2). Measured: adventurous-vs-familiar avg-novelty delta
+    0.083 → **0.132** with far-region reach intact (**7/20** south for a north
+    adventurous user). A partial-shelf intermediate measured WORSE (greedy home-mid
+    displaced ALL far reach: south 3→0, delta 0.072) and was reverted — documented
+    in the function comment.
+  - **ITEM 3 — client ingredient-engine order/cache fragility, ROOT-CAUSED**: two real
+    bugs in `getIngredientsForMealOption` (confirmed by probe, both fixed):
+    - **B1 cache-key collision**: the key was `dishId::variant::diet` ONLY — categorySelections
+      were dropped, so the FIRST resolution of a dish won and later callers with different
+      selections inherited the first caller's list (order-dependent). Fixed: stable
+      `selectionsKey` fingerprint is part of the cache key.
+    - **B2 live-reference returns**: the cache handed out the canonical array BY REFERENCE —
+      a mutating caller (push/splice, or `quantity`/`unit` rewrite on an item) silently
+      corrupted every later resolution (measured: one caller's pollutant leaked into the
+      next two). Fixed: `defensiveIngredients` returns clone-of-item copies on every exit;
+      `utils/cache.ts` helper hardened to match.
+    - New permanent regressions in `tests/ingredientUtils.test.ts`: equal-values-never-same-
+      reference, push/rewrite isolation, selections-order-independence. Two ref-identity
+      assertions updated to content-equality (deliberate semantic change).
+  - **Re-pins (deliberate, documented in-test)**: goal-2 pairwise overlaps 8/6/3 →
+    **8/2/3** (hot identity amplified → Punjabi plan 9/20; graded novelty widened the
+    adventurous/novelty separation); the `allergic-novelty` profile now shares only 2/20
+    with simple-home. Locked new floors: hot-Punjabi plan ≥6/20 Punjabi; row-14 delta
+    >0.10 AND far-region reach ≥2.
+  - Suite: **91 files / 1302 passed (+5)**, 1 skipped; root build green; `tsc --noEmit`
+    clean for all touched files (only pre-existing backlog: analytics/api503/scratch/
+    staticServing/traySeedFirstLoad — all untouched by this pass).
+  - Carry-forward unchanged: WhatsApp Phase-2 flip, pantry inbound-"done" draw-down,
+    OTP auth, cook Hindi.
+
 - **2026-09-14 — Recommendation-quality bundle: 15-row use-case matrix, real spice + novelty signals, Recommendation Score decomposition, small-DB overlap policy**
   - **THE MATRIX**: `tests/recommendationUseCases.test.ts` (22 tests) locks ALL 15 spec
     rows on the real 679-dish library through the live pipeline: (1) 4 same-profile

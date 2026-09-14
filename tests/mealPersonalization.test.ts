@@ -53,12 +53,15 @@ import {
   fnv1a,
   isoWeekKey,
   isMildSpiceUser,
+  isHotSpiceUser,
   cuisineAffinityBoostUnit,
+  cuisineAffinityBoostForSpice,
   affinityTierLift,
   preferenceScore,
   type PersonalizationContext,
 } from '../utils/mealPersonalization';
 import { allowedTypesForDiet } from '../utils/dietQuota';
+import { dishCuisineKeys } from '../utils/dishTaste';
 
 // ─── Seeding helpers over the REAL dish library ─────────────────────────────
 const dishFor = (slot: MealType, type: string, region = 'north'): Dish =>
@@ -682,21 +685,32 @@ describe('goal-2: mild users get a REAL cuisine-affinity signal (South+mild vs s
     expect(southCount).toBeGreaterThanOrEqual(6);
   });
 
-  it('the strongly-flavored profiles hold MEASURED pairwise overlaps (re-pinned 2026-09-16 after the deliberate spice-realism + novelty-lift tuning)', () => {
-    // The 2026-09-16 tuning deliberately changed ranking for spicy/hot users
-    // (spice is now ingredient-derived — the real chili evidence) and for
-    // adventurous users (novel dishes get a region-tier lift). That re-pinned
-    // the previously-byte-identical overlap numbers 11/9/8 → 8/6/3 (measured
-    // on the real library, rm-* fixture ids). Determinism per profile is
-    // UNCHANGED (locked by the determinism test above); these exact values now
-    // guard future drift.
+  it('the strongly-flavored profiles hold MEASURED pairwise overlaps (re-pinned 2026-09-14 after the hot-affinity + novelty-gradation + Punjabi-coverage tuning)', () => {
+    // The 2026-09-14 tuning deliberately changed ranking for spicy/hot and
+    // adventurous users again: (a) hot users now carry the STRONGEST cuisine
+    // affinity (+2.0/key — out-scales the +0.9/hot-dish global term so "loves
+    // Punjabi" beats "loves spicy anything"), (b) the novelty lift is graded —
+    // the 0.5–0.6 band opens the full −2 AND far-region novel dishes keep a
+    // distance-aware edge, and (c) the library's genuine Punjabi classics
+    // (Dal Makhani, Paneer Bhurji, Kadai Mushroom, Baingan Bharta, Methi Malai
+    // Matar, Rajma Chawal…) now carry the 'punjabi' cuisine tag so a Punjabi
+    // lover's plan actually READS Punjabi (measured 9/20 vs the previous 2/20 —
+    // the 3-dish tag surface was the binding constraint, not the weight).
+    // That re-pinned the measured overlaps 8/6/3 → 8/2/3 (measured on the
+    // real library, rm-* fixture ids). Determinism per profile is UNCHANGED;
+    // these exact values guard future drift.
     const sh = plans.get('simple-home')!;
     const pj = plans.get('punjabi-spicy')!;
     const al = plans.get('allergic-novelty')!;
     const shared = (x: string[], y: string[]) => x.filter(v => y.includes(v)).length;
-    expect(shared(sh, pj)).toBe(8); // measured 2026-09-16 (was 11 before the spice fix)
-    expect(shared(sh, al)).toBe(6); // measured 2026-09-16 (was 9 before the novelty lift)
-    expect(shared(pj, al)).toBe(3); // measured 2026-09-16 (was 8 before the novelty lift)
+    expect(shared(sh, pj)).toBe(8); // measured 2026-09-14 (hot amplification + Punjabi coverage: plan now 9/20 Punjabi)
+    expect(shared(sh, al)).toBe(2); // measured 2026-09-14 (was 6 — graded novelty widens the adventurous/novelty gap)
+    expect(shared(pj, al)).toBe(3); // measured 2026-09-14
+    // And the "loves Punjabi" contract is real at the PLAN level now: ≥ 6 of 20
+    // dishes carry a punjabi cuisine key (measured 9) — the old 3-dish tag
+    // surface would silently drop this back toward 2 if reverted.
+    const pjPlan = pj.filter(id => dishCuisineKeys(DISH_LIBRARY.find(x => x.id === id)!).includes('punjabi')).length;
+    expect(pjPlan).toBeGreaterThanOrEqual(6);
   });
 
   it('determinism holds for the new tuned paths: same inputs → byte-identical plans (seeded PRNG untouched)', () => {
@@ -736,6 +750,34 @@ describe('goal-2 unit surface: mild amplification + tier lift, non-mild byte-ide
     expect(cuisineAffinityBoostUnit(false)).toEqual({ perKey: 0.8, cap: 2.0 });
   });
 
+  it('cuisineAffinityBoostForSpice: mild 1.6, hot STRONGEST 2.0, medium keeps the legacy 0.8 (2026-09-14)', () => {
+    // Mild: affinity is the ONLY taste expression (spicy penalised) → 1.6.
+    expect(cuisineAffinityBoostForSpice({ spiceLevel: 'mild' })).toEqual({ perKey: 1.6, cap: 3.0 });
+    expect(cuisineAffinityBoostForSpice({ spiceLevel: 'low' })).toEqual({ perKey: 1.6, cap: 3.0 });
+    // Hot: the +0.9/hot-dish global term must be OUT-SCALED so "loves Punjabi"
+    // beats "loves spicy anything" → the strongest per-key (2.0 > 1.5 = the max
+    // single jitter). Measured legacy-0.8 left a hot Punjabi lover at 2/20 and
+    // gap 2.75 < the 3.0 jitter span; amplified is gap 3.95, always ranked ahead.
+    expect(cuisineAffinityBoostForSpice({ spiceLevel: 'hot' })).toEqual({ perKey: 2.0, cap: 3.0 });
+    expect(cuisineAffinityBoostForSpice({ spiceLevel: 'spicy' })).toEqual({ perKey: 2.0, cap: 3.0 });
+    // Medium / absent: no global spice term → EXACT legacy values (byte-identical).
+    expect(cuisineAffinityBoostForSpice({ spiceLevel: 'medium' })).toEqual({ perKey: 0.8, cap: 2.0 });
+    expect(cuisineAffinityBoostForSpice({})).toEqual({ perKey: 0.8, cap: 2.0 });
+    expect(cuisineAffinityBoostForSpice(undefined, tp({ spiceLevel: 'hot' }))).toEqual({ perKey: 2.0, cap: 3.0 });
+  });
+
+  it('isHotSpiceUser: hot/high/spicy on EITHER surface; medium/mild/absent are not', () => {
+    expect(isHotSpiceUser({ spiceLevel: 'hot' })).toBe(true);
+    expect(isHotSpiceUser({ spiceLevel: 'high' })).toBe(true);
+    expect(isHotSpiceUser({ spiceLevel: 'spicy' })).toBe(true);
+    expect(isHotSpiceUser({ spiceLevel: 'medium' })).toBe(false);
+    expect(isHotSpiceUser({ spiceLevel: 'mild' })).toBe(false);
+    expect(isHotSpiceUser({})).toBe(false);
+    expect(isHotSpiceUser(undefined, tp({ spiceLevel: 'hot' }))).toBe(true);
+    expect(isHotSpiceUser({ spiceLevel: 'medium' }, tp({ spiceLevel: 'hot' }))).toBe(true);
+    expect(isHotSpiceUser({ spiceLevel: 'mild' }, tp({ spiceLevel: 'hot' }))).toBe(true);
+  });
+
   it('affinityTierLift: -3 only for a mild user whose affinity matches a dish; 0 for everyone else', () => {
     const rasam = DISH_LIBRARY.find(d => d.id === 'rasam')!; // keys: tamil/south-indian/south
     const alooParatha = DISH_LIBRARY.find(d => d.id === 'aloo-paratha')!; // north, no south key
@@ -754,18 +796,25 @@ describe('goal-2 unit surface: mild amplification + tier lift, non-mild byte-ide
     expect(affinityTierLift(rasam, undefined, tp({ spiceLevel: 'medium', cuisineAffinities: ['south-indian'] }))).toBe(0);
   });
 
-  it('preferenceScore: the mild boost is amplified, the non-mild boost is the EXACT legacy value', () => {
+  it('preferenceScore: mild boost amplified 1.6, hot STRONGEST 2.0 (2026-09-14), medium is the EXACT legacy 0.8', () => {
     const rasam = DISH_LIBRARY.find(d => d.id === 'rasam')!;
     const mild = personalizationScore(rasam, { userId: 'u-b', preferences: { spiceLevel: 'mild', cuisineAffinities: ['south-indian'] }, jitterScale: 0 });
     const medium = personalizationScore(rasam, { userId: 'u-b', preferences: { spiceLevel: 'medium', cuisineAffinities: ['south-indian'] }, jitterScale: 0 });
-    const legacy0 = preferenceScore(rasam, { spiceLevel: 'medium', cuisineAffinities: ['south-indian'] });
-    const legacyHot = preferenceScore(rasam, { spiceLevel: 'hot', cuisineAffinities: ['south-indian'] });
+    const mediumAff = preferenceScore(rasam, { spiceLevel: 'medium', cuisineAffinities: ['south-indian'] });
+    const hotAff = preferenceScore(rasam, { spiceLevel: 'hot', cuisineAffinities: ['south-indian'] });
+    const hotNoAff = preferenceScore(rasam, { spiceLevel: 'hot' });
     const mildScore = preferenceScore(rasam, { spiceLevel: 'mild', cuisineAffinities: ['south-indian'] });
     expect(mildScore - preferenceScore(rasam, { spiceLevel: 'mild', cuisineAffinities: [] }))
       .toBeCloseTo(1.6); // one matched key × amplified unit
     expect(mild).toBeGreaterThan(medium); // the tuned path lifts explicitly
-    // Non-mild: hot and medium produce the SAME legacy +0.8 boost (byte-identical).
-    expect(legacy0).toBe(legacyHot);
-    expect(legacy0 - preferenceScore(rasam, { spiceLevel: 'medium' })).toBeCloseTo(0.8);
+    // Medium: the legacy +0.8 boost is byte-identical (no global spice term,
+    // so no amplification is needed).
+    expect(mediumAff - preferenceScore(rasam, { spiceLevel: 'medium' })).toBeCloseTo(0.8);
+    // Hot: AMPLIFIED to +2.0/key — the +0.9/hot-dish term rewards every hot
+    // dish, so the loved-cuisine marker must out-scale it (2026-09-14). The
+    // hot boost is now strictly GREATER than medium's, making the loved
+    // cuisine the deciding signal for a hot palate.
+    expect(hotAff - hotNoAff).toBeCloseTo(2.0);
+    expect(hotAff).toBeGreaterThan(mediumAff);
   });
 });

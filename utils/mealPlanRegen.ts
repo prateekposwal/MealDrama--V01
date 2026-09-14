@@ -270,7 +270,7 @@ export function fillCandidatesForSlot(
   const tierOf = (d: Dish): number =>
     regionTier(d, regionKey)
     + affinityTierLift(d, personalization?.preferences, personalization?.tasteProfile)
-    + noveltyTierLift(d, personalization?.tasteProfile);
+    + noveltyTierLift(d, personalization?.tasteProfile, regionTier(d, regionKey));
   const sorted = library
     .filter(d =>
       isMealDietCompatible(d, diet) &&
@@ -325,7 +325,7 @@ export function reuseCandidatesForSlot(
   const tierOf = (d: Dish): number =>
     regionTier(d, regionKey)
     + affinityTierLift(d, opts?.personalization?.preferences, opts?.personalization?.tasteProfile)
-    + noveltyTierLift(d, opts?.personalization?.tasteProfile);
+    + noveltyTierLift(d, opts?.personalization?.tasteProfile, regionTier(d, regionKey));
   return used
     .filter(d =>
       isMealDietCompatible(d, diet) &&
@@ -500,7 +500,7 @@ export function dedupeWholePlan(
     const tierOf = (d: Dish): number =>
       regionTier(d, regionKey)
       + affinityTierLift(d, opts?.personalization?.preferences, opts?.personalization?.tasteProfile)
-      + noveltyTierLift(d, opts?.personalization?.tasteProfile);
+      + noveltyTierLift(d, opts?.personalization?.tasteProfile, regionTier(d, regionKey));
     const sorted = library
       .filter(d =>
         isMealDietCompatible(d, diet) &&

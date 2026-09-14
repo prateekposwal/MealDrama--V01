@@ -226,7 +226,7 @@ describe('getIngredientsForMealOption', () => {
     expect(result.some(i => i.name === 'Maida')).toBe(true);
   });
 
-  it('caches results by cache key', () => {
+  it('caches results by cache key — equal values, DEFENSIVE copies (2026-09-14)', () => {
     const dish = makeDish('test-cache', 'Test Cache', {
       variants: [{
         id: 'test-cache_v1',
@@ -236,7 +236,64 @@ describe('getIngredientsForMealOption', () => {
     });
     const r1 = getIngredientsForMealOption('test-cache', 'test-cache_v1', [dish]);
     const r2 = getIngredientsForMealOption('test-cache', 'test-cache_v1', [dish]);
-    expect(r1).toBe(r2);
+    // Equal content…
+    expect(r1.map(i => `${i.name}:${i.quantity}:${i.unit}`)).toEqual(r2.map(i => `${i.name}:${i.quantity}:${i.unit}`));
+    // …but NEVER the same reference: a mutating caller must not corrupt future
+    // resolutions (root-caused 2026-09-14 — the cache used to hand out the
+    // canonical array by reference; a push/pop/unit rewrite silently leaked
+    // into every later resolution of the same dish).
+    expect(r1).not.toBe(r2);
+    expect(r1[0]).not.toBe(r2[0]);
+  });
+
+  it('mutation isolation: push/splice + ingredient rewrites on ONE result never leak (2026-09-14)', () => {
+    const dish = makeDish('test-mut', 'Test Mut', {
+      variants: [{
+        id: 'test-mut_v1',
+        name: 'Test Mut',
+        ingredients: [
+          { name: 'Water', quantity: 1, unit: 'cup', category: 'pantry', inStock: false },
+          { name: 'Salt', quantity: 1, unit: 'tsp', category: 'pantry', inStock: false },
+        ],
+      }],
+    });
+    const a = getIngredientsForMealOption('test-mut', 'test-mut_v1', [dish]);
+    const snapshot = a.map(i => `${i.name}:${i.quantity}:${i.unit}`);
+    // Mutate the FIRST caller's array AND its items in place.
+    a.push({ name: 'POLLUTANT', quantity: 9, unit: 'kg', category: 'proteins', inStock: false });
+    a[0]!.quantity = 99;
+    a[0]!.unit = 'kg';
+    // A later resolution is byte-clean — no pollutant, no rewritten quantities.
+    const b = getIngredientsForMealOption('test-mut', 'test-mut_v1', [dish]);
+    expect(b.length).toBe(snapshot.length);
+    expect(b.some(i => i.name === 'POLLUTANT')).toBe(false);
+    expect(b.map(i => `${i.name}:${i.quantity}:${i.unit}`)).toEqual(snapshot);
+    // And a THIRD caller is still clean (the pollution never reached the cache).
+    const c = getIngredientsForMealOption('test-mut', 'test-mut_v1', [dish]);
+    expect(c.map(i => `${i.name}:${i.quantity}:${i.unit}`)).toEqual(snapshot);
+  });
+
+  it('categorySelections are part of the cache key — no first-call-wins (2026-09-14)', () => {
+    const dish = makeDish('test-sel', 'Test Sel', {
+      variants: [{
+        id: 'test-sel_v1',
+        name: 'Test Sel',
+        ingredients: [{ name: 'Water', quantity: 1, unit: 'cup', category: 'pantry', inStock: false }],
+      }],
+    });
+    const none: CategorySelection = { gravy: null, roti: null, rice: null, sides: [], beverages: [], dessert: [], itemQtys: {} };
+    const withRice: CategorySelection = { gravy: null, roti: null, rice: { id: 'steamed-rice', name: 'Steamed Rice' }, sides: [], beverages: [], dessert: [], itemQtys: {} };
+    // Resolve WITH selections FIRST (the order that exposed the bug).
+    const withSelections = getIngredientsForMealOption('test-sel', 'test-sel_v1', [dish], withRice);
+    // Then WITHOUT — must NOT inherit the earlier caller's selections.
+    const bare = getIngredientsForMealOption('test-sel', 'test-sel_v1', [dish], none);
+    const withSelNames = withSelections.map(i => i.name);
+    const bareNames = bare.map(i => i.name);
+    // The rice selection reached the first call…
+    expect(withSelNames).toContain('Rice');
+    // …and the second call stayed clean (the old key `${dishId}::${variant}`
+    // returned the FIRST caller's rice-laden list for both).
+    expect(bareNames).not.toContain('Rice');
   });
 
   it('invalidates cache on call', () => {
@@ -428,7 +485,7 @@ describe('Edge cases', () => {
     expect(result.some(i => i.name === 'Papad')).toBe(true);
   });
 
-  it('concurrent calls share cache reference', async () => {
+  it('concurrent calls return equal VALUES, never the same defensive copy (2026-09-14)', async () => {
     const dish = makeDish('concurrent', 'Concurrent', {
       variants: [{
         id: 'concurrent_v1',
@@ -440,7 +497,8 @@ describe('Edge cases', () => {
       Promise.resolve(getIngredientsForMealOption('concurrent', 'concurrent_v1', [dish])),
       Promise.resolve(getIngredientsForMealOption('concurrent', 'concurrent_v1', [dish])),
     ]);
-    expect(r1).toBe(r2);
+    expect(r1.map(i => `${i.name}:${i.quantity}:${i.unit}`)).toEqual(r2.map(i => `${i.name}:${i.quantity}:${i.unit}`));
+    expect(r1).not.toBe(r2);
   });
 
   it('cache miss after invalidation returns fresh result', () => {

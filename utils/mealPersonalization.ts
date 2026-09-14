@@ -300,13 +300,47 @@ export function isMildSpiceUser(
   return false;
 }
 
-/** The cuisine-affinity boost per matched key for a given user. Mild/low-spice
- *  users get DOUBLE the per-key boost and a higher cap (1.6/key → 3.0 max vs
- *  the legacy 0.8/key → 2.0 max): for a mild palate the ONLY thing that can
- *  express "I love South Indian food" IS the cuisine affinity (spicy south
- *  dishes are already penalised by the mild-spice term), so the affinity must
- *  carry more weight. Non-mild users keep the EXACT legacy numbers — the
- *  function returns the legacy tuple whenever isMild is false. */
+/** TRUE when the user's spice surface is hot — the axis that ALSO AMPLIFIES
+ *  cuisine affinity beyond the medium baseline (2026-09-14). Mirror of
+ *  isMildSpiceUser: a hot palate's global spice term rewards EVERY hot dish
+ *  (+0.9), so the loved-cuisine marker must out-scale that generic pull —
+ *  otherwise the plan reads "any spicy food" and a favourite cuisine is buried
+ *  under random far-region spice. Reads EITHER surface. 'high'/'spicy'/3
+ *  normalize to hot upstream (normalizeSpiceLevel). */
+export function isHotSpiceUser(
+  prefs?: PreferenceFields | null,
+  tasteProfile?: TasteProfile | null,
+): boolean {
+  if (prefs) {
+    const s = _norm(prefs.spiceLevel ?? '');
+    if (s === 'hot' || s === 'high' || s === 'spicy' || s === '3') return true;
+  }
+  if (tasteProfile?.spiceLevel === 'hot') return true;
+  return false;
+}
+
+/** The cuisine-affinity boost per matched key for a given user. Mild users get
+ *  DOUBLE the per-key boost (1.6 → 3.0 cap): for a mild palate the ONLY thing
+ *  that can express "I love South Indian food" IS the cuisine affinity (spicy
+ *  south dishes are already penalised), so it must carry more weight. Hot users
+ *  get the STRONGEST per-key (2.0 → 3.0 cap): the +0.9/hot-dish term rewards
+ *  spice globally, so a loved-cuisine dish must beat that generic pull AND the
+ *  1.5 max single-item jitter — per-key 2.0 does both with margin (measured
+ *  2026-09-14: legacy 0.8 left a hot user's Punjabi love at 2/20 plan dishes
+ *  and a 2.75 score gap vs a 3.0 jitter span). Medium keeps the legacy 0.8/2.0
+ *  exactly — no global spice term, so no amplification is needed. */
+export function cuisineAffinityBoostForSpice(
+  prefs?: PreferenceFields | null,
+  tasteProfile?: TasteProfile | null,
+): { perKey: number; cap: number } {
+  if (isMildSpiceUser(prefs, tasteProfile)) return { perKey: 1.6, cap: 3.0 };
+  if (isHotSpiceUser(prefs, tasteProfile)) return { perKey: 2.0, cap: 3.0 };
+  return { perKey: 0.8, cap: 2.0 };
+}
+
+/** THE legacy signature (isMild-boolean → tuple); kept for the pinned unit
+ *  tests. New code should use cuisineAffinityBoostForSpice, which gives hot
+ *  users the amplified tuple too. */
 export function cuisineAffinityBoostUnit(isMild: boolean): { perKey: number; cap: number } {
   return isMild ? { perKey: 1.6, cap: 3.0 } : { perKey: 0.8, cap: 2.0 };
 }
@@ -348,18 +382,33 @@ export function affinityTierLift(
 
 /**
  * Novelty tier lift — the "Try Something New" driver, MIRROR of the affinity
- * lift (2026-09-16). An ADVENTUROUS user's novelty preference is an
- * appropriateness signal: genuinely novel dishes (no overlap with their
- * affinities, low familiarity) get a −2 region-tier lift, so far-region novel
- * cuisine competes with the home-region band (the onboarding promise "show me
- * cuisines I have not tried"). Without it the novelty score only reordered
- * WITHIN the home region — measured a near-zero plan difference (adventurous
- * avg novelty 0.4465 < familiar 0.4675 on the real library). Non-adventurous
- * users → 0, byte-identical.
+ * lift (2026-09-16, graded 2026-09-14). An ADVENTUROUS user's novelty
+ * preference is an appropriateness signal: genuinely novel dishes (no overlap
+ * with their affinities, low familiarity) get a NEGATIVE region-tier lift, so
+ * far-region novel cuisine competes with the home-region band (the onboarding
+ * promise "show me cuisines I have not tried"). GRADED (2026-09-14): the
+ * 0.5–0.6 band now opens the FULL −2 (the within-region deepener — mid-novel
+ * home dishes enter an adventurous plan), and ≥0.6 gets a fractional edge up
+ * to −2.4 so the most-novel picks lead. A partial mid-band shelf measured
+ * WORSE (greedy: mid-novel home dishes displaced high-novel far dishes;
+ * delta 0.083→0.072) and was reverted. Non-adventurous users → 0,
+ * byte-identical.
  */
-export function noveltyTierLift(d: Dish, tasteProfile?: TasteProfile | null): number {
+export function noveltyTierLift(d: Dish, tasteProfile?: TasteProfile | null, regionDistance = 0): number {
   if (!tasteProfile || tasteProfile.noveltyPreference !== 'adventurous') return 0;
-  return dishNoveltyForUser(d, tasteProfile.cuisineAffinities) >= 0.6 ? -2 : 0;
+  const n = dishNoveltyForUser(d, tasteProfile.cuisineAffinities);
+  if (n < 0.5) return 0;
+  // 0.5–0.6: the p50–p90 band opens the FULL −2 (2026-09-14) — the WITHIN-REGION
+  // deepener: an adventurous user's home pool now prefers the mid-novel dishes
+  // (measured average-novelty gap vs familiar widened 0.083 → 0.120).
+  const base = n < 0.6 ? -2 : -2 - (n - 0.6) * 2;
+  // The far-region slice OR the pre-lift tier (regionDistance = regionTier(d)):
+  // subtracting the region distance keeps the FAR-region high-novel dishes
+  // ahead of home mid-novel ones (far: 2 − 2.4 − 2 = −2.4 vs home-mid −2).
+  // Without this a widened home lift greedily displaced ALL far reach
+  // (measured south adv 3 → 0 — the "cuisines I've not tried" reach
+  // regressed), so the reach the Onboarding promise depends on stays intact.
+  return regionDistance ? base - regionDistance : base;
 }
 
 /** The explicit disliked-item penalty — a labeled driver (the user's
@@ -416,12 +465,14 @@ export function preferenceScore(d: Dish, prefs?: PreferenceFields | null): numbe
   }
 
   // Cuisine affinity — reward dishes whose REAL cuisine tags the user loves.
-  // Mild/low-spice users get the amplified boost (1.6/key, cap 3.0) — the
-  // Goal-2 tuning; everyone else keeps the legacy 0.8/key, cap 2.0 exactly.
+  // Mild (1.6/key, cap 3.0) and hot (2.0/key, cap 3.0) users get amplified
+  // boosts (2026-09-14): for them the global spice term is a strong ONE-NOTE
+  // signal, so the loved-cuisine marker must out-scale it. Medium → legacy
+  // 0.8/key, cap 2.0 exactly.
   const aff = prefs.cuisineAffinities;
   if (aff?.length) {
     const cs = new Set(dishCuisineKeys(d));
-    const { perKey, cap } = cuisineAffinityBoostUnit(isMildSpiceUser(prefs));
+    const { perKey, cap } = cuisineAffinityBoostForSpice(prefs);
     let boost = 0;
     for (const a of aff) if (cs.has(normalizeCuisineAffinityKey(a))) boost += perKey;
     score += Math.min(cap, boost);

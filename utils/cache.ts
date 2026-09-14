@@ -11,7 +11,9 @@ export function cachedIngredients(
   if (!INGREDIENT_CACHE.has(key)) {
     INGREDIENT_CACHE.set(key, compute());
   }
-  return INGREDIENT_CACHE.get(key)!;
+  // Never hand out the canonical array by reference — a mutating caller would
+  // corrupt future resolutions (see ingredientUtils defensiveIngredients).
+  return INGREDIENT_CACHE.get(key)!.map(i => ({ ...i }));
 }
 
 

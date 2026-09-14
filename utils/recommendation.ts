@@ -251,7 +251,7 @@ function regionTier(d: Dish, regionKey: string): number {
 function affinityAwareTier(d: Dish, regionKey: string, taste: TasteProfile, pctx: PersonalizationContext): number {
   return regionTier(d, regionKey)
     + affinityTierLift(d, pctx.preferences, taste)
-    + noveltyTierLift(d, taste);
+    + noveltyTierLift(d, taste, regionTier(d, regionKey));
 }
 
 /**
