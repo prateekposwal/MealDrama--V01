@@ -41,10 +41,12 @@ async function seedHintsSeen(page: Page): Promise<void> {
 }
 
 /** Guest onboarding. addInitScript runs on every navigation — seeding the
- *  seen-set once is enough for the session. */
+ *  seen-set once is enough for the session. waitUntil 'load', NOT networkidle:
+ *  the app keeps a polling/feed request open, so networkidle can hang and
+ *  blow the 60s budget on a slow first paint (the documented flake). */
 async function primeOrigin(page: Page): Promise<void> {
   await seedHintsSeen(page);
-  await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle', timeout: 60000 });
+  await page.goto(`${BASE_URL}/`, { waitUntil: 'load', timeout: 60000 });
 }
 
 export async function startGuestOnboarding(page: Page, handle: string): Promise<void> {
