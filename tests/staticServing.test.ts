@@ -168,7 +168,9 @@ describe.skipIf(!REAL_DIST_BUILT)('real build asset manifest (run npm run build 
     expect(html).toContain('<div id="root">');
 
     const refs = [...new Set(
-      [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1])
+      [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)]
+        .map((m) => m[1])
+        .filter((x): x is string => !!x)
     )];
     expect(refs.length).toBeGreaterThan(0);
     for (const ref of refs) {

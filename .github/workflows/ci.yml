@@ -40,7 +40,8 @@ jobs:
       - run: npm ci
       - name: TypeScript check
         run: npx tsc --noEmit
-        continue-on-error: true  # ~110 pre-existing errors; track trend
+        # HARD GATE since 2026-09-14: the test/scratch backlog was cleaned to
+        # zero; continue-on-error would have let stale-JWT/UPS regressions ship.
 
   test:
     name: Test

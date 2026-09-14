@@ -1007,7 +1007,7 @@ export const useStore = create<StoreState>()(
             if (msg.includes('401') || msg.includes('Unauthorized')) {
               // C2: Logout clears ALL pendingMutations — break immediately, don't mutate mid-iteration
               state.logout();
-              state.setToast({ message: 'Session expired. Log in again.', type: 'error' });
+              state.setToast({ message: 'Session expired — please re-enter', type: 'error' });
               break;
             }
             if (msg.includes('409') || msg.includes('Conflict')) {

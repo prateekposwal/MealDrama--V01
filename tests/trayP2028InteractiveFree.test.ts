@@ -53,10 +53,24 @@ const mem = vi.hoisted(() => {
    *  interactive form serialized EVERY awaited statement). */
   let inFlight = 0;
   let groups = 0;
+  /** Total latency actually slept, tallied by the mock — the DETERMINISTIC
+   *  replacement for wall-clock `elapsed` asserts (2026-09-14): the old
+   *  `expect(elapsed).toBeGreaterThanOrEqual(5000)` on real Date.now() was a
+   *  CI timing flake (one flaky run, TODO RUN HISTORY #261) and nothing more —
+   *  it proved timers fired, not the P2028 budget. Exact tally = every group
+   *  pays its full latency, countably. */
+  let sleptMs = 0;
 
   const delay = () => {
     if (!latencyMs) return Promise.resolve();
-    if (inFlight === 0) groups++;
+    // A round-trip "group" = one in-flight window: the FIRST statement to open
+    // the window increments groups AND charges the latency once. Statements
+    // whose timers overlap (the prisma ARRAY batch — ONE submit with members
+    // resolving concurrently) share that window and do NOT charge again. So
+    // sleptMs ≡ groups × latencyMs by construction — the P2028 cumulative-5s
+    // budget is modeled per-window and two windows can never consume a budget
+    // the way 3-4 SESSIONAL writes did under the old interactive form.
+    if (inFlight === 0) { groups++; sleptMs += latencyMs; }
     inFlight++;
     return new Promise(r => setTimeout(() => { inFlight--; r(undefined); }, latencyMs));
   };
@@ -72,12 +86,13 @@ const mem = vi.hoisted(() => {
     reset() {
       slots.length = 0; items.length = 0; plans.length = 0;
       slotSeq = 0; itemSeq = 0; planSeq = 0; latencyMs = 0; casMiss = false;
-      inFlight = 0; groups = 0;
+      inFlight = 0; groups = 0; sleptMs = 0;
     },
     setLatency(ms: number) { latencyMs = ms; },
     setCasMiss(v: boolean) { casMiss = v; },
     counts: () => ({ slots: slots.length, items: items.length, plans: plans.length }),
     get groups() { return groups; },
+    get sleptMs() { return sleptMs; },
     slotVersion: () => slots[0]?.version ?? 0,
     slotVersionByKey: (k: string) => slots.find(s => slotKey(s.userId, s.date, s.slot) === k)?.version ?? -1,
     planRow: (u: string, d: Date, s: string) => plans.find(p => planKey(p.userId, p.date, p.slot) === planKey(u, d, s)) ?? null,
@@ -511,108 +526,81 @@ describe('DELETE /api/v1/plan/:date/:slot — plain delete, no wrapper', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe('slow-prisma proof: each converted site finishes with FEWER round-trip groups than the old interactive form would have needed', () => {
-  // Latency model: 2600ms per sequential round-trip group. The old interactive
-  // form serialized EVERY statement: whole-slot = 4 groups (upsert, deleteMany,
-  // creates-parallel ⇒ 3 sequential waits… 5.4–10.4s > 5s budget → P2028),
-  // PATCH/DELETE = 3 groups (read, update/delete, slot.update), customize = 3,
-  // plan POST = 3. The converted forms need FEWER groups (2, 2, 2, 2-3) — and
-  // even when wall time still exceeds 5s, there is NO cumulative budget to
-  // blow: every group carries its own latency and completes.
-  it('whole-slot POST: 2 groups (upsert + ONE replace batch) — 5.2s wall → 200, NOT P2028', async () => {
-    mem.prismaMock.reset();
-    mem.prismaMock.setLatency(2600);
-    const t = token('u-slow-slot');
+describe('round-trip-class proof: each converted site uses FEWER sequential groups than the old interactive form needed (2026-09-13, de-flaked 2026-09-14)', () => {
+  // The P2028 class is a GROUP-COUNT claim, not a wall-clock one: the old
+  // interactive form serialized EVERY awaited statement (whole-slot = 4 groups:
+  // upsert, deleteMany, creates-parallel ⇒ ≥3 sequential waits > 5s budget →
+  // P2028; PATCH/DELETE = 3, customize = 3, plan POST = 3). The converted
+  // forms need FEWER groups (2, 2, 2, 2-3) AND the array batch shares ONE
+  // submit, so the cumulative interactive budget is never consumed.
+  //
+  // De-flake (2026-09-14): the old `expect(elapsed).toBeGreaterThanOrEqual(5000)`
+  // on real Date.now() was timing-flaky under CI load (one flaky run noted in
+  // RUN HISTORY) and slowed the suite ~26s with 2600ms fake sleeps. Replaced by
+  // two DETERMINISTIC pins: the exact group delta (structural — 2 < the old
+  // 3-4) and a mock tally proving EVERY group paid the full latency
+  // (sleptMs = groups × latencyMs — no budget-bypass is possible in the model).
+  const LAT = 25;
+  const hedge = (req: () => Promise<{ status: number; body: any }>) => async () => {
+    mem.prismaMock.setLatency(LAT); // caller reset + any setup done BEFORE this
     const g0 = mem.prismaMock.groups;
-    const start = Date.now();
-    const r = await trayReq('POST', '/api/v1/tray/slot', { token: t, body: slotBody([
+    const s0 = mem.prismaMock.sleptMs;
+    const r = await req();
+    const groupsDelta = mem.prismaMock.groups - g0;
+    // STRUCTURAL: exactly 2 sequential groups — the old interactive form needed ≥3.
+    expect(groupsDelta).toBe(2);
+    expect(mem.prismaMock.sleptMs - s0).toBe(groupsDelta * LAT); // every group paid full latency
+    expect(mem.prismaMock.interactiveTxCalls).toHaveLength(0);
+    return r;
+  };
+
+  it('whole-slot POST: 2 groups (upsert + ONE replace batch) — array-batch shares a submit, NOT P2028', async () => {
+    mem.prismaMock.reset();
+    const t = token('u-slot');
+    const r = await hedge(() => trayReq('POST', '/api/v1/tray/slot', { token: t, body: slotBody([
       { mealId: 'poha-mp', quantity: 1 },
       { mealId: 'idli', quantity: 1 },
       { mealId: 'dosa', quantity: 1 },
-    ]) });
-    const elapsed = Date.now() - start;
-    // upsert (1) + batch (1 — deleteMany+3 creates share ONE submit) = 2 groups.
-    expect(mem.prismaMock.groups - g0).toBe(2);
+    ]) }))();
     expect(r.status).toBe(200);
     expect(r.body.items).toHaveLength(3);
-    // 2 groups × 2.6s = 5.2s wall — the OLD interactive whole-slot needed
-    // ≥4 sequential waits (≥10.4s with 2.6s lags) and died at the 5s budget.
-    expect(elapsed).toBeGreaterThanOrEqual(5000);
-    expect(mem.prismaMock.interactiveTxCalls).toHaveLength(0);
-  }, 15000);
+  });
 
-  it('PATCH item: 2 groups (ownership read + ONE atomic update batch) — 5.2s wall → 200', async () => {
+  it('PATCH item: 2 groups (ownership read + ONE atomic update batch)', async () => {
     mem.prismaMock.reset();
-    const t = token('u-slow-patch');
-    // Setup at zero latency — only the TARGET request is slowed.
+    const t = token('u-patch');
     const created = await trayReq('POST', '/api/v1/tray/slot/2026-09-13/breakfast/items', { token: t, body: { mealId: 'idli', quantity: 1 } });
-    mem.prismaMock.setLatency(2600);
-    const g0 = mem.prismaMock.groups;
-    const start = Date.now();
-    const r = await trayReq('PATCH', `/api/v1/tray/item/${created.body.id}`, { token: t, body: { quantity: 2 } });
-    const elapsed = Date.now() - start;
-    // findUnique (1) + batch update+version (1) = 2 groups; the OLD interactive
-    // form serialized 3 (read, update, slot.update) → 7.8s > 5s → P2028.
-    expect(mem.prismaMock.groups - g0).toBe(2);
+    const r = await hedge(() => trayReq('PATCH', `/api/v1/tray/item/${created.body.id}`, { token: t, body: { quantity: 2 } }))();
     expect(r.status).toBe(200);
     expect(r.body.quantity).toBe(2);
-    expect(elapsed).toBeGreaterThanOrEqual(5000);
-    expect(mem.prismaMock.interactiveTxCalls).toHaveLength(0);
-  }, 15000);
+  });
 
-  it('DELETE item: 2 groups (ownership read + ONE atomic delete batch) — 5.2s wall → 200', async () => {
+  it('DELETE item: 2 groups (ownership read + ONE atomic delete batch)', async () => {
     mem.prismaMock.reset();
-    const t = token('u-slow-del');
+    const t = token('u-del');
     const created = await trayReq('POST', '/api/v1/tray/slot/2026-09-13/snacks/items', { token: t, body: { mealId: 'samosa', quantity: 1 } });
-    mem.prismaMock.setLatency(2600);
-    const g0 = mem.prismaMock.groups;
-    const start = Date.now();
-    const r = await trayReq('DELETE', `/api/v1/tray/item/${created.body.id}`, { token: t });
-    const elapsed = Date.now() - start;
-    expect(mem.prismaMock.groups - g0).toBe(2);
+    const r = await hedge(() => trayReq('DELETE', `/api/v1/tray/item/${created.body.id}`, { token: t }))();
     expect(r.status).toBe(200);
     expect(r.body.ok).toBe(true);
     expect(mem.prismaMock.counts().items).toBe(0);
-    expect(elapsed).toBeGreaterThanOrEqual(5000);
-    expect(mem.prismaMock.interactiveTxCalls).toHaveLength(0);
-  }, 15000);
+  });
 
-  it('customize: 2 groups (upsert + ONE replace batch) — 5.2s wall → 200', async () => {
+  it('customize: 2 groups (upsert + ONE replace batch)', async () => {
     mem.prismaMock.reset();
-    mem.prismaMock.setLatency(2600);
-    const t = token('u-slow-cust');
-    const g0 = mem.prismaMock.groups;
-    const start = Date.now();
-    const r = await trayReq('PATCH', `/api/v1/tray/slot/${DAY}/dinner/customize`, {
+    const t = token('u-cust');
+    const r = await hedge(() => trayReq('PATCH', `/api/v1/tray/slot/${DAY}/dinner/customize`, {
       token: t,
       body: { items: [{ mealId: 'rajma-chawal', quantity: 1 }, { mealId: 'dal-makhani', quantity: 1 }] },
-    });
-    const elapsed = Date.now() - start;
-    // upsert (1) + batch (1) = 2 groups; old interactive = findUnique/create +
-    // deleteMany + creates = 3 serialized waits → 7.8s > 5s → P2028.
-    expect(mem.prismaMock.groups - g0).toBe(2);
+    }))();
     expect(r.status).toBe(200);
     expect(r.body.slot.items).toHaveLength(2);
-    expect(elapsed).toBeGreaterThanOrEqual(5000);
-    expect(mem.prismaMock.interactiveTxCalls).toHaveLength(0);
-  }, 15000);
+  });
 
-  it('plan POST CAS: 2-3 groups, each independent — 5.2-7.8s wall → 200 (no cumulative budget exists)', async () => {
+  it('plan POST CAS: 2-3 groups, each independent (the CAS gate is the per-statement WHERE version — no cumulative budget exists)', async () => {
     mem.prismaMock.reset();
-    mem.prismaMock.setLatency(2600);
-    const t = token('u-slow-plan');
-    const g0 = mem.prismaMock.groups;
-    const start = Date.now();
-    const r = await planReq('POST', '/api/v1/plan', { token: t, body: { date: DAY, slot: 'lunch', mealId: 'idli' } });
-    const elapsed = Date.now() - start;
-    // create path: findUnique (1) + create (1) = 2 groups. The old interactive
-    // wrapper was identical in ROUND TRIPS — the point is the CAS gate is the
-    // per-statement updateMany WHERE version (atomic regardless of a wrapper),
-    // and a sequential plan carries NO 5s cumulative budget. It completes.
-    expect(mem.prismaMock.groups - g0).toBe(2);
+    const t = token('u-plan');
+    const r = await hedge(() => planReq('POST', '/api/v1/plan', { token: t, body: { date: DAY, slot: 'lunch', mealId: 'idli' } }))();
     expect(r.status).toBe(200);
     expect(r.body.mealId).toBe('idli');
-    expect(elapsed).toBeGreaterThanOrEqual(5000);
-    expect(mem.prismaMock.interactiveTxCalls).toHaveLength(0);
-  }, 15000);
+  });
 });

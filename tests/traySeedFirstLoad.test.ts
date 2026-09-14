@@ -42,6 +42,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { getISODate } from '../utils/dateUTC';
+import type { Meal } from '../types/tray';
 
 const okJson = (body: Record<string, unknown> = {}) =>
   Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
@@ -53,8 +54,8 @@ function readSource(rel: string): string {
   return readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 }
 
-const makeMeal = (id: string, name: string, icon = '🍽️') => ({
-  id, name, icon, region: 'Central India' as const, category: ['lunch'],
+const makeMeal = (id: string, name: string, icon = '🍽️'): Meal => ({
+  id, name, icon, region: 'central', category: ['lunch'],
 });
 
 // ─── Part A — trayApi contract translation + honest failure ────────────────
@@ -68,7 +69,7 @@ describe('trayApi.addSlotItem — server contract (mealId, never meal_id)', () =
     globalThis.fetch = vi.fn(async (u: string, init?: RequestInit) => {
       calls.push({ url: String(u), body: JSON.parse(String(init?.body)) });
       return okJson({ id: 'item-1' });
-    });
+    }) as unknown as typeof fetch;
     const { setAuthReady } = await import('../lib/api');
     setAuthReady(true);
     const { trayApi } = await import('../app/lib/trayApi');
@@ -93,7 +94,7 @@ describe('trayApi.addSlotItem — server contract (mealId, never meal_id)', () =
   });
 
   it('a 400 → REJECTS with the real reason (the old fake-success lie is gone)', async () => {
-    globalThis.fetch = vi.fn(async () => serverErr(400, 'Invalid payload: Either mealId or customDishId is required'));
+    globalThis.fetch = vi.fn(async () => serverErr(400, 'Invalid payload: Either mealId or customDishId is required')) as unknown as typeof fetch;
     const { setAuthReady } = await import('../lib/api');
     setAuthReady(true);
     const { trayApi } = await import('../app/lib/trayApi');
@@ -209,7 +210,7 @@ describe('fresh-boot seed — 400s surface honestly, mutations settle (no #185 r
   }
 
   it('4-slot seed vs a 400 server: every add lands saveStatus "error" (terminal) and store mutations settle', async () => {
-    globalThis.fetch = vi.fn(async () => serverErr(400, 'Invalid payload: Either mealId or customDishId is required'));
+    globalThis.fetch = vi.fn(async () => serverErr(400, 'Invalid payload: Either mealId or customDishId is required')) as unknown as typeof fetch;
     const { useTrayStore } = await bootFresh();
     const { clearAllDebounceTimers } = await import('../plan/utils/trayDebounce');
     clearAllDebounceTimers();
@@ -250,7 +251,7 @@ describe('fresh-boot seed — 400s surface honestly, mutations settle (no #185 r
     globalThis.fetch = vi.fn(async (u: string, init?: RequestInit) => {
       if (String(u).includes('/tray/slot/')) bodies.push(JSON.parse(String(init?.body)));
       return okJson({ id: 'item-ok' });
-    });
+    }) as unknown as typeof fetch;
     const { useTrayStore } = await bootFresh();
     const { clearAllDebounceTimers } = await import('../plan/utils/trayDebounce');
     clearAllDebounceTimers();
@@ -282,7 +283,7 @@ describe('offline queue drain — failed adds are bounded, never "synced" lies',
   afterEach(() => { globalThis.fetch = originalFetch; localStorage.clear(); vi.resetModules(); });
 
   it('queued {date, mealType, item} add drains to the CORRECT route; a 400 retries ≤3× then drops', async () => {
-    globalThis.fetch = vi.fn(async () => serverErr(400, 'Invalid payload: Either mealId or customDishId is required'));
+    globalThis.fetch = vi.fn(async () => serverErr(400, 'Invalid payload: Either mealId or customDishId is required')) as unknown as typeof fetch;
     const { setAuthReady } = await import('../lib/api');
     setAuthReady(true);
     const { offlineQueue } = await import('../app/lib/trayApi');

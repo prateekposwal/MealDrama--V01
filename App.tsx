@@ -518,7 +518,7 @@ const App: React.FC = () => {
           // CONFIRMED rejection (401/403 — the server ANSWERED and rejected
           // the token): the session is genuinely stale → logout.
           useStore.getState().clearToken();
-          setToast({ message: 'Session expired — please log in again', type: 'error' });
+          setToast({ message: 'Session expired — please re-enter', type: 'error' });
         }
         // serverUser truthy → the transient 401 was noise; session is fine.
       } catch {

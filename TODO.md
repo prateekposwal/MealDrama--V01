@@ -18,10 +18,10 @@ No hidden state. Last updated: 2026-09-14.
       to `~/Library/LaunchAgents`, reloaded, and PROVEN: `kill -9` the 3001 listener →
       launchd relaunched it (PID 11644→11835, `/health` 200, uptime reset). Evidence:
       plist diff; `/tmp/mealdrama_watchdog.log` "supervisor start (foreground)".
-2. [ ] **Move vite dev off port 3000** (owner=agent) — `vite.config.ts` pins `server.port: 3000`;
-      a stray `npm run dev` squats the exact port the user wants empty. Pin 5173/5175. Blocked-by: none.
-      Evidence: user "something coming on 3000… don't keep it"; shell history has `npm run dev` +
-      `npx vite --port 3000 --host`.
+2. [x] **Move vite dev off port 3000** (owner=agent) — **DONE 2026-09-14**.
+      `vite.config.ts` now pins `server.port: 5175` + `strictPort: true` — a stray
+      `npm run dev` can no longer squat 3000 (the port the user wants empty).
+      Evidence: `vite.config.ts` diff (port 3000 → 5175, strictPort added).
 3. [ ] **Durable tunnel OR phone-via-Render** (owner=user) — quick-tunnel slugs die with the process;
       for phone testing prefer https://mealdrama.onrender.com or a named tunnel. Blocked-by: none.
       Evidence: `telos/scripts/watchtunnel.sh` header note; 2026-09-11 "tunnel plist missing" item.
@@ -32,12 +32,19 @@ No hidden state. Last updated: 2026-09-14.
       Re-scan clean. Live/prod DB prune still needs main-DB access.
       Note: the prod API intentionally has NO delete route — prune stays one-off/psql.
       Evidence: this session's run output (users deleted: 6, households deleted: 7).
-5. [ ] **CI build-then-test one-liner** (owner=agent) — gate deploys on `npm run build && npm test`
-      (vitest, 847+ tests). Currently the gate is manual. Blocked-by: none. Evidence: package.json scripts.
-6. [ ] **Monitor stale-token 401s** (owner=agent) — server log shows `POST / 401 1ms` at
-       01:03:23 today between two 201s: a stale-JWT attempt that self-healed (re-register → 201).
-       If it recurs, add toast copy "session expired — please re-enter" instead of a generic failure.
-       Blocked-by: none. Evidence: `/tmp/mealdrama_server.log`.
+5. [x] **CI build-then-test gate** (owner=agent) — **DONE 2026-09-14**.
+      `.github/workflows/ci.yml` already gated `build` on `lint` + `test`; the TypeScript
+      check was `continue-on-error: true` (~110 pre-existing errors). The test/scratch
+      `tsc` backlog is NOW ZERO, so the lint step is a HARD gate. Evidence: `npx tsc --noEmit`
+      exit 0; workflow diff (continue-on-error removed).
+6. [x] **Monitor stale-token 401s** (owner=agent) — **DONE 2026-09-14** (copy).
+      Server log showed `POST / 401 1ms` at 01:03:23 between two 201s: a stale-JWT attempt
+      that self-healed. The graceful 401 path already existed (`lib/api.ts` `signalSessionExpired`
+      → App `auth:unauthorized` handler → `getMe()`; confirmed rejection → logout). Both toast
+      surfaces now carry the user's exact copy **"Session expired — please re-enter"** instead of
+      the previous generic variants (`App.tsx` graceful-expiry + `app/store/useStore.ts` mutation-
+      drain 401 branch). Continues to self-heal on the re-register path; keep an eye on the log only
+      if it starts to recur daily.
 7. [ ] **WhatsApp cook channel — Phase 0 (owner=user)** — WABA + Meta business
        verification + dedicated number (direct-Meta vs BSP: Gupshup/Interakt/
        Twilio) + submit `cook_daily_plan` templates (EN + HI). Day–weeks lead
@@ -84,6 +91,35 @@ Answering "what is your problem / better approach" — a no-churn standard:
    explicit monitor; `SuccessfulExit=false` is a supervision gap, not a policy.
 
 ## RUN HISTORY
+- **2026-09-14 — Housekeeping batch: vite off 3000, CI hard tsc gate, 401 toast copy, test-file tsc backlog ZERO, P2028 flake tamed**
+  - **vite dev off 3000 (task 2)**: `vite.config.ts` pins `server.port: 5175` + `strictPort: true`.
+    A stray `npm run dev` can no longer squat the port the user wants empty.
+  - **CI build-then-test gate (task 5)**: `ci.yml` already ordered validate → lint → test → build
+    (build NEEDS lint+test); the TypeScript check was `continue-on-error: true` with ~110 pre-existing
+    errors. The `tsc` backlog is now ZERO → the lint step is a HARD gate; a type regression now fails CI.
+  - **Stale-token 401 toast (task 6)**: the graceful 401 path already existed (signalSessionExpired →
+    App revalidates via getMe → confirmed rejection logs out). Both toast surfaces now use the user's
+    EXACT copy **"Session expired — please re-enter"** (App.tsx graceful-expiry branch +
+    useStore mutation-drain 401 branch) instead of the two old generic variants.
+  - **test-file tsc backlog → ZERO**: fixed 19 errors in `analytics.test.ts` (fetch mock arity),
+    `api503CrashRegression.test.ts` + `traySeedFirstLoad.test.ts` (fetch mock casts to
+    `as unknown as typeof fetch` — the repo's established pattern; plus `makeMeal` now returns a
+    valid `Meal` with `region: 'central'`), `staticServing.test.ts` (matchAll refs narrowed by
+    filter). Deleted the whole `server/tmp` scratch set (scratch_*.mts + telos_*.mjs — tracked
+    one-off probes, part of the backlog). **`npx tsc --noEmit` now exits 0**.
+  - **trayP2028 slow-prisma flake tamed (task)**: the "slow-prisma proof" block asserted REAL
+    wall-clock `elapsed ≥ 5000` on 2600ms-mocked latency — a CI timing flake (the one flaky run
+    noted at TODO:261) AND it burned ~26s of fake sleeps per suite run. Replaced with two
+    DETERMINISTIC pins + a 25ms latency: exact group delta (2 < the old interactive form's 3-4)
+    and a per-group latency tally (`sleptMs ≡ groups × LAT` — the array batch's shared submit
+    window can never consume the cumulative 5s interactive budget). Timing asserts deleted.
+    Suite still 20/20; full suite wall time dropped ~28s → ~10s.
+  - **prod-DB prune (task 4)**: still BLOCKED user-owned — only the dev Neon DB is reachable from
+    this machine (`server/.env DATABASE_URL`); prod lives in Render secrets (deliberately not in
+    render.yaml). Dev DB was already pruned last session.
+  - Suite: **91 files / 1302 passed (1 skipped)**; build exit 0; `tsc --noEmit` exit 0.
+    Local server: 3001 RUNNING (launchd). User-owned NOW item unchanged (stale browser state).
+
 - **2026-09-14 — Recommendation-quality tuning pass (pass 2): hot-affinity amplification, novelty gradation + reach, ingredient-cache root-cause**
   - **ITEM 1 — "loves Punjabi" beats "loves spicy" cleanly (hot users)**:
     - Engine: new `isHotSpiceUser` + `cuisineAffinityBoostForSpice` — hot users now get the

@@ -114,7 +114,7 @@ describe('analytics', () => {
   });
 
   it('flush target = {getApiBase}/events — the SAME resolver the client API uses (default)', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
     localStorage.clear();
 
@@ -130,7 +130,7 @@ describe('analytics', () => {
   });
 
   it('flush target follows a STORED override (md:api_base self-heal path) exactly like the API', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
     localStorage.clear();
 
@@ -155,7 +155,7 @@ describe('analytics', () => {
     const { getApiBase, setLanIpResolver } = await import('../lib/api');
     setLanIpResolver(() => '10.99.88.77');
     try {
-      const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+      const fetchMock = vi.fn(async (_url: string) => ({ ok: true }));
       vi.stubGlobal('fetch', fetchMock);
       localStorage.clear();
 
@@ -172,7 +172,7 @@ describe('analytics', () => {
   });
 
   it('clears the buffer after a successful flush', async () => {
-    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: true }));
     vi.stubGlobal('fetch', fetchMock);
     const mod = await import('../utils/analytics');
     mod.setFlushEnabled(true);

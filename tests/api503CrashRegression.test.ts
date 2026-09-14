@@ -82,7 +82,7 @@ describe('defaultApiBase — SAME-ORIGIN default (localhost must not fire at Ren
     expect(originOf('https://mealdrama.onrender.com/api/v1')).toBe('https://mealdrama.onrender.com');
     const { probeApiHealth } = await import('../lib/api');
     const urls: string[] = [];
-    globalThis.fetch = vi.fn(async (u: string) => { urls.push(String(u)); return { ok: true, status: 200 }; });
+    globalThis.fetch = vi.fn(async (u: string) => { urls.push(String(u)); return { ok: true, status: 200 }; }) as unknown as typeof fetch;
     expect(await probeApiHealth('/api/v1', 2000)).toBe(true);
     expect(urls).toEqual(['/health']); // origin-level — NOT /api/v1/health (404)
     globalThis.fetch = originalFetch; // manual restore — NEVER unstub setup.ts globals
@@ -99,7 +99,7 @@ describe('api.request — 503 register storm is bounded and heals off a stale re
   it('permanent 503 → EXACTLY the bounded retries + one probe, then a terminal honest error (no 9×25s storm, no crash)', async () => {
     vi.useFakeTimers();
     let calls: string[] = [];
-    globalThis.fetch = vi.fn(async (u: string) => { calls.push(String(u)); return serverErr(503, 'Service Unavailable'); });
+    globalThis.fetch = vi.fn(async (u: string) => { calls.push(String(u)); return serverErr(503, 'Service Unavailable'); }) as unknown as typeof fetch;
 
     const { api, setAuthReady } = await import('../lib/api');
     setAuthReady(true);
@@ -131,7 +131,7 @@ describe('api.request — 503 register storm is bounded and heals off a stale re
       if (s.includes('mealdrama.onrender.com')) return serverErr(503, 'Service Unavailable');
       if (s === '/health') return okJson();                                    // same-origin default reachable
       return okJson({ id: 'registered-locally' });                             // healed retry succeeds
-    });
+    }) as unknown as typeof fetch;
 
     const { api, setAuthReady } = await import('../lib/api');
     setAuthReady(true);
@@ -158,7 +158,7 @@ describe('getMe — backend-unavailable ≠ session expired (the logout-on-503 k
   afterEach(() => { globalThis.fetch = originalFetch; localStorage.clear(); vi.resetModules(); vi.useRealTimers(); });
 
   it('a confirmed 401 → null (caller logs out — real expiry)', async () => {
-    globalThis.fetch = vi.fn(async () => serverErr(401, 'Unauthorized'));
+    globalThis.fetch = vi.fn(async () => serverErr(401, 'Unauthorized')) as unknown as typeof fetch;
     const { getMe } = await import('../app/utils/authApi');
     const { setAuthReady } = await import('../lib/api');
     setAuthReady(true);
@@ -167,7 +167,7 @@ describe('getMe — backend-unavailable ≠ session expired (the logout-on-503 k
 
   it('a 503 → REJECTS (never null → App stays signed in; no #185 re-render storm)', async () => {
     vi.useFakeTimers();
-    globalThis.fetch = vi.fn(async () => serverErr(503, 'Service Unavailable'));
+    globalThis.fetch = vi.fn(async () => serverErr(503, 'Service Unavailable')) as unknown as typeof fetch;
     const { getMe } = await import('../app/utils/authApi');
     const { setAuthReady } = await import('../lib/api');
     setAuthReady(true);
