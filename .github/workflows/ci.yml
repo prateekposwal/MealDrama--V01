@@ -141,7 +141,12 @@ jobs:
             curl -sf http://localhost:3001/health >/dev/null 2>&1 && break
             sleep 1
           done
-          curl -sf http://localhost:3001/health || { echo 'API failed to boot:'; cat /tmp/api.log; exit 1; }
+          curl -sf http://localhost:3001/health || {
+            echo 'API failed to boot:'
+            echo "::error title=API failed to boot::$(tail -c 3000 /tmp/api.log | python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.stdin.read()))')"
+            cat /tmp/api.log
+            exit 1
+          }
           # Surface the real vitest failure through check-run annotations (log
           # download is admin-gated; annotations are publicly readable).
           if ! npm run test:e2e > /tmp/e2e.log 2>&1; then
