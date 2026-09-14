@@ -60,7 +60,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
     isLocked, isMissed, onRemove, editable = true,
     swapCustomizeOpen, onSwapCustomizeOpen, onSwapCustomizeClose,
     onUpdateInline, hideTime = false, onShareSlot, hideSlotLabel,
-    guestExtra, reason, onTasteAction,
+    guestExtra, reason, onTasteAction, hideChips = false,
 }) => {
     const [editingTime, setEditingTime] = useState(false);
     const [justSwapped, setJustSwapped] = useState(false);
@@ -111,7 +111,7 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
 
     return (
         <div
-            className={`px-5 py-3 rounded-[28px] border-2 ${meta?.color || 'border-gray-200'} ${meta?.bg || 'bg-gray-50'} transition-all relative cursor-pointer active:scale-[0.98] ${isMissed && !isLocked && editable !== false ? 'grayscale opacity-60' : ''} ${justSwapped ? 'swap-flash' : ''}`}
+            className={`px-4 sm:px-5 py-3 rounded-[28px] border-2 ${meta?.color || 'border-gray-200'} ${meta?.bg || 'bg-gray-50'} transition-all relative cursor-pointer active:scale-[0.98] ${isMissed && !isLocked && editable !== false ? 'grayscale opacity-60' : ''} ${justSwapped ? 'swap-flash' : ''}`}
             role="article"
             aria-label={`${slot} meal: ${item.name}`}
             onClick={() => onSwapCustomizeOpen?.()}
@@ -180,22 +180,23 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
             <div className="flex items-center gap-3">
                 {editable ? (
                     <button onClick={onSwapCustomizeOpen} className="shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-300 hover:ring-offset-2 rounded-2xl active:scale-90 transition-all">
-                        <DishImage name={item.name} slot={slot} size="xl" />
+                        <DishImage name={item.name} slot={slot} size="lg" />
                     </button>
                 ) : (
                     <div className="shrink-0">
-                        <DishImage name={item.name} slot={slot} size="xl" />
+                        <DishImage name={item.name} slot={slot} size="lg" />
                     </div>
                 )}
                 <div className="flex-1 min-w-0">
-                    <h4 className="font-bold text-[16px] leading-snug text-gray-900 h-[40px] flex items-center">
+                    <h4 className="font-bold text-[15px] sm:text-base leading-snug text-gray-900 min-h-[20px] flex items-center">
                         <span className="line-clamp-2">{item.title || item.name}</span>
                     </h4>
                     {reason && (
-                        <p className="text-[11px] leading-snug text-gray-500 mt-0.5" data-testid={`reason-${item.meal_id}`}>
+                        <p className="text-[11px] sm:text-xs leading-snug text-gray-500 mt-0.5" data-testid={`reason-${item.meal_id}`}>
                             {reason}
                         </p>
                     )}
+                    {!hideChips && (
                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {/* Pairing items display — right under dish title */}
                         {(() => {
@@ -215,11 +216,11 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                             });
                             const all = [...primary, ...secondary];
                             return all.length > 0 ? (
-                                <span className="text-sm text-gray-500 font-medium leading-tight">({all.join(', ')})</span>
+                                <span className="text-[13px] sm:text-sm text-gray-500 font-medium leading-tight truncate max-w-full" title={all.join(', ')}>({all.join(', ')})</span>
                             ) : null;
                         })()}
                         {requestedByLabel && (
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
+                            <span className={`text-[11px] sm:text-xs font-bold px-2 py-0.5 rounded-full border flex-shrink-0 ${
                                 requestedByLabel === '(left)'
                                     ? 'bg-gray-100 border-gray-200 text-gray-500'
                                     : 'bg-orange-100 border-orange-200 text-orange-700'
@@ -228,57 +229,60 @@ export const MealCard: React.FC<MealCardProps> = React.memo(({
                             </span>
                         )}
                         {item.style && STYLE_GROUP_ICONS[item.style as DishStyleGroup] && (
-                            <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100 flex-shrink-0 flex items-center gap-0.5">
+                            <span className="text-[11px] sm:text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100 flex-shrink-0 flex items-center gap-0.5">
                                 {STYLE_GROUP_ICONS[item.style as DishStyleGroup]} {item.style}
                             </span>
                         )}
                         <HealthScoreBadge score={healthScore} size="sm" />
                         {item.addon && (
-                            <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
+                            <span className="text-[11px] sm:text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-semibold flex-shrink-0">
                                 {item.addon}
                             </span>
                         )}
                         {guestExtra != null && guestExtra > 0 && (
-                            <span className="text-xs font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-1">
+                            <span className="text-[11px] sm:text-xs font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-1">
                                 +{guestExtra} guest
                             </span>
                         )}
                     </div>
-                    {onTasteAction && (
-                        <div className="flex items-center gap-1.5 mt-1.5">
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'like'); }}
-                                className="w-7 h-7 rounded-full flex items-center justify-center bg-rose-50 border border-rose-200 text-rose-500 active:scale-90 transition-all"
-                                aria-label={`Like ${item.name}`}
-                                title="I like this dish"
-                            >❤️</button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'dislike'); }}
-                                className="w-7 h-7 rounded-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all"
-                                aria-label={`Dislike ${item.name}`}
-                                title="I don't like this dish"
-                            >👎</button>
-                        </div>
                     )}
-                    <div className="flex items-center gap-2 mt-1">
-                        {item.quantity > 1 && (
-                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-bold flex-shrink-0">
-                                x{item.quantity}
-                            </span>
-                        )}
-                        {editable && onUpdateInline && (
-                            <div className="flex items-center gap-1.5">
-                                {item.quantity > 1 && (
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200/60 gap-2">
+                        <div className="flex items-center gap-2">
+                            {item.quantity > 1 && (
+                                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-bold flex-shrink-0">
+                                    x{item.quantity}
+                                </span>
+                            )}
+                            {editable && onUpdateInline && (
+                                <div className="flex items-center gap-1.5">
+                                    {item.quantity > 1 && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity - 1 }); }}
+                                            className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-xs font-bold leading-none"
+                                        >−</button>
+                                    )}
+                                    <span className="text-xs font-bold text-gray-700 tabular-nums min-w-[12px] text-center">{item.quantity}</span>
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity - 1 }); }}
+                                        onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity + 1 }); }}
                                         className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-xs font-bold leading-none"
-                                    >−</button>
-                                )}
-                                <span className="text-xs font-bold text-gray-700 tabular-nums min-w-[12px] text-center">{item.quantity}</span>
+                                    >+</button>
+                                </div>
+                            )}
+                        </div>
+                        {onTasteAction && (
+                            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); onUpdateInline({ quantity: item.quantity + 1 }); }}
-                                    className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 text-xs font-bold leading-none"
-                                >+</button>
+                                    onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'like'); }}
+                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-50 border border-rose-200 text-rose-500 active:scale-90 transition-all"
+                                    aria-label={`Like ${item.name}`}
+                                    title="I like this dish"
+                                >❤️</button>
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onTasteAction(item.meal_id || '', 'dislike'); }}
+                                    className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-50 border border-gray-200 text-gray-500 active:scale-90 transition-all"
+                                    aria-label={`Dislike ${item.name}`}
+                                    title="I don't like this dish"
+                                >👎</button>
                             </div>
                         )}
                     </div>

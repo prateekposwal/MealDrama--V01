@@ -10,7 +10,7 @@
 // v4 (2026-09-14): routine release bump — any still-open browser holding v3
 // bundles from the earlier 2026-09-14 deploys purges them on next load, so the
 // "UI distorted / stale cache" user state self-heals on ONE reload (no purge).
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const CACHE_NAME = `mealdrama-${CACHE_VERSION}`;
 
 const STATIC_ASSETS = [

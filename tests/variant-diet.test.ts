@@ -76,6 +76,19 @@ describe('trait path — getMealResolution auto-assign respects diet', () => {
   });
 });
 
+describe('trait path — classic-pancakes default is EGG-FREE (the "Pancakes with Egg on veg" regression)', () => {
+  const tray = {
+    breakfast: [{ id: 'm9', dishId: 'classic-pancakes', name: 'Pancakes' }],
+    lunch: [], dinner: [], snacks: [],
+  };
+
+  it('the eggless recipe is the default variant, and a veg user resolves it', () => {
+    expect(dish('classic-pancakes').variants[0]!.id).toBe('cp-eggless');
+    const res = getMealResolution(tray, {}, '2040-06-06', 'breakfast', DISH_LIBRARY, undefined, 'veg');
+    expect(res.meal?.variant).toBe('Pancakes Eggless');
+  });
+});
+
 describe('recipeIngredients — flagged egg variants stay out of veg/vegan lists', () => {
   it('appam for veg → no egg ingredient', () => {
     const names = recipeIngredients(dish('appam'), DISH_LIBRARY, 'veg').map(i => i.name.toLowerCase());
@@ -87,5 +100,62 @@ describe('recipeIngredients — flagged egg variants stay out of veg/vegan lists
     expect(veg.some(n => n.includes('egg'))).toBe(false);
     const withEgg = recipeIngredients(dish('parotta-kurma'), DISH_LIBRARY, 'eggitarian').map(i => i.name.toLowerCase());
     expect(withEgg.some(n => n.includes('egg'))).toBe(true);
+  });
+});
+
+// ─── Whole-library class guard — the "Pancakes with Egg on a veg profile"
+// ─── recurring leak. Every egg/meat-bearing variant on a veg/vegan-typed dish
+// ─── MUST carry the diet tag that excludes it from veg/vegan users, and NO
+// ─── veg/vegan dish may place an animal-bearing variant first (variants[0] is
+// ─── the default when a caller passes no variant).
+describe('whole-library variant-diet cohesion — no egg/meat leaks onto veg profiles', () => {
+  const EGG = ['Egg', 'Eggs', 'Egg White', 'Egg Yolk'];
+  const MEAT = ['Chicken', 'Mutton', 'Pork', 'Fish', 'Prawns', 'Prawn', 'Crab', 'Minced Meat', 'Goose', 'Beef', 'Squid', 'Basa'];
+  const hasEggToken = (hay: string) => /\b(?:egg|anda|dim)\b/i.test(hay);
+  const hasMeatToken = (hay: string) => /\b(?:chicken|mutton|pork|fish|prawn|goose|beef|crab)\b/i.test(hay);
+
+  it('every egg variant on veg/vegan dishes is tagged eggitarian (never masquerades as veg)', () => {
+    const bad: string[] = [];
+    for (const d of DISH_LIBRARY) {
+      const t = (d.type || '').toLowerCase();
+      if (t !== 'veg' && t !== 'vegan') continue;
+      for (const v of d.variants ?? []) {
+        const hasEgg = (v.ingredients ?? []).some(i => EGG.includes(i.name))
+          || hasEggToken(`${v.id} ${v.name ?? ''}`);
+        if (hasEgg && v.diet !== 'eggitarian') bad.push(`${d.id}::${v.id} egg needs diet:'eggitarian' (has diet ${v.diet ?? 'none'})`);
+      }
+    }
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('every meat variant on veg/vegan dishes is tagged non-veg', () => {
+    const bad: string[] = [];
+    for (const d of DISH_LIBRARY) {
+      const t = (d.type || '').toLowerCase();
+      if (t !== 'veg' && t !== 'vegan') continue;
+      for (const v of d.variants ?? []) {
+        const hasMeat = (v.ingredients ?? []).some(i => MEAT.includes(i.name))
+          || hasMeatToken(`${v.id} ${v.name ?? ''}`);
+        if (hasMeat && v.diet !== 'non-veg') bad.push(`${d.id}::${v.id} meat needs diet:'non-veg' (has diet ${v.diet ?? 'none'})`);
+      }
+    }
+    expect(bad, bad.join('\n')).toEqual([]);
+  });
+
+  it('no veg/vegan dish default (variants[0]) is an egg or meat recipe', () => {
+    const bad: string[] = [];
+    for (const d of DISH_LIBRARY) {
+      const t = (d.type || '').toLowerCase();
+      if (t !== 'veg' && t !== 'vegan') continue;
+      const v0 = d.variants?.[0];
+      if (!v0) continue;
+      const animal = (v0.ingredients ?? []).some(i => EGG.includes(i.name) || MEAT.includes(i.name))
+        || hasEggToken(`${v0.id} ${v0.name ?? ''}`)
+        || hasMeatToken(`${v0.id} ${v0.name ?? ''}`);
+      if (animal && v0.diet !== 'eggitarian' && v0.diet !== 'non-veg') {
+        bad.push(`${d.id}::${v0.id} is the animal-bearing default variant`);
+      }
+    }
+    expect(bad, bad.join('\n')).toEqual([]);
   });
 });

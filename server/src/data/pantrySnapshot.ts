@@ -22541,7 +22541,7 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "name": "Eggs",
         "quantity": 1,
         "unit": "pc",
-        "category": "dairy"
+        "category": "proteins"
       },
       {
         "name": "Baking Powder",
@@ -22614,16 +22614,22 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "category": "grains"
       },
       {
-        "name": "Eggs",
-        "quantity": 2,
-        "unit": "pcs",
-        "category": "proteins"
-      },
-      {
         "name": "Milk",
         "quantity": 300,
         "unit": "ml",
         "category": "dairy"
+      },
+      {
+        "name": "Sugar",
+        "quantity": 20,
+        "unit": "g",
+        "category": "pantry"
+      },
+      {
+        "name": "Banana",
+        "quantity": 1,
+        "unit": "pc",
+        "category": "produce"
       },
       {
         "name": "Oil",
@@ -37507,7 +37513,7 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "name": "Eggs",
         "quantity": 2,
         "unit": "pcs",
-        "category": "dairy"
+        "category": "proteins"
       },
       {
         "name": "Ghee",
