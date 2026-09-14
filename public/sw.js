@@ -86,6 +86,18 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // CROSS-ORIGIN REQUESTS — never intercept. In a Capacitor WebView install
+  // the app origin is http://localhost while the API base is the deployed
+  // https://…/onrender.com origin; a service-worker fetch() of such a request
+  // is CORS-gated and rejects (or mishandles the preflight) even when the
+  // server would answer the browser's own cross-origin call — that turned
+  // every API call into a 503 {"error":"offline"}. When we return WITHOUT
+  // respondWith, the browser issues a normal CORS fetch the server answers
+  // directly. Same-origin (the deployed PWA) never reaches this branch.
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
   // API requests — network-only, NEVER cache (prevents cross-user data leaks)
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
