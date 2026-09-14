@@ -28,61 +28,72 @@ const SERVER_BASE = process.env.SERVER_BASE_URL || '';
 // Initialize Google OAuth strategy
 // callbackURL is ABSOLUTE so passport/Express doesn't guess the protocol.
 // trust proxy (index.ts) ensures req.protocol is https behind Render.
-passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID || '',
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-  // Build callbackURL dynamically per-request when possible; static fallback
-  // uses SERVER_BASE_URL or falls back to relative (works with trust proxy).
-  callbackURL: SERVER_BASE
-    ? `${SERVER_BASE}/api/v1/auth/google/callback`
-    : '/api/v1/auth/google/callback',
-  // When trust proxy is enabled, Passport/Express builds the absolute URL
-  // from req.protocol + req.hostname, producing https://mealdrama.onrender.com/...
-  passReqToCallback: false,
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    const email = profile.emails?.[0]?.value || null;
-    const name = profile.displayName || profile.name?.givenName || 'Google User';
-    const googleId = profile.id;
+//
+// Guarded: passport-oauth2 throws `OAuth2Strategy requires a clientID option`
+// at module load when clientID is empty, which crashed the whole server in
+// environments without Google creds (CI, offline dev) — even though Google
+// sign-in is only one optional login path. Register the strategy ONLY when
+// both creds exist; the routes then answer 501 so callers see a clear "not
+// configured" instead of an unreferenced strategy error.
+const OAUTH_CONFIGURED = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
-    // Find existing user by googleId or email
-    let user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { googleId },
-          ...(email ? [{ email }] : []),
-        ],
-      },
-    });
+if (OAUTH_CONFIGURED) {
+  passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    // Build callbackURL dynamically per-request when possible; static fallback
+    // uses SERVER_BASE_URL or falls back to relative (works with trust proxy).
+    callbackURL: SERVER_BASE
+      ? `${SERVER_BASE}/api/v1/auth/google/callback`
+      : '/api/v1/auth/google/callback',
+    // When trust proxy is enabled, Passport/Express builds the absolute URL
+    // from req.protocol + req.hostname, producing https://mealdrama.onrender.com/...
+    passReqToCallback: false,
+  }, async (accessToken, refreshToken, profile, done) => {
+    try {
+      const email = profile.emails?.[0]?.value || null;
+      const name = profile.displayName || profile.name?.givenName || 'Google User';
+      const googleId = profile.id;
 
-    if (user) {
-      // Update googleId if not set
-      if (!user.googleId) {
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { googleId },
-        });
-      }
-    } else {
-      // Create new user
-      user = await prisma.user.create({
-        data: {
-          name,
-          email,
-          googleId,
-          systemId: `google_${googleId}`,
+      // Find existing user by googleId or email
+      let user = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { googleId },
+            ...(email ? [{ email }] : []),
+          ],
         },
       });
-      await prisma.userProfile.create({
-        data: { userId: user.id },
-      });
-    }
 
-    done(null, { userId: user.id, email: user.email || '', phone: null, name: user.name || undefined });
-  } catch (err) {
-    done(err as Error);
-  }
-}));
+      if (user) {
+        // Update googleId if not set
+        if (!user.googleId) {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: { googleId },
+          });
+        }
+      } else {
+        // Create new user
+        user = await prisma.user.create({
+          data: {
+            name,
+            email,
+            googleId,
+            systemId: `google_${googleId}`,
+          },
+        });
+        await prisma.userProfile.create({
+          data: { userId: user.id },
+        });
+      }
+
+      done(null, { userId: user.id, email: user.email || '', phone: null, name: user.name || undefined });
+    } catch (err) {
+      done(err as Error);
+    }
+  }));
+}
 
 // Serialize/deserialize for session
 passport.serializeUser((user: any, done) => done(null, user));
@@ -93,6 +104,16 @@ passport.deserializeUser((obj: any, done) => done(null, obj));
 // The param is forwarded as the OAuth state parameter so the callback
 // can decide whether to redirect to a deep link or the web frontend.
 router.get('/google', ((req: Request, res: Response, next: any) => {
+  if (!OAUTH_CONFIGURED) {
+    return res.status(501).json({
+      success: false,
+      error: {
+        code: 'OAUTH_NOT_CONFIGURED',
+        message: 'Google sign-in is not configured on this server (missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET)',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
   const isApp = req.query.app === '1';
   const authenticator = passport.authenticate('google', {
     scope: ['profile', 'email'],
@@ -105,6 +126,19 @@ router.get('/google', ((req: Request, res: Response, next: any) => {
 
 // ─── Google OAuth callback ──
 router.get('/google/callback',
+  (req: Request, res: Response, next: any) => {
+    if (!OAUTH_CONFIGURED) {
+      return res.status(501).json({
+        success: false,
+        error: {
+          code: 'OAUTH_NOT_CONFIGURED',
+          message: 'Google sign-in is not configured on this server (missing GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET)',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+    return next();
+  },
   passport.authenticate('google', { session: false, failureRedirect: '/?auth=error' }),
   (req: Request, res: Response) => {
     const user = req.user as any;
