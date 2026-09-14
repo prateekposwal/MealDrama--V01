@@ -135,8 +135,10 @@ jobs:
           JWT_SECRET: ci-e2e-secret-0123456789abcdef0123456789
           NODE_ENV: test
         run: |
-          cd server && nohup npx ts-node --transpile-only src/index.ts > /tmp/api.log 2>&1 &
-          cd ..
+          # Run the API from server/ in a subshell — `cd server` must NOT
+          # apply to the main shell, and the main shell must stay in the
+          # workspace root for `npm run test:e2e` below to find package.json.
+          (cd server && nohup npx ts-node --transpile-only src/index.ts > /tmp/api.log 2>&1 &)
           for i in $(seq 1 60); do
             curl -sf http://localhost:3001/health >/dev/null 2>&1 && break
             sleep 1
