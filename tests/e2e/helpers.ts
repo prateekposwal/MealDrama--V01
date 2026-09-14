@@ -1,6 +1,9 @@
 import { chromium, type Browser, type Page } from 'playwright-core';
 
-export const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:5176';
+// Same-origin: the API server serves the built SPA (express.static dist +
+// spaFallback). The app's service worker intercepts /api/* by pathname, so a
+// cross-origin preview made every API call 503 and blocked the e2e seed.
+export const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:3001';
 export const API_URL = process.env.E2E_API_URL || 'http://localhost:3001';
 
 export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -14,7 +17,7 @@ export async function infraUp(): Promise<{ api: boolean; app: boolean }> {
       return false;
     }
   };
-  return { api: await probe(`${API_URL}/healthz`), app: await probe(BASE_URL) };
+  return { api: await probe(`${API_URL}/health`), app: await probe(BASE_URL) };
 }
 
 export async function launchPage(): Promise<{ browser: Browser; page: Page }> {

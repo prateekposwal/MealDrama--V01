@@ -8,7 +8,7 @@ let up: { api: boolean; app: boolean };
 beforeAll(async () => {
   up = await infraUp();
   if (!up.api) throw new Error('API not reachable on http://localhost:3001 — start it with `npm run server` first');
-  if (!up.app) throw new Error('App not served on http://localhost:5176 — run `node scripts/run-e2e.mjs` or `vite preview --port 5176` first');
+  if (!up.app) throw new Error('App not served on http://localhost:3001 — start it with `npm run server`');
 }, 20000);
 
 describe('E2E — swap/customize modal', () => {

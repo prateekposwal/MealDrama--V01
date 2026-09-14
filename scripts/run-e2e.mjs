@@ -1,51 +1,39 @@
-// E2E runner: serves the built app on :5176, runs the Playwright-driven suite,
-// then tears the static server down. The API server (:3001) is expected to be
-// running already (`npm run server`) — specs fail with a clear message if not.
+// E2E runner: the API server (server/src/index.ts) serves BOTH the API and the
+// built SPA (express.static dist + spaFallback), so the suite runs against a
+// same-origin app on :3001 — the one topology the app's service worker works
+// in. A separate vite preview on :5176 broke every API call with a 503: the SW
+// intercepts `/api/*` by pathname (public/sw.js) and its cross-origin
+// `fetch(request)` rejects, which blocked guest registration → the onboarding
+// tray seed → empty-plan flakes across the e2e specs.
 import { spawn } from 'node:child_process';
 
-const PREVIEW_PORT = process.env.E2E_PORT || '5176';
-const preview = spawn('npx', ['vite', 'preview', '--port', PREVIEW_PORT, '--host', '127.0.0.1'], {
-  stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, PORT: undefined },
-});
+const APP_ORIGIN = process.env.E2E_BASE_URL || 'http://localhost:3001';
 
-const timeout = setTimeout(() => {
-  console.error('E2E runner timed out waiting for vite preview to serve');
-  preview.kill('SIGTERM');
-  process.exit(1);
-}, 60_000);
-
-async function waitForPreview() {
+async function waitForApp() {
   for (let i = 0; i < 60; i++) {
     try {
-      const r = await fetch(`http://127.0.0.1:${PREVIEW_PORT}/`, { signal: AbortSignal.timeout(1500) });
+      const r = await fetch(`${APP_ORIGIN}/`, { signal: AbortSignal.timeout(1500) });
       if (r.status >= 200 && r.status < 500) return;
     } catch { /* not up yet */ }
     await new Promise(r => setTimeout(r, 500));
   }
-  throw new Error(`vite preview on :${PREVIEW_PORT} never became reachable`);
+  throw new Error(
+    `app on ${APP_ORIGIN} never became reachable — start the API first (\`npm run server\`)`
+  );
 }
 
-let previewErr = '';
-preview.stderr.on('data', d => { previewErr += String(d); });
-
 try {
-  await waitForPreview();
-  console.log(`[e2e] app served on http://localhost:${PREVIEW_PORT}`);
-  clearTimeout(timeout);
+  await waitForApp();
+  console.log(`[e2e] app served on ${APP_ORIGIN}`);
 
   const vitest = spawn('npx', ['vitest', 'run', '--config', 'vitest.e2e.config.ts'], {
     stdio: 'inherit',
   });
 
   vitest.on('exit', code => {
-    preview.kill('SIGTERM');
     process.exit(code ?? 1);
   });
 } catch (err) {
-  clearTimeout(timeout);
   console.error('[e2e] failed to start: ' + (err instanceof Error ? err.message : String(err)));
-  if (previewErr) console.error('[e2e] preview stderr: ' + previewErr.slice(0, 800));
-  preview.kill('SIGTERM');
   process.exit(1);
 }

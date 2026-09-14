@@ -77,6 +77,13 @@ jobs:
     name: E2E (browser)
     runs-on: ubuntu-latest
     needs: [build]
+    env:
+      # The workflow bakes VITE_API_URL for the build (ci.yml top-level env);
+      # the e2e app must talk to the SAME-ORIGIN API (:3001) instead —
+      # defaultApiBase() returns '/api/v1' when the override is unset. A
+      # baked cross-origin URL made the service worker 503 every API call
+      # (SW intercepts /api/* by pathname; its cross-origin fetch rejects).
+      VITE_API_URL: ''
     services:
       postgres:
         image: postgres:16
@@ -115,9 +122,13 @@ jobs:
         run: npx playwright-core install --with-deps chromium
       # API + app + browser suite run in ONE step: GH Actions kills background
       # processes at step boundaries, so a separately-started API server would
-      # die before the suite runs. The runner (`npm run test:e2e`) builds the
-      # app and serves it on :5176 itself; the API is started here and waits
-      # for /healthz before the suite begins.
+      # die before the suite runs. The API server serves the built SPA on
+      # :3001 (same-origin — required for the app's service worker); the
+      # runner (`npm run test:e2e`) builds the app and runs the suite; the
+      # API is started here and waits for /health before the suite begins.
+      # NOTE: the boot probe hits /health (a real route), NOT /healthz — that
+      # path only resolves through the SPA fallback, which 500s until the
+      # build has produced dist/.
       - name: Start API and run E2E
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
@@ -127,8 +138,8 @@ jobs:
           cd server && nohup npx ts-node --transpile-only src/index.ts > /tmp/api.log 2>&1 &
           cd ..
           for i in $(seq 1 60); do
-            curl -sf http://localhost:3001/healthz >/dev/null 2>&1 && break
+            curl -sf http://localhost:3001/health >/dev/null 2>&1 && break
             sleep 1
           done
-          curl -sf http://localhost:3001/healthz || { echo 'API failed to boot:'; cat /tmp/api.log; exit 1; }
+          curl -sf http://localhost:3001/health || { echo 'API failed to boot:'; cat /tmp/api.log; exit 1; }
           npm run test:e2e

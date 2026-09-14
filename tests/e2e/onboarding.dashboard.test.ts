@@ -8,7 +8,7 @@ let up: { api: boolean; app: boolean };
 beforeAll(async () => {
   up = await infraUp();
   if (!up.api) throw new Error('API not reachable on http://localhost:3001 — start it with `npm run server` first');
-  if (!up.app) throw new Error('App not served on http://localhost:5176 — run `node scripts/run-e2e.mjs` or `vite preview --port 5176` first');
+  if (!up.app) throw new Error('App not served on http://localhost:3001 — start it with `npm run server`');
 }, 20000);
 
 describe('E2E — guest onboarding → Dashboard (crash regression)', () => {
@@ -23,7 +23,7 @@ describe('E2E — guest onboarding → Dashboard (crash regression)', () => {
 
       const text = await bodyText(page);
       expect(text).toContain('Today');
-      expect(crashText(page), 'Dashboard must not hit the error boundary').resolves.toBe('');
+      await expect(crashText(page), 'Dashboard must not hit the error boundary').resolves.toBe('');
       expect(errs.some(e => e.includes('Maximum update depth') || e.includes('Minified React error')), `pageerrors: ${errs.join(' | ')}`).toBe(false);
     } finally {
       await browser.close();
