@@ -10,12 +10,15 @@
 // v4 (2026-09-14): routine release bump — any still-open browser holding v3
 // bundles from the earlier 2026-09-14 deploys purges them on next load, so the
 // "UI distorted / stale cache" user state self-heals on ONE reload (no purge).
+// v8 (2026-09-15): NEVER intercept cross-origin requests — the Capacitor
+// WebView calls the deployed onrender API cross-origin, and a SW fetch() of
+// that rejects under CORS even when the browser's own call would succeed.
 // v7 (2026-09-14): PRECACHES the full chunk graph from dist/sw-assets.json at
 // install — lazy route chunks (PlanScreen/TrayScreen) were network-first only,
 // so an offline tab-switch to a never-visited route re-fetched its chunk and
 // crashed into the error boundary. Offline navigation now works for every
 // chunk that shipped in the build.
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const CACHE_NAME = `mealdrama-${CACHE_VERSION}`;
 
 const STATIC_ASSETS = [
