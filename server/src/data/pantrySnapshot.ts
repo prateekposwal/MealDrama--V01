@@ -1728,46 +1728,30 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "name": "Rice",
         "quantity": 1,
         "unit": "cup",
-        "category": "grains",
-        "inStock": false
+        "category": "grains"
       },
       {
-        "name": "Ghee",
-        "quantity": 2,
-        "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
-      },
-      {
-        "name": "Oil",
-        "quantity": 2,
-        "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
-      },
-      {
-        "name": "Spices",
+        "name": "Curd",
         "quantity": 1,
-        "unit": "packet",
-        "category": "spices",
-        "inStock": false
-      },
-      {
-        "name": "Salt",
-        "quantity": 1,
-        "unit": "tsp",
-        "category": "pantry"
-      },
-      {
-        "name": "Turmeric",
-        "quantity": 0.5,
-        "unit": "tsp",
-        "category": "spices"
-      },
-      {
-        "name": "Coconut",
-        "quantity": 0.5,
         "unit": "cup",
+        "category": "dairy"
+      },
+      {
+        "name": "Milk",
+        "quantity": 0.25,
+        "unit": "cup",
+        "category": "dairy"
+      },
+      {
+        "name": "Green Chilli",
+        "quantity": 1,
+        "unit": "pc",
+        "category": "produce"
+      },
+      {
+        "name": "Ginger",
+        "quantity": 0.5,
+        "unit": "inch",
         "category": "produce"
       },
       {
@@ -1778,21 +1762,21 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
       },
       {
         "name": "Mustard Seeds",
-        "quantity": 1,
+        "quantity": 0.25,
         "unit": "tsp",
         "category": "spices"
       },
       {
-        "name": "Tamarind",
-        "quantity": 1,
-        "unit": "tbsp",
+        "name": "Salt",
+        "quantity": 0.5,
+        "unit": "tsp",
         "category": "pantry"
       },
       {
-        "name": "Whole Spices",
-        "quantity": 1,
-        "unit": "tsp",
-        "category": "spices"
+        "name": "Oil",
+        "quantity": 0.5,
+        "unit": "tbsp",
+        "category": "pantry"
       }
     ],
     "bisi-bele-bath": [
@@ -7668,53 +7652,70 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
     ],
     "bhel-puri": [
       {
-        "name": "Potatoes",
+        "name": "Puffed Rice",
         "quantity": 2,
-        "unit": "pc",
-        "category": "produce",
-        "inStock": false
+        "unit": "cup",
+        "category": "grains"
       },
       {
-        "name": "Yogurt",
-        "quantity": 100,
-        "unit": "g",
-        "category": "dairy",
-        "inStock": false
+        "name": "Sev",
+        "quantity": 1,
+        "unit": "cup",
+        "category": "snacks"
+      },
+      {
+        "name": "Puri",
+        "quantity": 0.5,
+        "unit": "cup",
+        "category": "snacks"
+      },
+      {
+        "name": "Onion",
+        "quantity": 0.5,
+        "unit": "pc",
+        "category": "produce"
+      },
+      {
+        "name": "Tomato",
+        "quantity": 1,
+        "unit": "pc",
+        "category": "produce"
+      },
+      {
+        "name": "Potato",
+        "quantity": 1,
+        "unit": "pc",
+        "category": "produce"
+      },
+      {
+        "name": "Green Chilli",
+        "quantity": 1,
+        "unit": "pc",
+        "category": "produce"
       },
       {
         "name": "Tamarind Chutney",
-        "quantity": 30,
-        "unit": "g",
-        "category": "pantry",
-        "inStock": false
+        "quantity": 2,
+        "unit": "tbsp",
+        "category": "pantry"
       },
       {
         "name": "Mint Chutney",
-        "quantity": 30,
-        "unit": "g",
-        "category": "pantry",
-        "inStock": false
-      },
-      {
-        "name": "Ghee",
         "quantity": 2,
         "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
+        "category": "pantry"
       },
       {
-        "name": "Oil",
-        "quantity": 2,
-        "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
+        "name": "Coriander Leaves",
+        "quantity": 0.25,
+        "unit": "cup",
+        "category": "produce"
       },
       {
-        "name": "Spices",
+        "name": "Lemon",
         "quantity": 1,
-        "unit": "packet",
-        "category": "spices",
-        "inStock": false
+        "unit": "pc",
+        "category": "produce"
       }
     ],
     "chilli-paneer": [
@@ -24741,29 +24742,31 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "name": "Avocado",
         "quantity": 1,
         "unit": "pc",
-        "category": "produce",
-        "inStock": false
+        "category": "produce"
+      },
+      {
+        "name": "Peanut Butter",
+        "quantity": 2,
+        "unit": "tbsp",
+        "category": "pantry"
       },
       {
         "name": "Almond Milk",
         "quantity": 1,
         "unit": "cup",
-        "category": "pantry",
-        "inStock": false
+        "category": "pantry"
+      },
+      {
+        "name": "Honey",
+        "quantity": 1,
+        "unit": "tbsp",
+        "category": "pantry"
       },
       {
         "name": "Ice",
         "quantity": 1,
         "unit": "cup",
-        "category": "pantry",
-        "inStock": false
-      },
-      {
-        "name": "Honey",
-        "quantity": 1,
-        "unit": "tsp",
-        "category": "pantry",
-        "inStock": false
+        "category": "pantry"
       }
     ],
     "green-smoothie": [
@@ -28513,59 +28516,57 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
     "mushroom-corn-masala": [
       {
         "name": "Mushrooms",
-        "quantity": 100,
+        "quantity": 150,
         "unit": "g",
-        "category": "produce",
-        "inStock": false
+        "category": "produce"
       },
       {
-        "name": "Oil",
-        "quantity": 2,
-        "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
-      },
-      {
-        "name": "Spices",
-        "quantity": 1,
-        "unit": "packet",
-        "category": "spices",
-        "inStock": false
+        "name": "Sweet Corn",
+        "quantity": 0.5,
+        "unit": "cup",
+        "category": "produce"
       },
       {
         "name": "Onion",
         "quantity": 1,
         "unit": "pc",
-        "category": "produce",
-        "inStock": false
+        "category": "produce"
       },
       {
         "name": "Tomato",
-        "quantity": 2,
+        "quantity": 1,
         "unit": "pc",
-        "category": "produce",
-        "inStock": false
-      },
-      {
-        "name": "Green Chilli",
-        "quantity": 2,
-        "unit": "pc",
-        "category": "produce",
-        "inStock": false
+        "category": "produce"
       },
       {
         "name": "Ginger-Garlic Paste",
         "quantity": 1,
         "unit": "tbsp",
-        "category": "produce",
-        "inStock": false
+        "category": "pantry"
       },
       {
-        "name": "Coriander Leaves",
+        "name": "Mustard Seeds",
+        "quantity": 0.5,
+        "unit": "tsp",
+        "category": "spices"
+      },
+      {
+        "name": "Turmeric",
         "quantity": 0.25,
-        "unit": "cup",
-        "category": "produce",
-        "inStock": false
+        "unit": "tsp",
+        "category": "spices"
+      },
+      {
+        "name": "Green Chilli",
+        "quantity": 1,
+        "unit": "pc",
+        "category": "produce"
+      },
+      {
+        "name": "Oil",
+        "quantity": 1,
+        "unit": "tbsp",
+        "category": "pantry"
       },
       {
         "name": "Salt",
@@ -28574,80 +28575,60 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "category": "pantry"
       },
       {
-        "name": "Turmeric",
-        "quantity": 0.5,
-        "unit": "tsp",
-        "category": "spices"
-      },
-      {
-        "name": "Cumin Seeds",
-        "quantity": 1,
-        "unit": "tsp",
-        "category": "spices"
-      },
-      {
-        "name": "Red Chili Powder",
-        "quantity": 0.5,
-        "unit": "tsp",
-        "category": "spices"
+        "name": "Coriander Leaves",
+        "quantity": 0.25,
+        "unit": "cup",
+        "category": "produce"
       }
     ],
     "corn-masala": [
       {
-        "name": "Ghee",
-        "quantity": 2,
-        "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
-      },
-      {
-        "name": "Oil",
-        "quantity": 2,
-        "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
-      },
-      {
-        "name": "Spices",
+        "name": "Sweet Corn",
         "quantity": 1,
-        "unit": "packet",
-        "category": "spices",
-        "inStock": false
+        "unit": "cup",
+        "category": "produce"
       },
       {
         "name": "Onion",
         "quantity": 1,
         "unit": "pc",
-        "category": "produce",
-        "inStock": false
+        "category": "produce"
       },
       {
         "name": "Tomato",
-        "quantity": 2,
+        "quantity": 1,
         "unit": "pc",
-        "category": "produce",
-        "inStock": false
-      },
-      {
-        "name": "Green Chilli",
-        "quantity": 2,
-        "unit": "pc",
-        "category": "produce",
-        "inStock": false
+        "category": "produce"
       },
       {
         "name": "Ginger-Garlic Paste",
         "quantity": 1,
         "unit": "tbsp",
-        "category": "produce",
-        "inStock": false
+        "category": "pantry"
       },
       {
-        "name": "Coriander Leaves",
+        "name": "Mustard Seeds",
+        "quantity": 0.5,
+        "unit": "tsp",
+        "category": "spices"
+      },
+      {
+        "name": "Turmeric",
         "quantity": 0.25,
-        "unit": "cup",
-        "category": "produce",
-        "inStock": false
+        "unit": "tsp",
+        "category": "spices"
+      },
+      {
+        "name": "Green Chilli",
+        "quantity": 1,
+        "unit": "pc",
+        "category": "produce"
+      },
+      {
+        "name": "Oil",
+        "quantity": 1,
+        "unit": "tbsp",
+        "category": "pantry"
       },
       {
         "name": "Salt",
@@ -28656,22 +28637,10 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "category": "pantry"
       },
       {
-        "name": "Turmeric",
-        "quantity": 0.5,
-        "unit": "tsp",
-        "category": "spices"
-      },
-      {
-        "name": "Cumin Seeds",
-        "quantity": 1,
-        "unit": "tsp",
-        "category": "spices"
-      },
-      {
-        "name": "Red Chili Powder",
-        "quantity": 0.5,
-        "unit": "tsp",
-        "category": "spices"
+        "name": "Coriander Leaves",
+        "quantity": 0.25,
+        "unit": "cup",
+        "category": "produce"
       }
     ],
     "jeera-rice": [
@@ -35168,32 +35137,40 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
     ],
     "dal-puri": [
       {
-        "name": "Mixed Dal",
-        "quantity": 80,
-        "unit": "g",
-        "category": "proteins",
-        "inStock": false
+        "name": "Maida",
+        "quantity": 1.5,
+        "unit": "cup",
+        "category": "grains"
+      },
+      {
+        "name": "Toor Dal",
+        "quantity": 0.5,
+        "unit": "cup",
+        "category": "proteins"
       },
       {
         "name": "Oil",
         "quantity": 2,
         "unit": "tbsp",
-        "category": "pantry",
-        "inStock": false
+        "category": "pantry"
       },
       {
-        "name": "Spices",
-        "quantity": 1,
-        "unit": "packet",
-        "category": "spices",
-        "inStock": false
+        "name": "Red Chilli Powder",
+        "quantity": 0.5,
+        "unit": "tsp",
+        "category": "spices"
       },
       {
-        "name": "Toor Dal",
-        "quantity": 1,
-        "unit": "cup",
-        "category": "grains",
-        "inStock": false
+        "name": "Turmeric",
+        "quantity": 0.25,
+        "unit": "tsp",
+        "category": "spices"
+      },
+      {
+        "name": "Cumin Seeds",
+        "quantity": 0.5,
+        "unit": "tsp",
+        "category": "spices"
       },
       {
         "name": "Salt",
@@ -35202,16 +35179,17 @@ export const PANTRY_SNAPSHOT: PantrySnapshot = {
         "category": "pantry"
       },
       {
-        "name": "Turmeric",
+        "name": "Water",
         "quantity": 0.5,
-        "unit": "tsp",
-        "category": "spices"
+        "unit": "cup",
+        "category": "pantry"
       },
       {
-        "name": "Cumin Seeds",
-        "quantity": 1,
-        "unit": "tsp",
-        "category": "spices"
+        "name": "Mixed Dal",
+        "quantity": 80,
+        "unit": "g",
+        "category": "proteins",
+        "inStock": false
       }
     ],
     "methi-malai-matar": [

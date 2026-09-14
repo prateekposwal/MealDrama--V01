@@ -9,7 +9,7 @@
 //     in-module (serving grams by weight tier × slot portion × per-100g
 //     category densities × plate fractions × documented adjustments).
 //   · The estimator never guesses: `estimated` is ALWAYS true.
-//   · 156/679 dishes carry NO ingredient rows — their macros come from the
+//   · 153/679 dishes carry NO ingredient rows — their macros come from the
 //     documented nutrition-label/tag fallback (never fabricated rows).
 //
 // Spot-check bands below are derived INDEPENDENTLY from the module's stated
@@ -69,9 +69,9 @@ describe('estimator determinism + whole-library coverage', () => {
     expect(estimateDishMacros(dish('samosa')).servingGrams).toBe(Math.round(SERVING_GRAMS.medium * 0.9));
   });
 
-  it('fallback honesty: exactly the measured 156 no-ingredient dishes derive from labels, and estimates are grounded', () => {
+  it('fallback honesty: exactly the measured 153 no-ingredient dishes derive from labels, and estimates are grounded', () => {
     const noIng = DISH_LIBRARY.filter(d => dishIngredientCategories(d).size === 0);
-    expect(noIng.length).toBe(156); // measured on the library
+    expect(noIng.length).toBe(153); // measured on the library
     for (const d of noIng) {
       expect(hasMacroEvidence(d)).toBe(true); // nutrition labels/tags ground them
       expect(estimateDishMacros(d).calories).toBeGreaterThan(0);

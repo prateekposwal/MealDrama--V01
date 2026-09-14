@@ -75,7 +75,7 @@
 //       its energy removed at 9 kcal/g fat.
 //     · sweet (nutrition label or dessert tags) → kcal ×1.15 (added sugar),
 //       fat ×0.9.
-// 7 · NO-INGREDIENT FALLBACK (156 dishes carry no ingredient rows — measured):
+// 7 · NO-INGREDIENT FALLBACK (153 dishes carry no ingredient rows — measured):
 //     the present category set is derived from nutrition[] labels + tags
 //     (protein → proteins · fiber+d(<dal|rajma|chole|beans|sprouts>) → proteins
 //     · fiber → produce · carb/energy → grains · dairy → dairy · sweet → pantry
@@ -196,7 +196,7 @@ export function hasRichDairyEvidence(d: Dish, present: Set<IngredientCategory>):
 }
 
 /** Derive the present category set from nutrition labels + tags — the honest
- *  fallback for the 156 dishes with NO ingredient rows. */
+ *  fallback for the 153 dishes with NO ingredient rows. */
 export function categoriesFromLabels(d: Dish): Set<IngredientCategory> {
   const present = new Set<IngredientCategory>();
   const nut = new Set((d.nutrition ?? []).map(norm));
