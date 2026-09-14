@@ -45,6 +45,12 @@ function bundleText(): string {
 const count = (haystack: string, needle: string): number =>
   haystack.split(needle).length - 1;
 
+// Bundle reads happen at COLLECTION time (describe.skipIf still evaluates the
+// callback) — build the text lazily and bail to '' when dist/ is absent so a
+// pre-build test job never ENOENTs. The skipIf gate above keeps the assertions
+// dormant until npm run build has produced dist/.
+const bundle = () => (DIST_BUILT ? bundleText() : '');
+
 // ─── layer 1: source guards are DEV-conditioned, NOT deleted ────────────────
 describe('DEV-only logs — source layer (guards are import.meta.env.DEV-conditioned, tree-shaken, not deleted)', () => {
   it('App.tsx "[App] Rendering" log sits inside an import.meta.env.DEV guard', () => {
@@ -75,42 +81,42 @@ describe('DEV-only logs — source layer (guards are import.meta.env.DEV-conditi
 
 // ─── layer 2: served prod bundle carries ZERO of the forbidden strings ───────
 describe.skipIf(!DIST_BUILT)('prod bundle pins (run npm run build first)', () => {
-  const bundle = bundleText();
+  const b = bundle;
 
   it('build produced JS chunks to sweep (positive control — the sweep is not vacuous)', () => {
     // entry + vendor + manual chunks + lazy routes; staticServing asserts >10 reachable
-    const chunkCount = count(bundle, '.js');
+    const chunkCount = count(b(), '.js');
     expect(chunkCount).toBeGreaterThan(10);
   });
 
   it('analytics module is LIVE in the bundle (md-events key present) — the absence pins are not vacuous', () => {
-    expect(bundle).toContain('md-events');
+    expect(b()).toContain('md-events');
   });
 
   it('ungated app error logs are NOT DEV-gated wholesale ([Store] Hydration failed stays)', () => {
-    expect(bundle).toContain('[Store] Hydration failed, clearing corrupted storage');
+    expect(b()).toContain('[Store] Hydration failed, clearing corrupted storage');
   });
 
   it('[App] Rendering debug log is tree-shaken — 0 occurrences', () => {
-    expect(count(bundle, '[App] Rendering')).toBe(0);
+    expect(count(b(), '[App] Rendering')).toBe(0);
   });
 
   it('[Storage] getItem/setItem/removeItem debug logs are tree-shaken — 0 occurrences each', () => {
-    expect(count(bundle, '[Storage] getItem')).toBe(0);
-    expect(count(bundle, '[Storage] setItem')).toBe(0);
-    expect(count(bundle, '[Storage] removeItem')).toBe(0);
+    expect(count(b(), '[Storage] getItem')).toBe(0);
+    expect(count(b(), '[Storage] setItem')).toBe(0);
+    expect(count(b(), '[Storage] removeItem')).toBe(0);
   });
 
   it('no absolute host is baked anywhere: localhost:3001 → 0, mealdrama.onrender.com/api/v1 → 0', () => {
-    expect(count(bundle, 'http://localhost:3001')).toBe(0);
-    expect(count(bundle, 'localhost:3001')).toBe(0);
-    expect(count(bundle, 'mealdrama.onrender.com/api/v1')).toBe(0);
+    expect(count(b(), 'http://localhost:3001')).toBe(0);
+    expect(count(b(), 'localhost:3001')).toBe(0);
+    expect(count(b(), 'mealdrama.onrender.com/api/v1')).toBe(0);
   });
 
   it('the /events endpoint is still constructed from the SAME-ORIGIN default base (/api/v1 + /events)', () => {
     // flushTarget = `${getApiBase()-or-defaultApiBase()}/events`; the minifier
     // keeps the literal /events suffix and the same-origin '/api/v1' default
-    expect(count(bundle, '/events')).toBeGreaterThanOrEqual(1);
-    expect(bundle).toContain('/api/v1');
+    expect(count(b(), '/events')).toBeGreaterThanOrEqual(1);
+    expect(b()).toContain('/api/v1');
   });
 });

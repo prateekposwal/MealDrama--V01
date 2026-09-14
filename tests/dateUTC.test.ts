@@ -16,13 +16,18 @@ describe('getISTDayOfWeek', () => {
     expect(getISTDayOfWeek('2026-05-23')).toBe(6);
   });
 
-  it('is consistent with parseISODate + getDay across timezones', () => {
+  it('is consistent with parseISODate + Intl-in-IST across timezones', () => {
     // Test across UTC-12 to UTC+12 range
     for (const iso of ['2026-05-24', '2026-01-01', '2026-12-31', '2026-06-15']) {
       const istDow = getISTDayOfWeek(iso);
-      const parsed = parseISODate(iso);
-      const parsedDow = parsed.getDay();
-      // parseISODate returns Date representing midnight IST, so getDay() should match
+      // parseISODate returns the midnight-IST instant; read ITS weekday back
+      // through Intl in IST (NOT .getDay(), which is the device-local weekday
+      // and splits from IST on every non-IST box — the exact bug this module
+      // kills). Both sides must derive from the same IST instant.
+      const parsedDow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+        new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' })
+          .format(parseISODate(iso)),
+      );
       expect(istDow).toBe(parsedDow);
     }
   });

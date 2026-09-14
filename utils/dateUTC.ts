@@ -60,7 +60,16 @@ export function daysUntil(dateISO: string, todayISO: string): number {
  * Avoids the bug where `new Date(isoString).getDay()` returns local-TZ day.
  */
 export function getISTDayOfWeek(iso: string): number {
-  return new Date(iso + 'T00:00:00+05:30').getDay();
+  // The ISO string is an IST date, so midnight IST IS the instant we want —
+  // parseISODate() returns exactly that instant regardless of device timezone.
+  // THEN read the weekday back through Intl in IST: getDay() alone would
+  // report the DEVICE's local weekday (e.g. UTC box sees the prior evening),
+  // which is the exact bug this module exists to prevent.
+  const dow = new Intl.DateTimeFormat('en-US', {
+    timeZone: IST_TIMEZONE,
+    weekday: 'short',
+  }).format(parseISODate(iso));
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(dow);
 }
 
 /**
