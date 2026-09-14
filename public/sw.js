@@ -7,7 +7,10 @@
 // ('text/html' is not a valid JavaScript MIME type → broken SPA on nav).
 // The v3 fetch handler below NEVER answers a non-document request with
 // index.html, and the version bump PURGES any poisoned v2 entries on activate.
-const CACHE_VERSION = 'v3';
+// v4 (2026-09-14): routine release bump — any still-open browser holding v3
+// bundles from the earlier 2026-09-14 deploys purges them on next load, so the
+// "UI distorted / stale cache" user state self-heals on ONE reload (no purge).
+const CACHE_VERSION = 'v4';
 const CACHE_NAME = `mealdrama-${CACHE_VERSION}`;
 
 const STATIC_ASSETS = [

@@ -5,10 +5,11 @@ entry, (2) state the local-server running state (ports 3000/3001/3101), (3) comm
 No hidden state. Last updated: 2026-09-14.
 
 ## NOW (current focus)
-- [ ] **User: clear stale browser state on http://localhost:3001 and https://mealdrama.onrender.com**
-      (Cmd+Shift+R hard-refresh; also purge site data for `localhost:3000` if that tab is still open).
-      This is the fix for "UI distorted / can't create household" — the servers are verified healthy
-      (see RUN HISTORY); the distortion was a stale-cache class (old SW served text/html for .js).
+- [ ] **User: ONE reload on http://localhost:3001 and https://mealdrama.onrender.com** — the SW
+      cache was bumped to **v4** (2026-09-14); the next page load in any still-open browser purges
+      old v3 bundles automatically (no DevTools purge needed). If a tab was sitting open through the
+      old deploys, close it once or hard-refresh once (Cmd+Shift+R). That fully retires the
+      "UI distorted / can't create household" stale-cache class.
 - [x] Agent: port-supervision fix (task 1) — **DONE 2026-09-14** (see task 1).
 
 ## OPEN TASKS
@@ -22,9 +23,16 @@ No hidden state. Last updated: 2026-09-14.
       `vite.config.ts` now pins `server.port: 5175` + `strictPort: true` — a stray
       `npm run dev` can no longer squat 3000 (the port the user wants empty).
       Evidence: `vite.config.ts` diff (port 3000 → 5175, strictPort added).
-3. [ ] **Durable tunnel OR phone-via-Render** (owner=user) — quick-tunnel slugs die with the process;
-      for phone testing prefer https://mealdrama.onrender.com or a named tunnel. Blocked-by: none.
-      Evidence: `telos/scripts/watchtunnel.sh` header note; 2026-09-11 "tunnel plist missing" item.
+3. [ ] **Phone testing path (owner=user) — RECOMMENDED: phone-via-Render** —
+      skip tunnels entirely. The app is ALREADY live at https://mealdrama.onrender.com
+      (Render auto-deploys on every push). Open that URL on the phone: no Mac, no tunnel,
+      tests the real deployed build. Free-tier caveat: ~30-60s cold start after idle.
+      ALTERNATIVE (durable tunnel): `telos/scripts/watchtunnel.sh` (cloudflared quick tunnel —
+      a fresh slug per process, dies on process death) exists but is NOT recommended for phone
+      testing; a NAMED Cloudflare tunnel (fixed subdomain) would be the durable upgrade if you
+      want to dogfood the LOCAL build on the phone — add a `com.mealdrama.tunnel.plist` with
+      KeepAlive if you go that route. Blocked-by: none. Evidence: watchtunnel.sh header note;
+      2026-09-11 "tunnel plist missing" item.
 4. [x] **Prune throwaway test users** (owner=agent) — **DONE 2026-09-14 (dev DB)**.
       One-off script (run via tsx against server/.env `DATABASE_URL`, NOT committed)
       deleted 6 `probe-*`/`flake-*` users + 7 `probe-*`/`flake-*`/`Smoke Cook` households
