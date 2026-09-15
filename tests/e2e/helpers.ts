@@ -23,6 +23,18 @@ export async function infraUp(): Promise<{ api: boolean; app: boolean }> {
 export async function launchPage(): Promise<{ browser: Browser; page: Page }> {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
+  // Pin the clock to a stable afternoon hour (14:00) so the Dashboard greeting
+  // is deterministic: Dashboard.tsx renders "Up before the cook? 👀" when
+  // getHours() < 8 and "Today's spread" otherwise, and the e2e specs assert
+  // bodyText contains 'Today'. Without this, a CI run before 08:00 (UTC or
+  // runner-local) tears down the whole suite even though nothing is broken.
+  await page.addInitScript(() => {
+    // Always report 14:00 so the <8 branch ("Up before the cook? 👀") never
+    // fires and the greeting asserts 'Today' deterministically.
+    Date.prototype.getHours = function () {
+      return 14;
+    };
+  });
   return { browser, page };
 }
 
